@@ -25,9 +25,22 @@ enum Command {
         /// Description of the change.
         #[arg(short, long)]
         message: String,
+        /// Interactively select which AST atoms to stage.
+        #[arg(short = 'i', long, default_value_t = false)]
+        interactive: bool,
     },
     /// Show the change log (placeholder).
     Log,
+    /// Query semantic blame: who authored each AST node in a file.
+    Blame {
+        /// Path to the file (relative to the repository root).
+        filepath: String,
+    },
+    /// Stash dirty working-directory changes into a hidden view.
+    Stash {
+        #[command(subcommand)]
+        action: StashAction,
+    },
     /// Manage views (branches).
     View {
         #[command(subcommand)]
@@ -70,6 +83,16 @@ enum Command {
         #[arg(short, long, default_value_t = 8080)]
         port: u16,
     },
+}
+
+#[derive(Subcommand)]
+enum StashAction {
+    /// Save all dirty changes and reset the working directory.
+    Push,
+    /// Apply the most recent stash and drop it.
+    Pop,
+    /// List all stored stashes.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -130,11 +153,11 @@ fn main() -> anyhow::Result<()> {
             Repository::init(&target)?;
             println!("Initialized empty arc repository in {target}/.arc");
         }
-        Command::Snap { message } => {
+        Command::Snap { message, interactive } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
-            match repo.snap(&message)? {
+            match repo.snap(&message, interactive)? {
                 Some(id) => {
                     let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                     println!("snap {hex}");
@@ -147,6 +170,76 @@ fn main() -> anyhow::Result<()> {
         Command::Log => {
             println!("(log not yet implemented)");
         }
+        Command::Blame { filepath } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let entries = repo.blame(&filepath)?;
+            if entries.is_empty() {
+                println!("No blame data for '{filepath}'");
+            } else {
+                println!("{:<40} {:<10} {:<35} Intent", "Node", "Hash", "Author");
+                println!("{}", "-".repeat(100));
+                for (path, change) in &entries {
+                    // Use only the node-level suffix (strip the ["file","path"] prefix).
+                    let node = path[2..].join("/");
+                    let hash_hex: String =
+                        change.id.iter().map(|b| format!("{b:02x}")).collect();
+                    let short_hash = &hash_hex[..8];
+                    let author_str = match &change.author {
+                        arc::store::author::Author::Human { name, email, .. } => {
+                            format!("{name} <{email}>")
+                        }
+                        arc::store::author::Author::AI { model, human_sponsor } => {
+                            let sponsor: String =
+                                human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                            format!("{model} | sponsor:{}", &sponsor[..8])
+                        }
+                    };
+                    let sig_status = if change.verify_signature() {
+                        "[verified]"
+                    } else {
+                        "[UNVERIFIED]"
+                    };
+                    println!(
+                        "{:<40} {:<10} {:<35} {} {}",
+                        node, short_hash, author_str, sig_status, change.intent
+                    );
+                }
+            }
+        }
+        Command::Stash { action } => match action {
+            StashAction::Push => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) = load_identity()?;
+                repo.set_identity(author, signing_key);
+                let name = repo.stash()?;
+                println!("Saved working directory state to '{name}'");
+            }
+            StashAction::Pop => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) = load_identity()?;
+                repo.set_identity(author, signing_key);
+                let list = repo.stash_list()?;
+                let name = list
+                    .last()
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("no stash found"))?;
+                repo.stash_pop()?;
+                println!("Applied and dropped stash '{name}'");
+            }
+            StashAction::List => {
+                let repo = Repository::open(".")?;
+                let stashes = repo.stash_list()?;
+                if stashes.is_empty() {
+                    println!("No stashes.");
+                } else {
+                    for s in &stashes {
+                        println!("{s}");
+                    }
+                }
+            }
+        },
         Command::View { action } => match action {
             ViewAction::Create { name } => {
                 let repo = Repository::open(".")?;

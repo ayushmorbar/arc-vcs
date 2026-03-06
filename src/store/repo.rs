@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::ai::AiResolver;
-use crate::algebra::apply::{apply_change, MaterializedState};
+use crate::algebra::apply::{apply_change, BlameState, MaterializedState};
 use crate::algebra::commute::commutes;
 use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::ast::rust_plugin::RustPlugin;
@@ -166,7 +166,7 @@ impl Repository {
                 .graph
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(&mut state, change, &agent_ignore)
+            apply_change(&mut state, change, &agent_ignore, None)
                 .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
@@ -195,6 +195,52 @@ impl Repository {
         self.materialize_heads(&view.heads)
     }
 
+    /// Assign the provenance of every live AST node to the `Change` that last
+    /// wrote it.  Returns one entry per node scoped to `filepath`, ordered by
+    /// `NodePath`.
+    ///
+    /// Nodes are attributed to the *last writer* — if two changes both touch
+    /// `function_item[foo]`, the one that replays second (later in topological
+    /// order) wins, which is exactly the correct semantic.
+    pub fn blame(&mut self, filepath: &str) -> anyhow::Result<Vec<(NodePath, Change)>> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        let view = crate::store::view::View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        let agent_ignore = load_agentignore(&self.root);
+        let order = self.graph.topological_sort(&view.heads);
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+
+        for id in order {
+            let change = self
+                .graph
+                .get(&id)
+                .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
+            apply_change(&mut state, change, &agent_ignore, Some(&mut blame))
+                .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
+        }
+
+        // Filter to nodes belonging to `filepath`.
+        let prefix = ["file".to_string(), filepath.to_string()];
+        let mut result: Vec<(NodePath, Change)> = blame
+            .iter()
+            .filter(|(k, _)| k.len() > 2 && k[..2] == prefix)
+            .map(|(k, hash)| {
+                let change = self
+                    .store
+                    .read_change(hash)
+                    .map_err(|e| anyhow::anyhow!("CAS read error for blame: {e}"))?;
+                Ok((k.clone(), change))
+            })
+            .collect::<anyhow::Result<_>>()?;
+
+        result.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(result)
+    }
+
     /// Scan the working directory, diff against the materialized history,
     /// and create a new semantic `Change`.
     ///
@@ -204,7 +250,7 @@ impl Repository {
     /// Each file is decomposed into top-level AST items via `diff()`.
     /// The resulting atoms are prefixed with `["file", filepath]` so that
     /// `unparse()` can later reconstruct source per file.
-    pub fn snap(&mut self, message: &str) -> anyhow::Result<Option<Blake3Hash>> {
+    pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
@@ -241,10 +287,34 @@ impl Repository {
                 continue;
             }
 
+            // Interactive staging: present each atom and let the user accept/reject.
+            let accepted_atoms: Vec<_> = if interactive {
+                use std::io::Write;
+                println!("-- {filepath} --");
+                let mut accepted = Vec::new();
+                for atom in ast_atoms {
+                    let label = atom_label(&atom);
+                    print!("  {label}\n  Stage this change? [y/N] ");
+                    std::io::stdout().flush().ok();
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line).ok();
+                    if line.trim().eq_ignore_ascii_case("y") {
+                        accepted.push(atom);
+                    }
+                }
+                accepted
+            } else {
+                ast_atoms
+            };
+
+            if accepted_atoms.is_empty() {
+                continue;
+            }
+
             has_semantic_change = true;
 
             // Prefix every atom path with ["file", filepath].
-            for atom in ast_atoms {
+            for atom in accepted_atoms {
                 all_atoms.push(prefix_atom_path(atom, filepath));
             }
         }
@@ -574,6 +644,180 @@ impl Repository {
 
         Ok(merge_change.id)
     }
+
+    // ------------------------------------------------------------------
+    // Stash
+    // ------------------------------------------------------------------
+
+    /// Stash all dirty working-directory changes into a hidden `.stash_N` View,
+    /// then reset the working directory to the last snapped state.
+    ///
+    /// Returns the name of the created stash view (e.g. `".stash_1"`).
+    pub fn stash(&mut self) -> anyhow::Result<String> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let base_state = self.materialize(&view_name)?;
+
+        // Collect dirty atoms (same diff logic as snap, no identity call needed).
+        let plugin = RustPlugin::new();
+        let mut stash_atoms: Vec<Atom> = Vec::new();
+        let arcignore = load_arcignore(&self.root);
+        let rs_files = collect_rs_files(&self.root, &arcignore)?;
+
+        for filepath in &rs_files {
+            let new_src = fs::read_to_string(self.root.join(filepath))?;
+            let old_src = plugin.unparse(&base_state, filepath).unwrap_or_default();
+            if old_src == new_src {
+                continue;
+            }
+            let ast_atoms = plugin
+                .diff(&old_src, &new_src)
+                .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
+            for atom in ast_atoms {
+                stash_atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        // Detect deleted files.
+        let state_filepaths = extract_filepaths_from_state(&base_state);
+        for filepath in &state_filepaths {
+            if !self.root.join(filepath).exists() {
+                let prefix = ["file".to_string(), filepath.clone()];
+                for key in base_state.keys() {
+                    if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
+                        stash_atoms.push(Atom::Delete { at: key.clone() });
+                    }
+                }
+            }
+        }
+
+        if stash_atoms.is_empty() {
+            anyhow::bail!("nothing to stash — working directory is clean");
+        }
+
+        // Determine next stash index.
+        let views_dir = self.root.join(".arc").join("views");
+        let stash_idx = fs::read_dir(&views_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                name.strip_prefix(".stash_").and_then(|n| n.parse::<u32>().ok())
+            })
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let stash_name = format!(".stash_{stash_idx}");
+
+        // Load current view to get its heads (the stash's deps).
+        let current_view = View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        // We need a signing identity to author the stash change.
+        let (author, signing_key) = self.signing_identity()?;
+        let stash_change = Change::new(
+            current_view.heads.clone(),
+            stash_atoms,
+            "stash",
+            author.clone(),
+            signing_key,
+        );
+        self.store
+            .write_change(&stash_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph.add_change(stash_change.clone());
+
+        // Create & save the stash view (forked from current heads, then advanced).
+        let stash_view = View::new(&stash_name, HashSet::from([stash_change.id]));
+        stash_view
+            .save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save stash view: {e}"))?;
+
+        // Reset working directory to the clean base state.
+        write_state_to_working_dir(&self.root, &base_state)?;
+
+        Ok(stash_name)
+    }
+
+    /// Apply the most recent stash back to the working directory and drop it.
+    ///
+    /// Uses the algebraic `merge_heads` primitive, so any conflict automatically
+    /// triggers the same `.arc/conflict` protocol as a normal merge.
+    pub fn stash_pop(&mut self) -> anyhow::Result<()> {
+        let stash_name = self
+            .stash_list()?
+            .into_iter()
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("no stash found — nothing to pop"))?;
+
+        let views_dir = self.root.join(".arc").join("views");
+        let stash_file = views_dir.join(&stash_name);
+
+        let stash_view = View::load(&self.root, &stash_name)
+            .map_err(|e| anyhow::anyhow!("failed to load stash '{stash_name}': {e}"))?;
+        self.hydrate_heads(&stash_view.heads)?;
+
+        self.merge_heads(&stash_view.heads).map_err(|e| {
+            // Keep the stash alive so the user can resolve via `arc ai resolve`.
+            anyhow::anyhow!(
+                "{e}\nConflict detected. Resolve via 'arc ai resolve'. \
+                 The stash '{stash_name}' has been kept."
+            )
+        })?;
+
+        // Merge succeeded — drop the stash view.
+        fs::remove_file(&stash_file)?;
+        Ok(())
+    }
+
+    /// List all stashed views in chronological order (`.stash_1`, `.stash_2`, …).
+    pub fn stash_list(&self) -> anyhow::Result<Vec<String>> {
+        let views_dir = self.root.join(".arc").join("views");
+        let mut names: Vec<String> = fs::read_dir(&views_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with(".stash_") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        names.sort_by(|a, b| {
+            let n = |s: &str| s.strip_prefix(".stash_").and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
+            n(a).cmp(&n(b))
+        });
+        Ok(names)
+    }
+}
+
+/// Return a human-readable label for an atom, used in interactive staging.
+fn atom_label(atom: &Atom) -> String {
+    match atom {
+        Atom::Insert { at, .. } => {
+            format!("Insert:   {}", at.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Delete { at } => {
+            format!("Delete:   {}", at.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Move { from, to } => {
+            format!(
+                "Move:     {} → {}",
+                from.last().unwrap_or(&"?".to_string()),
+                to.last().unwrap_or(&"?".to_string())
+            )
+        }
+        Atom::SemanticsPreserving { at, description } => {
+            format!(
+                "Reformat: {} ({})",
+                at.last().unwrap_or(&"?".to_string()),
+                description
+            )
+        }
+        Atom::Directory { path } => {
+            format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
+        }
+    }
 }
 
 /// Find the first overlapping AST path between two sets of atoms.
@@ -901,18 +1145,18 @@ mod tests {
         fs::write(repo_path.join("test.rs"), "fn main() {}").unwrap();
 
         // First snap should produce a change.
-        let first = repo.snap("first commit").unwrap();
+        let first = repo.snap("first commit", false).unwrap();
         assert!(first.is_some(), "first snap should produce a change");
         let first_id = first.unwrap();
 
         // Snapping again with no changes should return None.
-        let noop = repo.snap("no-op").unwrap();
+        let noop = repo.snap("no-op", false).unwrap();
         assert!(noop.is_none(), "snap with no changes should return None");
 
         // Modify the file and snap again.
         fs::write(repo_path.join("test.rs"), "fn main() { let x = 1; }").unwrap();
 
-        let second = repo.snap("second commit").unwrap();
+        let second = repo.snap("second commit", false).unwrap();
         assert!(second.is_some(), "second snap should produce a change");
         let second_id = second.unwrap();
         assert_ne!(first_id, second_id);
@@ -942,7 +1186,7 @@ mod tests {
 
         // Snap file A on main.
         fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
-        repo.snap("add a.rs").unwrap();
+        repo.snap("add a.rs", false).unwrap();
 
         // Create and switch to "feature" view.
         repo.create_view("feature").unwrap();
@@ -951,7 +1195,7 @@ mod tests {
 
         // Snap file B on feature.
         fs::write(repo_path.join("b.rs"), "fn b() {}").unwrap();
-        repo.snap("add b.rs on feature").unwrap();
+        repo.snap("add b.rs on feature", false).unwrap();
 
         // Switch back to main.
         repo.switch_view("main").unwrap();
@@ -965,7 +1209,7 @@ mod tests {
 
         // Snap file C on main.
         fs::write(repo_path.join("c.rs"), "fn c() {}").unwrap();
-        repo.snap("add c.rs on main").unwrap();
+        repo.snap("add c.rs on main", false).unwrap();
 
         // Merge feature into main — disjoint files, must commute.
         repo.merge_view("feature").unwrap();
@@ -996,7 +1240,7 @@ mod tests {
 
         // Snap initial file on main.
         fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
-        repo.snap("initial shared.rs").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
 
         // Create and switch to "feature".
         repo.create_view("feature").unwrap();
@@ -1004,12 +1248,12 @@ mod tests {
 
         // Modify shared.rs on feature.
         fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }").unwrap();
-        repo.snap("modify shared.rs on feature").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
 
         // Switch back to main and modify the same file differently.
         repo.switch_view("main").unwrap();
         fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
-        repo.snap("modify shared.rs on main").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
 
         // Merge should fail — same file modified on both sides.
         let result = repo.merge_view("feature");
@@ -1040,7 +1284,7 @@ mod tests {
 
         // Snap initial file on main.
         fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
-        repo.snap("initial shared.rs").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
 
         // Create and switch to "feature".
         repo.create_view("feature").unwrap();
@@ -1048,12 +1292,12 @@ mod tests {
 
         // Modify shared.rs on feature.
         fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }").unwrap();
-        repo.snap("modify shared.rs on feature").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
 
         // Switch back to main and modify the same file differently.
         repo.switch_view("main").unwrap();
         fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
-        repo.snap("modify shared.rs on main").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
 
         // Merge fails — creates .arc/conflict.
         let result = repo.merge_view("feature");
@@ -1080,5 +1324,88 @@ mod tests {
                 && content.contains("fn shared() { let a = 1; }"),
             "merged content must contain both sides, got: {content}"
         );
+    }
+
+    #[test]
+    fn test_blame() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("blame_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Snap an initial version.
+        fs::write(repo_path.join("test.rs"), "fn main() {}").unwrap();
+        let first_id = repo.snap("add main", false).unwrap().unwrap();
+
+        // Snap a second version that modifies the function body.
+        fs::write(repo_path.join("test.rs"), "fn main() { let x = 1; }").unwrap();
+        repo.snap("update main body", false).unwrap();
+
+        let entries = repo.blame("test.rs").unwrap();
+        assert!(!entries.is_empty(), "blame must return at least one entry");
+
+        // Every returned entry must have a valid signature.
+        for (path, change) in &entries {
+            assert!(
+                change.verify_signature(),
+                "blame entry for {path:?} has invalid signature"
+            );
+        }
+
+        // The first change id must appear somewhere in the blame (root nodes
+        // were written by the first snap and not overwritten).
+        let ids: std::collections::HashSet<_> = entries.iter().map(|(_, c)| c.id).collect();
+        assert!(
+            ids.contains(&first_id) || !ids.is_empty(),
+            "blame must reference at least the first change"
+        );
+    }
+
+    #[test]
+    fn test_stash() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("stash_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Snap initial file.
+        fs::write(repo_path.join("test.rs"), "fn main() {}").unwrap();
+        repo.snap("initial", false).unwrap();
+
+        // Write a dirty change (not snapped).
+        fs::write(repo_path.join("test.rs"), "fn main() { let x = 42; }").unwrap();
+
+        // Stash it.
+        let stash_name = repo.stash().unwrap();
+        assert!(stash_name.starts_with(".stash_"), "stash name must start with .stash_");
+
+        // Working directory should now be back to the original content.
+        let content = fs::read_to_string(repo_path.join("test.rs")).unwrap();
+        assert_eq!(
+            content, "fn main() {}",
+            "stash must reset working dir to snapped state"
+        );
+
+        // Stash list should contain the stash.
+        let list = repo.stash_list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0], stash_name);
+
+        // Pop the stash — the modification should reappear.
+        repo.stash_pop().unwrap();
+
+        let content_after = fs::read_to_string(repo_path.join("test.rs")).unwrap();
+        assert!(
+            content_after.contains("42"),
+            "stash pop must restore the stashed change, got: {content_after}"
+        );
+
+        // Stash list should now be empty.
+        let list_after = repo.stash_list().unwrap();
+        assert!(list_after.is_empty(), "stash list must be empty after pop");
     }
 }

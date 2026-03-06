@@ -161,7 +161,7 @@ mod tests {
         let (author_a, key_a) = crate::store::author::test_keypair();
         repo_a.set_identity(author_a, key_a);
         fs::write(path_a.join("a.rs"), "fn a() {}").unwrap();
-        repo_a.snap("add a.rs").unwrap();
+        repo_a.snap("add a.rs", false).unwrap();
 
         // --- Init Repo B and pull from A ---
         let mut repo_b = Repository::init(&path_b).unwrap();
@@ -181,10 +181,10 @@ mod tests {
 
         // --- Diverge: A adds c.rs, B adds b.rs ---
         fs::write(path_a.join("c.rs"), "fn c() {}").unwrap();
-        repo_a.snap("add c.rs").unwrap();
+        repo_a.snap("add c.rs", false).unwrap();
 
         fs::write(path_b.join("b.rs"), "fn b() {}").unwrap();
-        repo_b.snap("add b.rs").unwrap();
+        repo_b.snap("add b.rs", false).unwrap();
 
         // --- Pull A into B — disjoint files must commute ---
         pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();

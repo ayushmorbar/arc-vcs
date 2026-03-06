@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ignore::gitignore::Gitignore;
 
-use crate::algebra::{Atom, NodePath};
+use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::store::author::Author;
 use crate::store::change::Change;
 
@@ -10,6 +10,11 @@ use crate::store::change::Change;
 /// onto an empty tree. Each key is an AST node path; each value is the
 /// serialized content at that path.
 pub type MaterializedState = HashMap<NodePath, Vec<u8>>;
+
+/// Maps each live [`NodePath`] to the [`Blake3Hash`] of the [`Change`] that
+/// last wrote to it.  Populated incrementally by [`apply_change`] when a
+/// `Some(&mut BlameState)` is supplied by the caller.
+pub type BlameState = HashMap<NodePath, Blake3Hash>;
 
 /// Apply a single [`Change`] to a materialized state by executing its atoms
 /// in order.
@@ -33,6 +38,7 @@ pub fn apply_change(
     state: &mut MaterializedState,
     change: &Change,
     agent_ignore: &Gitignore,
+    mut blame: Option<&mut BlameState>,
 ) -> Result<(), String> {
     let is_ai = matches!(change.author, Author::AI { .. });
 
@@ -66,6 +72,9 @@ pub fn apply_change(
         match atom {
             Atom::Insert { at, content } => {
                 state.insert(at.clone(), content.clone());
+                if let Some(ref mut b) = blame {
+                    b.insert(at.clone(), change.id);
+                }
             }
             Atom::Delete { at } => {
                 if state.remove(at).is_none() {
@@ -73,11 +82,17 @@ pub fn apply_change(
                         "causality violation: Delete targets non-existent path {at:?}"
                     ));
                 }
+                if let Some(ref mut b) = blame {
+                    b.remove(at);
+                }
             }
             Atom::Directory { path } => {
                 // Record directory existence with an empty value so that
                 // write_state_to_working_dir can recreate it.
                 state.entry(path.clone()).or_default();
+                if let Some(ref mut b) = blame {
+                    b.insert(path.clone(), change.id);
+                }
             }
             Atom::Move { .. } => {
                 return Err("Move atoms are not yet supported".to_string());
@@ -119,7 +134,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &insert_change, &Gitignore::empty()).unwrap();
+        apply_change(&mut state, &insert_change, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 2);
         assert_eq!(
             state.get(&vec!["fn_main".into(), "body".into()]).unwrap(),
@@ -137,7 +152,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &delete_change, &Gitignore::empty()).unwrap();
+        apply_change(&mut state, &delete_change, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 1);
         assert!(state
             .get(&vec!["fn_main".into(), "ret".into()])
@@ -159,7 +174,7 @@ mod tests {
             &signing_key,
         );
 
-        let result = apply_change(&mut state, &bad_delete, &Gitignore::empty());
+        let result = apply_change(&mut state, &bad_delete, &Gitignore::empty(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("causality violation"));
     }
@@ -190,7 +205,7 @@ mod tests {
             ai_author.clone(),
             &signing_key,
         );
-        let result = apply_change(&mut state, &change, &agent_ignore);
+        let result = apply_change(&mut state, &change, &agent_ignore, None);
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(msg.contains("Security Violation"), "expected security violation, got: {msg}");
@@ -208,7 +223,7 @@ mod tests {
             ai_author,
             &signing_key,
         );
-        let sentinel_result = apply_change(&mut state, &sentinel_change, &Gitignore::empty());
+        let sentinel_result = apply_change(&mut state, &sentinel_change, &Gitignore::empty(), None);
         assert!(sentinel_result.is_err());
         assert!(
             sentinel_result.unwrap_err().contains("Security Violation"),
