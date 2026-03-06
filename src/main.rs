@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use arc::ai::MockResolver;
 use arc::interop::git::import_repo;
 use arc::network::sync::{fetch, pull};
-use arc::store::author::Author;
+use arc::store::author::{load_identity, save_identity, Author};
 use arc::store::repo::Repository;
 
 #[derive(Parser)]
@@ -59,6 +59,11 @@ enum Command {
     },
     /// Verify cryptographic provenance of all changes in the graph.
     Verify,
+    /// Manage arc identity (cryptographic key-pair).
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -95,20 +100,19 @@ enum ImportSource {
     },
 }
 
-fn ephemeral_identity() -> (Author, ed25519_dalek::SigningKey) {
-    // TODO Phase 12: load persistent identity from ~/.arc/identity
-    let mut rng = rand_core::OsRng;
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
-    let key = signing_key.verifying_key().to_bytes();
-    let name = std::env::var("USERNAME")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "unknown".to_string());
-    let author = Author::Human {
-        name,
-        email: "user@arc".to_string(),
-        key,
-    };
-    (author, signing_key)
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Create and persist a new Ed25519 identity.
+    Login {
+        /// Your full name.
+        #[arg(long)]
+        name: String,
+        /// Your email address.
+        #[arg(long)]
+        email: String,
+    },
+    /// Print the currently active identity.
+    Whoami,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -122,7 +126,7 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Snap { message } => {
             let mut repo = Repository::open(".")?;
-            let (author, signing_key) = ephemeral_identity();
+            let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
             match repo.snap(&message)? {
                 Some(id) => {
@@ -156,8 +160,10 @@ fn main() -> anyhow::Result<()> {
         },
         Command::Ai { action } => match action {
             AiAction::Resolve => {
-                let mut repo = Repository::open(".")?;                let (author, signing_key) = ephemeral_identity();
-                repo.set_identity(author, signing_key);                let resolver = MockResolver;
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) = load_identity()?;
+                repo.set_identity(author, signing_key);
+                let resolver = MockResolver;
                 let id = repo.resolve_conflict(&resolver)?;
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                 println!("Resolved conflict → {hex}");
@@ -169,7 +175,7 @@ fn main() -> anyhow::Result<()> {
                     Ok(r) => r,
                     Err(_) => Repository::init(".")?,
                 };
-                let (author, signing_key) = ephemeral_identity();
+                let (author, signing_key) = load_identity()?;
                 import_repo(&git_path, &mut repo, &author, &signing_key)?;
                 println!("Imported Git history from {git_path}");
             }
@@ -191,6 +197,29 @@ fn main() -> anyhow::Result<()> {
             repo.verify_graph()?;
             println!("Graph cryptographic provenance verified.");
         }
+        Command::Auth { action } => match action {
+            AuthAction::Login { name, email } => {
+                save_identity(&name, &email)?;
+                println!("Identity saved. Run 'arc auth whoami' to confirm.");
+            }
+            AuthAction::Whoami => {
+                let (author, _) = load_identity()?;
+                match author {
+                    Author::Human { name, email, key } => {
+                        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+                        println!("Name:   {name}");
+                        println!("Email:  {email}");
+                        println!("Key:    {hex}");
+                    }
+                    Author::AI { model, human_sponsor } => {
+                        let hex: String =
+                            human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                        println!("Model:          {model}");
+                        println!("Human sponsor:  {hex}");
+                    }
+                }
+            }
+        },
     }
 
     Ok(())

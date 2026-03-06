@@ -98,3 +98,61 @@ pub fn test_keypair() -> (Author, ed25519_dalek::SigningKey) {
     };
     (author, signing_key)
 }
+
+// ---------------------------------------------------------------------------
+// Persistent keyring helpers
+// ---------------------------------------------------------------------------
+
+/// Serialisable snapshot of a user's identity stored on disk.
+///
+/// Only the 32-byte Ed25519 seed is persisted; the public key is always
+/// re-derived on load so there is a single source of truth.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentityProfile {
+    pub author: Author,
+    pub secret_key: [u8; 32],
+}
+
+fn identity_path() -> anyhow::Result<std::path::PathBuf> {
+    let proj = directories::ProjectDirs::from("", "", "arc")
+        .ok_or_else(|| anyhow::anyhow!("could not determine OS config directory"))?;
+    Ok(proj.config_dir().join("identity.json"))
+}
+
+/// Generate a fresh Ed25519 keypair for the given identity and persist it to
+/// the OS-native config directory (e.g. `%APPDATA%\arc\identity.json`).
+pub fn save_identity(name: &str, email: &str) -> anyhow::Result<()> {
+    let mut rng = rand_core::OsRng;
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
+    let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
+    let profile = IdentityProfile {
+        author: Author::Human {
+            name: name.to_string(),
+            email: email.to_string(),
+            key,
+        },
+        secret_key: signing_key.to_bytes(),
+    };
+    let path = identity_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&profile)?)?;
+    Ok(())
+}
+
+/// Load the persisted identity from disk and re-derive the signing key.
+///
+/// Returns a descriptive error instructing the user to run `arc auth login`
+/// if no identity file exists yet.
+pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
+    let path = identity_path()?;
+    let json = std::fs::read_to_string(&path).map_err(|_| {
+        anyhow::anyhow!(
+            "No identity found. Please run 'arc auth login --name <NAME> --email <EMAIL>' first."
+        )
+    })?;
+    let profile: IdentityProfile = serde_json::from_str(&json)
+        .map_err(|e| anyhow::anyhow!("identity file is corrupt: {e}"))?;
+    Ok((profile.author, ed25519_dalek::SigningKey::from_bytes(&profile.secret_key)))
+}
