@@ -51,6 +51,7 @@ mod tests {
     #[test]
     fn test_apply_change() {
         let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
 
         // Apply a change that inserts two paths.
         let insert_change = Change::new(
@@ -66,6 +67,8 @@ mod tests {
                 },
             ],
             "test",
+            author.clone(),
+            &signing_key,
         );
 
         apply_change(&mut state, &insert_change).unwrap();
@@ -82,6 +85,8 @@ mod tests {
                 at: vec!["fn_main".into(), "ret".into()],
             }],
             "test",
+            author.clone(),
+            &signing_key,
         );
 
         apply_change(&mut state, &delete_change).unwrap();
@@ -94,6 +99,7 @@ mod tests {
     #[test]
     fn test_apply_delete_nonexistent_path_errors() {
         let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
 
         let bad_delete = Change::new(
             HashSet::new(),
@@ -101,6 +107,8 @@ mod tests {
                 at: vec!["ghost".into()],
             }],
             "test",
+            author,
+            &signing_key,
         );
 
         let result = apply_change(&mut state, &bad_delete);

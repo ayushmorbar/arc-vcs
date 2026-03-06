@@ -10,6 +10,7 @@ use crate::algebra::commute::commutes;
 use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::ast::rust_plugin::RustPlugin;
 use crate::ast::LanguagePlugin;
+use crate::store::author::Author;
 use crate::store::cas::ObjectStore;
 use crate::store::change::Change;
 use crate::store::graph::ChangeGraph;
@@ -29,6 +30,10 @@ pub struct Repository {
     pub root: PathBuf,
     pub store: ObjectStore,
     pub graph: ChangeGraph,
+    /// Optional signing identity set via [`Repository::set_identity`].
+    /// Required before calling [`Repository::snap`] or
+    /// [`Repository::resolve_conflict`].
+    identity: Option<(Author, ed25519_dalek::SigningKey)>,
 }
 
 impl Repository {
@@ -67,6 +72,7 @@ impl Repository {
             store: ObjectStore::new(&root),
             graph: ChangeGraph::new(),
             root,
+            identity: None,
         })
     }
 
@@ -83,7 +89,26 @@ impl Repository {
             store: ObjectStore::new(&root),
             graph: ChangeGraph::new(),
             root,
+            identity: None,
         })
+    }
+
+    /// Store a signing identity on this repository handle.
+    ///
+    /// Must be called before [`snap`](Repository::snap) or
+    /// [`resolve_conflict`](Repository::resolve_conflict).
+    pub fn set_identity(&mut self, author: Author, signing_key: ed25519_dalek::SigningKey) {
+        self.identity = Some((author, signing_key));
+    }
+
+    /// Return a reference to the signing identity, or an error if unset.
+    fn signing_identity(
+        &self,
+    ) -> anyhow::Result<(&Author, &ed25519_dalek::SigningKey)> {
+        self.identity
+            .as_ref()
+            .map(|(a, k)| (a, k))
+            .ok_or_else(|| anyhow::anyhow!("no signing identity set — call set_identity() first"))
     }
 
     /// Read the name of the currently active view from `.arc/HEAD`.
@@ -144,6 +169,21 @@ impl Repository {
         }
 
         Ok(state)
+    }
+
+    /// Verify the cryptographic integrity of every change in the in-memory graph.
+    ///
+    /// Iterates all nodes and calls [`Change::verify_signature`] on each.
+    /// Returns an error describing the first change that fails verification.
+    pub fn verify_graph(&self) -> anyhow::Result<()> {
+        for change in self.graph.iter() {
+            if !change.verify_signature() {
+                let hex: String =
+                    change.id.iter().map(|b| format!("{b:02x}")).collect();
+                anyhow::bail!("cryptographic verification failed for change {hex}");
+            }
+        }
+        Ok(())
     }
 
     /// Replay the DAG in topological order to produce a materialized state.
@@ -227,7 +267,8 @@ impl Repository {
         let mut view = View::load(&self.root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
-        let change = Change::new(view.heads.clone(), all_atoms, message);
+        let (author, signing_key) = self.signing_identity()?;
+        let change = Change::new(view.heads.clone(), all_atoms, message, author.clone(), signing_key);
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
@@ -488,7 +529,8 @@ impl Repository {
         let mut merge_deps = current_view.heads.clone();
         merge_deps.extend(&conflict.target_heads);
 
-        let merge_change = Change::new(merge_deps, merge_atoms, combined_intent);
+        let (author, signing_key) = self.signing_identity()?;
+        let merge_change = Change::new(merge_deps, merge_atoms, combined_intent, author.clone(), signing_key);
         self.store.write_change(&merge_change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(merge_change.clone());
@@ -736,6 +778,8 @@ mod tests {
         let repo_path = dir.path().join("snap_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
 
         // Write a Rust file into the working directory.
         fs::write(repo_path.join("test.rs"), "fn main() {}").unwrap();
@@ -777,6 +821,8 @@ mod tests {
         let repo_path = dir.path().join("merge_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
 
         // Snap file A on main.
         fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
@@ -829,6 +875,8 @@ mod tests {
         let repo_path = dir.path().join("conflict_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
 
         // Snap initial file on main.
         fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
@@ -871,6 +919,8 @@ mod tests {
         let repo_path = dir.path().join("ai_resolve_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
 
         // Snap initial file on main.
         fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();

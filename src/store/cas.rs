@@ -85,6 +85,7 @@ mod tests {
     use crate::store::change::Change;
 
     fn sample_change() -> Change {
+        let (author, signing_key) = crate::store::author::test_keypair();
         Change::new(
             HashSet::new(),
             vec![Atom::Insert {
@@ -92,6 +93,8 @@ mod tests {
                 content: b"hello world".to_vec(),
             }],
             "test",
+            author,
+            &signing_key,
         )
     }
 

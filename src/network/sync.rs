@@ -94,11 +94,15 @@ mod tests {
 
         // --- Set up Repo A with a file ---
         let mut repo_a = Repository::init(&path_a).unwrap();
+        let (author_a, key_a) = crate::store::author::test_keypair();
+        repo_a.set_identity(author_a, key_a);
         fs::write(path_a.join("a.rs"), "fn a() {}").unwrap();
         repo_a.snap("add a.rs").unwrap();
 
         // --- Init Repo B and pull from A ---
         let mut repo_b = Repository::init(&path_b).unwrap();
+        let (author_b, key_b) = crate::store::author::test_keypair();
+        repo_b.set_identity(author_b, key_b);
         pull(&mut repo_b, &path_a, "main").unwrap();
 
         // B should now have a.rs on disk.

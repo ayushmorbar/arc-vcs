@@ -5,6 +5,7 @@ use git2::Sort;
 
 use crate::ast::rust_plugin::RustPlugin;
 use crate::ast::LanguagePlugin;
+use crate::store::author::Author;
 use crate::store::change::Change;
 use crate::store::repo::{prefix_atom_path, Repository};
 use crate::store::view::View;
@@ -18,7 +19,12 @@ use crate::store::view::View;
 /// **Known limitation (Phase 11 debt):** Merge commits are diffed against
 /// only their first parent, which may duplicate atoms already introduced
 /// by the second parent. This is acceptable for linear / rebased histories.
-pub fn import_repo(git_path: impl AsRef<Path>, arc_repo: &mut Repository) -> anyhow::Result<()> {
+pub fn import_repo(
+    git_path: impl AsRef<Path>,
+    arc_repo: &mut Repository,
+    author: &Author,
+    signing_key: &ed25519_dalek::SigningKey,
+) -> anyhow::Result<()> {
     let git_repo = git2::Repository::open(git_path.as_ref())
         .map_err(|e| anyhow::anyhow!("failed to open git repo: {e}"))?;
 
@@ -100,7 +106,7 @@ pub fn import_repo(git_path: impl AsRef<Path>, arc_repo: &mut Repository) -> any
 
         let message = commit.message().unwrap_or("(no message)").to_string();
 
-        let change = Change::new(deps, all_atoms, message);
+        let change = Change::new(deps, all_atoms, message, author.clone(), signing_key);
         arc_repo
             .store
             .write_change(&change)
@@ -197,7 +203,8 @@ mod tests {
         // Import into a fresh arc repository.
         let arc_path = arc_dir.path().join("imported");
         let mut arc_repo = Repository::init(&arc_path).unwrap();
-        import_repo(git_dir.path(), &mut arc_repo).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        import_repo(git_dir.path(), &mut arc_repo, &author, &signing_key).unwrap();
 
         // Verify the arc graph has exactly 2 changes.
         assert_eq!(arc_repo.graph.len(), 2, "arc graph must have 2 changes");

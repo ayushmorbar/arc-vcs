@@ -65,6 +65,11 @@ impl ChangeGraph {
         self.nodes.is_empty()
     }
 
+    /// Iterate over all changes in the graph (order is unspecified).
+    pub fn iter(&self) -> impl Iterator<Item = &Change> {
+        self.nodes.values()
+    }
+
     // ------------------------------------------------------------------
     // Traversal
     // ------------------------------------------------------------------
@@ -225,6 +230,7 @@ mod tests {
     /// Helper: create a Change with the given deps and a unique atom
     /// so that each change hashes to a distinct id.
     fn make_change(deps: HashSet<Blake3Hash>, label: &str) -> Change {
+        let (author, signing_key) = crate::store::author::test_keypair();
         Change::new(
             deps,
             vec![Atom::Insert {
@@ -232,6 +238,8 @@ mod tests {
                 content: label.as_bytes().to_vec(),
             }],
             "test",
+            author,
+            &signing_key,
         )
     }
 

@@ -59,7 +59,8 @@ mod tests {
                 content: vec![],
             })
             .collect();
-        Change::new(deps, atoms, "test")
+        let (author, signing_key) = crate::store::author::test_keypair();
+        Change::new(deps, atoms, "test", author, &signing_key)
     }
 
     #[test]
