@@ -1,5 +1,7 @@
 pub mod cas;
 pub mod change;
+pub mod graph;
+pub mod view;
 
 /// Errors produced by the arc object store.
 #[derive(Debug, thiserror::Error)]
