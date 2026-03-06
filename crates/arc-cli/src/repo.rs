@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,8 +14,18 @@ use arc_core::store::author::Author;
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
+use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+
+/// Repository-level configuration persisted in `.arc/config.json`.
+///
+/// Settings are isolated per-repository and never touch the OS keyring.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct RepoConfig {
+    /// Named remote aliases mapping a short name to a URL or filesystem path.
+    pub remotes: HashMap<String, String>,
+}
 
 /// Persisted conflict state written to `.arc/conflict` when a merge fails.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +75,7 @@ impl Repository {
 
         fs::create_dir_all(arc_dir.join("store"))?;
         fs::create_dir_all(arc_dir.join("views"))?;
+        fs::create_dir_all(arc_dir.join("tags"))?;
 
         // Create the default "main" view with an empty head set.
         let main_view = View::new("main", HashSet::new());
@@ -920,6 +931,230 @@ impl Repository {
         write_state_to_working_dir(&self.root, &new_state)?;
         Ok(())
     }
+
+    // ------------------------------------------------------------------
+    // Repository configuration
+    // ------------------------------------------------------------------
+
+    fn config_path(&self) -> PathBuf {
+        self.root.join(".arc").join("config.json")
+    }
+
+    /// Read the repository configuration from `.arc/config.json`.
+    ///
+    /// Returns a default empty config when the file does not yet exist, so
+    /// a freshly-initialised repository never errors on the first read.
+    pub(crate) fn read_config(&self) -> anyhow::Result<RepoConfig> {
+        let path = self.config_path();
+        if !path.exists() {
+            return Ok(RepoConfig::default());
+        }
+        let json = fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("failed to read .arc/config.json: {e}"))?;
+        serde_json::from_str(&json)
+            .map_err(|e| anyhow::anyhow!(".arc/config.json is corrupt: {e}"))
+    }
+
+    fn write_config(&self, config: &RepoConfig) -> anyhow::Result<()> {
+        let path = self.config_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, serde_json::to_string_pretty(config)?)
+            .map_err(|e| anyhow::anyhow!("failed to write .arc/config.json: {e}"))
+    }
+
+    // ------------------------------------------------------------------
+    // Remotes
+    // ------------------------------------------------------------------
+
+    /// Store a named remote URL alias in `.arc/config.json`.
+    ///
+    /// If a remote with the same name already exists it is overwritten,
+    /// making this operation idempotent.
+    pub fn add_remote(&self, name: &str, url: &str) -> anyhow::Result<()> {
+        let mut config = self.read_config()?;
+        config.remotes.insert(name.to_string(), url.to_string());
+        self.write_config(&config)
+    }
+
+    /// Return all configured remote aliases.
+    pub fn list_remotes(&self) -> anyhow::Result<HashMap<String, String>> {
+        Ok(self.read_config()?.remotes)
+    }
+
+    // ------------------------------------------------------------------
+    // Tags
+    // ------------------------------------------------------------------
+
+    /// Create a signed, immutable tag named `name` pointing to `target`.
+    ///
+    /// The tag is written to `.arc/tags/<name>.json`.  Forward-slashes in
+    /// `name` are silently replaced with `-` for filesystem portability.
+    pub fn create_tag(&self, name: &str, target: &Blake3Hash) -> anyhow::Result<()> {
+        let (author, signing_key) = self.signing_identity()?;
+        let tag = Tag::new(name, *target, author.clone(), signing_key);
+
+        let tag_dir = self.root.join(".arc").join("tags");
+        fs::create_dir_all(&tag_dir)?;
+
+        let safe_name = name.replace('/', "-");
+        let path = tag_dir.join(format!("{safe_name}.json"));
+        if path.exists() {
+            anyhow::bail!("tag '{name}' already exists");
+        }
+        fs::write(&path, serde_json::to_string_pretty(&tag)?)
+            .map_err(|e| anyhow::anyhow!("failed to write tag '{name}': {e}"))
+    }
+
+    /// Return all tags stored in `.arc/tags/`, sorted alphabetically by name.
+    pub fn list_tags(&self) -> anyhow::Result<Vec<Tag>> {
+        let tag_dir = self.root.join(".arc").join("tags");
+        if !tag_dir.exists() {
+            return Ok(vec![]);
+        }
+        let mut tags = Vec::new();
+        for entry in fs::read_dir(&tag_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                let json = fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("failed to read tag {:?}: {e}", path))?;
+                let tag: Tag = serde_json::from_str(&json)
+                    .map_err(|e| anyhow::anyhow!("corrupt tag file {:?}: {e}", path))?;
+                tags.push(tag);
+            }
+        }
+        tags.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(tags)
+    }
+
+    // ------------------------------------------------------------------
+    // Semantic Revert
+    // ------------------------------------------------------------------
+
+    /// Compute atoms that transform `state_after` into `state_before`.
+    ///
+    /// This is the pure-memory diff used by [`revert`](Self::revert) to
+    /// derive the semantic inverse of a `Change` without touching the CAS,
+    /// any view file, or the working directory.
+    fn compute_state_delta(
+        &self,
+        state_after: &MaterializedState,
+        state_before: &MaterializedState,
+    ) -> anyhow::Result<Vec<Atom>> {
+        let plugin = RustPlugin::new();
+        let mut atoms: Vec<Atom> = Vec::new();
+
+        let files_after = extract_filepaths_from_state(state_after);
+        let files_before = extract_filepaths_from_state(state_before);
+
+        // For each file present in the "after" state, diff backwards (after→before).
+        for filepath in &files_after {
+            let src_after = plugin.unparse(state_after, filepath).unwrap_or_default();
+            let src_before = plugin.unparse(state_before, filepath).unwrap_or_default();
+            if src_after == src_before {
+                continue;
+            }
+            let ast_atoms = plugin
+                .diff(&src_after, &src_before)
+                .map_err(|e| anyhow::anyhow!("revert diff error for {filepath}: {e}"))?;
+            for atom in ast_atoms {
+                atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        // Files that existed *before* the target change but were deleted by it
+        // must be restored. diff("", src_before) yields Insert atoms for every
+        // AST node that needs to come back.
+        for filepath in files_before.difference(&files_after) {
+            let src_before = plugin.unparse(state_before, filepath).unwrap_or_default();
+            if src_before.is_empty() {
+                continue;
+            }
+            let ast_atoms = plugin
+                .diff("", &src_before)
+                .map_err(|e| anyhow::anyhow!("revert restore error for {filepath}: {e}"))?;
+            for atom in ast_atoms {
+                atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        Ok(atoms)
+    }
+
+    /// Semantically revert the `Change` identified by `hash`.
+    ///
+    /// Reverts by materializing the state *before* (State A = X's deps) and
+    /// *after* (State B = X applied on State A), then running
+    /// `plugin.diff(State B → State A)` to obtain the exact AST anti-patch.
+    /// Because arc atoms target structural `NodePath`s rather than line
+    /// numbers, this anti-patch applies cleanly to the current working
+    /// directory regardless of any intermediate reformatting.
+    ///
+    /// Returns the [`Blake3Hash`] of the newly-created revert `Change`.
+    pub fn revert(&mut self, hash: &Blake3Hash) -> anyhow::Result<Blake3Hash> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        // Load the target change from the CAS and ensure it is in the graph.
+        let target = self
+            .store
+            .read_change(hash)
+            .map_err(|_| anyhow::anyhow!("change {} not found in CAS", _hex(hash)))?;
+        self.graph.add_change(target.clone());
+
+        // Hydrate all of X's declared dependencies.
+        self.hydrate_heads(&target.deps)?;
+
+        // State A: the world immediately before X was applied.
+        let state_a = if target.deps.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&target.deps)?
+        };
+
+        // State B: the world after X (X applied on top of State A).
+        let state_b = self.materialize_heads(&HashSet::from([*hash]))?;
+
+        // The semantic anti-patch: diff backwards (B → A).
+        let revert_atoms = self.compute_state_delta(&state_b, &state_a)?;
+        if revert_atoms.is_empty() {
+            anyhow::bail!(
+                "nothing to revert — change {} produced no materializable AST changes",
+                _hex(hash)
+            );
+        }
+
+        let intent = format!("revert {}", &_hex(hash)[..8]);
+        let current_view = View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load current view: {e}"))?;
+
+        let (author, signing_key) = self.signing_identity()?;
+        let revert_change = Change::new(
+            current_view.heads.clone(),
+            revert_atoms,
+            intent,
+            author.clone(),
+            signing_key,
+        );
+        self.store
+            .write_change(&revert_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph.add_change(revert_change.clone());
+
+        // Advance the current view to point at the revert change.
+        let updated_view = View::new(&view_name, HashSet::from([revert_change.id]));
+        updated_view
+            .save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save view after revert: {e}"))?;
+
+        // Re-materialise and write to the working directory.
+        let new_state = self.materialize_heads(&HashSet::from([revert_change.id]))?;
+        write_state_to_working_dir(&self.root, &new_state)?;
+
+        Ok(revert_change.id)
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
@@ -1601,6 +1836,123 @@ mod tests {
         assert!(
             src.contains("fn b"),
             "materialized b.rs must contain fn b, got: {src}"
+        );
+    }
+
+    /// `revert` must produce the exact semantic anti-patch: the reverted
+    /// function must disappear from the materialized state, and the graph
+    /// must gain exactly one new change.
+    #[test]
+    fn test_semantic_revert() {
+        use arc_lang::ast::{rust_plugin::RustPlugin, LanguagePlugin};
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("revert_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Snap "fn alpha() {}" into the repository.
+        fs::write(repo_path.join("src.rs"), "fn alpha() {}").unwrap();
+        let snap_id = repo
+            .snap("add alpha", false)
+            .unwrap()
+            .expect("snap must produce a change");
+
+        // Revert it — this should produce a semantic anti-patch.
+        let revert_id = repo.revert(&snap_id).unwrap();
+        assert_ne!(revert_id, snap_id, "revert must produce a distinct change");
+
+        // Materialise the current (post-revert) state and verify fn alpha is gone.
+        let state = repo.materialize("main").unwrap();
+        let plugin = RustPlugin::new();
+        let src = plugin.unparse(&state, "src.rs").unwrap_or_default();
+        assert!(
+            !src.contains("fn alpha"),
+            "reverted state must not contain fn alpha, got: '{src}'"
+        );
+
+        // The graph must contain exactly snap + revert = 2 changes.
+        let log = repo.log().unwrap();
+        assert_eq!(
+            log.len(),
+            2,
+            "log must contain snap + revert = 2 changes, got {}",
+            log.len()
+        );
+
+        // The revert change must carry a valid cryptographic signature.
+        let rc = repo
+            .graph
+            .get(&revert_id)
+            .expect("revert change must be present in the graph");
+        assert!(
+            rc.verify_signature(),
+            "revert change must carry a valid Ed25519 signature"
+        );
+    }
+
+    #[test]
+    fn test_tag_operations() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("tag_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("lib.rs"), "fn lib() {}").unwrap();
+        let snap_id = repo.snap("add lib", false).unwrap().unwrap();
+
+        // Create a tag pointing at the snap.
+        repo.create_tag("v1.0.0", &snap_id).unwrap();
+
+        // Creating the same tag twice must fail.
+        assert!(
+            repo.create_tag("v1.0.0", &snap_id).is_err(),
+            "duplicate tag must be rejected"
+        );
+
+        // List tags and verify contents.
+        let tags = repo.list_tags().unwrap();
+        assert_eq!(tags.len(), 1, "must have exactly one tag");
+        assert_eq!(tags[0].name, "v1.0.0");
+        assert_eq!(tags[0].target, snap_id);
+        assert!(tags[0].verify(), "freshly created tag must verify");
+
+        // Tampered tag must not verify.
+        let mut bad = tags[0].clone();
+        bad.target = [99u8; 32];
+        assert!(!bad.verify(), "tampered tag must not verify");
+    }
+
+    #[test]
+    fn test_remote_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("remote_project");
+        let repo = Repository::init(&repo_path).unwrap();
+
+        // Fresh repository has no remotes.
+        let remotes = repo.list_remotes().unwrap();
+        assert!(remotes.is_empty(), "fresh repo must have no remotes");
+
+        // Add two remotes.
+        repo.add_remote("origin", "http://localhost:8080").unwrap();
+        repo.add_remote("upstream", "http://upstream.example.com").unwrap();
+
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.len(), 2, "must have 2 remotes");
+        assert_eq!(remotes["origin"], "http://localhost:8080");
+        assert_eq!(remotes["upstream"], "http://upstream.example.com");
+
+        // Overwriting a remote must update the URL.
+        repo.add_remote("origin", "http://new.localhost:8080").unwrap();
+        let remotes2 = repo.list_remotes().unwrap();
+        assert_eq!(
+            remotes2["origin"],
+            "http://new.localhost:8080",
+            "remote overwrite must update the URL"
         );
     }
 }

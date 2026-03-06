@@ -91,6 +91,25 @@ enum Command {
         #[arg(short, long, default_value_t = 8080)]
         port: u16,
     },
+    /// Manage named remote aliases.
+    Remote {
+        #[command(subcommand)]
+        action: RemoteAction,
+    },
+    /// Create a cryptographically signed, immutable tag pointing to a change.
+    Tag {
+        /// Tag name (e.g. "v1.0.0").
+        name: String,
+        /// Full 64-character hex hash of the change to tag.
+        hash: String,
+    },
+    /// List all tags in the repository.
+    Tags,
+    /// Semantically revert a change by rolling back its AST atoms.
+    Revert {
+        /// Full 64-character hex hash of the change to revert.
+        hash: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -150,6 +169,19 @@ enum AuthAction {
     },
     /// Print the currently active identity.
     Whoami,
+}
+
+#[derive(Subcommand)]
+enum RemoteAction {
+    /// Add or update a named remote alias.
+    Add {
+        /// Short name for the remote (e.g. "origin").
+        name: String,
+        /// URL or filesystem path of the remote repository.
+        url: String,
+    },
+    /// List all configured remote aliases.
+    List,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -371,6 +403,56 @@ fn main() -> anyhow::Result<()> {
         Command::Serve { port } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(arc_net::server::serve(port))?;
+        }
+        Command::Remote { action } => match action {
+            RemoteAction::Add { name, url } => {
+                let repo = Repository::open(".")?;
+                repo.add_remote(&name, &url)?;
+                println!("Remote '{name}' \u{2192} {url}");
+            }
+            RemoteAction::List => {
+                let repo = Repository::open(".")?;
+                let remotes = repo.list_remotes()?;
+                if remotes.is_empty() {
+                    println!("No remotes configured.");
+                } else {
+                    let mut pairs: Vec<_> = remotes.iter().collect();
+                    pairs.sort_by_key(|(k, _)| k.as_str());
+                    for (name, url) in pairs {
+                        println!("{name}\t{url}");
+                    }
+                }
+            }
+        },
+        Command::Tag { name, hash } => {
+            let hash_bytes = hex_to_hash(&hash)?;
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            repo.create_tag(&name, &hash_bytes)?;
+            println!("Tagged {} as '{name}'", &hash[..8]);
+        }
+        Command::Tags => {
+            let repo = Repository::open(".")?;
+            let tags = repo.list_tags()?;
+            if tags.is_empty() {
+                println!("No tags.");
+            } else {
+                for t in &tags {
+                    let h: String = t.target.iter().map(|b| format!("{b:02x}")).collect();
+                    let sig = if t.verify() { "[verified]" } else { "[UNVERIFIED]" };
+                    println!("{} {} {sig}", t.name, &h[..8]);
+                }
+            }
+        }
+        Command::Revert { hash } => {
+            let hash_bytes = hex_to_hash(&hash)?;
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let revert_id = repo.revert(&hash_bytes)?;
+            let hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Reverted {} \u{2192} new change {}", &hash[..8], &hex[..8]);
         }
     }
 

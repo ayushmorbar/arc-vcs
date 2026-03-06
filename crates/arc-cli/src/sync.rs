@@ -5,11 +5,38 @@ use arc_core::store::change::Change;
 use arc_core::store::view::View;
 use crate::repo::Repository;
 
+/// Resolve `name_or_path` to a concrete URL or filesystem path.
+///
+/// A value is treated as a *direct* reference when it starts with
+/// `http://`, `https://`, `.`, `/`, or contains a path separator (`/` or
+/// `\`).  Otherwise it is looked up as a named remote alias in the
+/// repository's `.arc/config.json`.
+fn resolve_remote(local: &Repository, name_or_path: &str) -> anyhow::Result<String> {
+    let is_direct = name_or_path.starts_with("http://")
+        || name_or_path.starts_with("https://")
+        || name_or_path.starts_with('.')
+        || name_or_path.starts_with('/')
+        || name_or_path.contains('\\')
+        || name_or_path.contains('/');
+    if is_direct {
+        return Ok(name_or_path.to_string());
+    }
+    let config = local.read_config()?;
+    config.remotes.get(name_or_path).cloned().ok_or_else(|| {
+        anyhow::anyhow!(
+            "no remote named '{}'. Add one with: arc remote add {} <url>",
+            name_or_path,
+            name_or_path
+        )
+    })
+}
+
 /// Fetch missing changes from a remote repository's view into the local
 /// repository.
 ///
-/// `remote_path` is either a local filesystem path **or** an `http://` /
-/// `https://` URL pointing at an `arc serve` instance.
+/// `remote_path` is either a local filesystem path, an `http://` /
+/// `https://` URL pointing at an `arc serve` instance, **or** a named
+/// remote alias registered with `arc remote add`.
 ///
 /// The Bounded BFS algorithm is identical in both cases: any change already
 /// present in the local store is a causal cut-point — its ancestors are
@@ -21,10 +48,11 @@ pub fn fetch(
     remote_path: &str,
     view_name: &str,
 ) -> anyhow::Result<HashSet<Blake3Hash>> {
-    if remote_path.starts_with("http://") || remote_path.starts_with("https://") {
-        return fetch_http(local, remote_path, view_name);
+    let resolved = resolve_remote(local, remote_path)?;
+    if resolved.starts_with("http://") || resolved.starts_with("https://") {
+        return fetch_http(local, &resolved, view_name);
     }
-    fetch_local(local, remote_path, view_name)
+    fetch_local(local, &resolved, view_name)
 }
 
 fn fetch_local(

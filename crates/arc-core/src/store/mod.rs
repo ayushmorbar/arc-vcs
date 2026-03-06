@@ -4,6 +4,7 @@ pub mod author;
 pub mod cas;
 pub mod change;
 pub mod graph;
+pub mod tag;
 pub mod view;
 
 /// Errors produced by the arc object store.
