@@ -532,7 +532,7 @@ fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath>
 }
 
 /// Prepend `["file", filepath]` to every path inside an `Atom`.
-fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
+pub(crate) fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
     let prepend = |mut path: NodePath| -> NodePath {
         let mut prefixed = vec!["file".to_string(), filepath.to_string()];
         prefixed.append(&mut path);

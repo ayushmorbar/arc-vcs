@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use arc::ai::MockResolver;
+use arc::interop::git::import_repo;
 use arc::network::sync::{fetch, pull};
 use arc::store::repo::Repository;
 
@@ -35,6 +36,11 @@ enum Command {
     Ai {
         #[command(subcommand)]
         action: AiAction,
+    },
+    /// Import history from another VCS.
+    Import {
+        #[command(subcommand)]
+        source: ImportSource,
     },
     /// Fetch missing changes from a remote repository.
     Fetch {
@@ -75,6 +81,15 @@ enum ViewAction {
 enum AiAction {
     /// Resolve a pending semantic conflict using the AI resolver.
     Resolve,
+}
+
+#[derive(Subcommand)]
+enum ImportSource {
+    /// Import from a local Git repository.
+    Git {
+        /// Path to the Git repository.
+        git_path: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -125,6 +140,16 @@ fn main() -> anyhow::Result<()> {
                 let id = repo.resolve_conflict(&resolver)?;
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                 println!("Resolved conflict → {hex}");
+            }
+        },
+        Command::Import { source } => match source {
+            ImportSource::Git { git_path } => {
+                let mut repo = match Repository::open(".") {
+                    Ok(r) => r,
+                    Err(_) => Repository::init(".")?,
+                };
+                import_repo(&git_path, &mut repo)?;
+                println!("Imported Git history from {git_path}");
             }
         },
         Command::Fetch { remote_path, view } => {

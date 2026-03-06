@@ -55,6 +55,16 @@ impl ChangeGraph {
         self.nodes.get(id)
     }
 
+    /// Returns the number of changes in the graph.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Returns `true` if the graph contains no changes.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
     // ------------------------------------------------------------------
     // Traversal
     // ------------------------------------------------------------------
