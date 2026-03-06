@@ -64,6 +64,12 @@ enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Start an HTTP server serving the current repository over TCP.
+    Serve {
+        /// TCP port to listen on.
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -220,6 +226,10 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         },
+        Command::Serve { port } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(arc::network::server::serve(port))?;
+        }
     }
 
     Ok(())

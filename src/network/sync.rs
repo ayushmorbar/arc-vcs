@@ -1,25 +1,38 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
 
 use crate::algebra::Blake3Hash;
+use crate::store::change::Change;
 use crate::store::repo::Repository;
 use crate::store::view::View;
 
 /// Fetch missing changes from a remote repository's view into the local
 /// repository.
 ///
-/// Opens the remote at `remote_path`, loads `view_name` to discover its
-/// heads, and performs a **bounded BFS** over the remote's CAS: any change
-/// already present in the local store is a causal cut-point — its ancestors
-/// are guaranteed to be present locally, so they are not enqueued.
+/// `remote_path` is either a local filesystem path **or** an `http://` /
+/// `https://` URL pointing at an `arc serve` instance.
+///
+/// The Bounded BFS algorithm is identical in both cases: any change already
+/// present in the local store is a causal cut-point — its ancestors are
+/// guaranteed to be present locally, so they are not enqueued.
 ///
 /// Returns the remote view's heads.
 pub fn fetch(
     local: &mut Repository,
-    remote_path: impl AsRef<Path>,
+    remote_path: &str,
     view_name: &str,
 ) -> anyhow::Result<HashSet<Blake3Hash>> {
-    let remote = Repository::open(&remote_path)?;
+    if remote_path.starts_with("http://") || remote_path.starts_with("https://") {
+        return fetch_http(local, remote_path, view_name);
+    }
+    fetch_local(local, remote_path, view_name)
+}
+
+fn fetch_local(
+    local: &mut Repository,
+    remote_path: &str,
+    view_name: &str,
+) -> anyhow::Result<HashSet<Blake3Hash>> {
+    let remote = Repository::open(remote_path)?;
     let remote_view = View::load(&remote.root, view_name)
         .map_err(|e| anyhow::anyhow!("failed to load remote view '{view_name}': {e}"))?;
 
@@ -34,7 +47,6 @@ pub fn fetch(
         // Bounded BFS: if the local store already has this change,
         // all its ancestors are causally guaranteed to be present.
         if local.store.read_change(&id).is_ok() {
-            // Still add to the in-memory graph if not already there.
             if local.graph.get(&id).is_none() {
                 let change = local.store.read_change(&id).unwrap();
                 local.graph.add_change(change);
@@ -42,24 +54,76 @@ pub fn fetch(
             continue;
         }
 
-        // Missing locally — read from remote CAS, write to local CAS.
         let change = remote
             .store
             .read_change(&id)
             .map_err(|e| anyhow::anyhow!("failed to read change from remote CAS: {e}"))?;
-
         local
             .store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("failed to write change to local CAS: {e}"))?;
-
-        // Enqueue deps — they will be bounded-checked on the next iteration.
         for &dep in &change.deps {
             if !visited.contains(&dep) {
                 queue.push_back(dep);
             }
         }
+        local.graph.add_change(change);
+    }
 
+    Ok(remote_view.heads)
+}
+
+fn fetch_http(
+    local: &mut Repository,
+    remote_url: &str,
+    view_name: &str,
+) -> anyhow::Result<HashSet<Blake3Hash>> {
+    let url = format!("{remote_url}/views/{view_name}");
+    let remote_view: View = reqwest::blocking::get(&url)
+        .map_err(|e| anyhow::anyhow!("HTTP GET {url} failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| anyhow::anyhow!("server returned error for {url}: {e}"))?
+        .json::<View>()
+        .map_err(|e| anyhow::anyhow!("failed to deserialise remote view: {e}"))?;
+
+    let mut queue: VecDeque<Blake3Hash> = remote_view.heads.iter().copied().collect();
+    let mut visited: HashSet<Blake3Hash> = HashSet::new();
+    let client = reqwest::blocking::Client::new();
+
+    while let Some(id) = queue.pop_front() {
+        if !visited.insert(id) {
+            continue;
+        }
+
+        if local.store.read_change(&id).is_ok() {
+            if local.graph.get(&id).is_none() {
+                let change = local.store.read_change(&id).unwrap();
+                local.graph.add_change(change);
+            }
+            continue;
+        }
+
+        let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+        let obj_url = format!("{remote_url}/objects/{hex}");
+        let bytes = client
+            .get(&obj_url)
+            .send()
+            .map_err(|e| anyhow::anyhow!("HTTP GET {obj_url} failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("server returned error for {obj_url}: {e}"))?
+            .bytes()
+            .map_err(|e| anyhow::anyhow!("failed to read object bytes: {e}"))?;
+        let change: Change = bincode::deserialize(&bytes)
+            .map_err(|e| anyhow::anyhow!("failed to deserialise change {hex}: {e}"))?;
+        local
+            .store
+            .write_change(&change)
+            .map_err(|e| anyhow::anyhow!("failed to write change {hex} to local CAS: {e}"))?;
+        for &dep in &change.deps {
+            if !visited.contains(&dep) {
+                queue.push_back(dep);
+            }
+        }
         local.graph.add_change(change);
     }
 
@@ -72,7 +136,7 @@ pub fn fetch(
 /// This is `fetch` followed by `merge_heads` — the CRDT sync primitive.
 pub fn pull(
     local: &mut Repository,
-    remote_path: impl AsRef<Path>,
+    remote_path: &str,
     view_name: &str,
 ) -> anyhow::Result<()> {
     let remote_heads = fetch(local, remote_path, view_name)?;
@@ -103,7 +167,7 @@ mod tests {
         let mut repo_b = Repository::init(&path_b).unwrap();
         let (author_b, key_b) = crate::store::author::test_keypair();
         repo_b.set_identity(author_b, key_b);
-        pull(&mut repo_b, &path_a, "main").unwrap();
+        pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();
 
         // B should now have a.rs on disk.
         assert!(
@@ -123,7 +187,7 @@ mod tests {
         repo_b.snap("add b.rs").unwrap();
 
         // --- Pull A into B — disjoint files must commute ---
-        pull(&mut repo_b, &path_a, "main").unwrap();
+        pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();
 
         // B's working directory should have all three files.
         assert!(
@@ -153,3 +217,4 @@ mod tests {
         assert_eq!(fs::read_to_string(path_b.join("c.rs")).unwrap(), "fn c() {}");
     }
 }
+
