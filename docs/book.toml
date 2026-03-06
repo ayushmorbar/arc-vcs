@@ -1,0 +1,10 @@
+[book]
+title = "arc — Atomic Replayable Changes"
+authors = ["arc contributors"]
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/your-org/arc-vcs"
+edit-url-template = "https://github.com/your-org/arc-vcs/edit/main/docs/{path}"

@@ -68,28 +68,62 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "arc"
+name = "arc-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum",
+ "arc-core",
+ "arc-lang",
+ "arc-net",
  "bincode",
- "blake3",
  "clap",
- "directories",
  "ed25519-dalek",
  "git2",
  "ignore",
+ "reqwest",
+ "serde",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "arc-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "blake3",
+ "directories",
+ "ed25519-dalek",
+ "ignore",
  "memmap2",
  "rand_core 0.6.4",
- "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
- "tokio",
+]
+
+[[package]]
+name = "arc-lang"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-core",
+ "tempfile",
  "tree-sitter",
  "tree-sitter-rust",
+]
+
+[[package]]
+name = "arc-net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-core",
+ "axum",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -714,9 +748,9 @@ dependencies = [
 
 [[package]]
 name = "git2"
-version = "0.18.3"
+version = "0.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "232e6a7bfe35766bf715e55a88b39a700596c0ccfd88cd3680b4cdb40d66ef70"
+checksum = "7b88256088d75a56f8ecfa070513a775dd9107f6530ef14919dac831af9cfe2b"
 dependencies = [
  "bitflags",
  "libc",
@@ -1109,9 +1143,9 @@ checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
 name = "libgit2-sys"
-version = "0.16.2+1.7.2"
+version = "0.18.3+1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee4126d8b4ee5c9d9ea891dd875cfdc1e9d0950437179104b183d7d8a74d24e8"
+checksum = "c9b3acc4b91781bb0b3386669d325163746af5f6e4f73e6d2d630e09a35f3487"
 dependencies = [
  "cc",
  "libc",
