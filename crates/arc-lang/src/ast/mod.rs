@@ -1,3 +1,4 @@
+/// Rust language plugin: tree-sitter AST diffing and source reconstruction.
 pub mod rust_plugin;
 
 use std::collections::HashMap;

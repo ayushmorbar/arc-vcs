@@ -1,4 +1,6 @@
+/// Change-application algebra: replaying atoms onto a materialized state.
 pub mod apply;
+/// Commutativity check: determining whether two changes can be reordered.
 pub mod commute;
 
 use serde::{Deserialize, Serialize};
@@ -19,18 +21,39 @@ pub type ASTNode = Vec<u8>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atom {
     /// Insert a new AST node at the given path.
-    Insert { at: NodePath, content: ASTNode },
+    Insert {
+        /// AST path of the insertion point (e.g. `["file", "main.rs", "fn_foo"]`).
+        at: NodePath,
+        /// Serialized content of the new node.
+        content: ASTNode,
+    },
     /// Delete the AST node (and its subtree) at the given path.
-    Delete { at: NodePath },
+    Delete {
+        /// AST path of the node to remove.
+        at: NodePath,
+    },
     /// Move (rename / refactor) a node from one path to another.
-    Move { from: NodePath, to: NodePath },
+    Move {
+        /// Source path of the node being moved.
+        from: NodePath,
+        /// Destination path after the move.
+        to: NodePath,
+    },
     /// A semantics-preserving transformation rooted at the given path.
-    SemanticsPreserving { at: NodePath, description: String },
+    SemanticsPreserving {
+        /// AST path of the node being reformatted.
+        at: NodePath,
+        /// Human-readable description of the transformation.
+        description: String,
+    },
     /// Record the existence of an empty directory.
     ///
     /// `arc` tracks bare directories natively so that developers never need
     /// dummy `.gitkeep` files to preserve folder structure.
-    Directory { path: NodePath },
+    Directory {
+        /// Path key for the directory (e.g. `["dir", "src/utils"]`).
+        path: NodePath,
+    },
 }
 
 impl Atom {

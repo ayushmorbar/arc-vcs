@@ -12,12 +12,13 @@
 //!
 //! | Module | Responsibility |
 //! |---|---|
-//! | [`algebra`] | Core types: [`Atom`], [`Blake3Hash`], commutativity, change application |
-//! | [`ai`] | [`AiResolver`] trait and [`MockResolver`] for conflict resolution |
-//! | [`store`] | CAS, [`Change`], [`ChangeGraph`], [`View`], author identity |
+//! | [`algebra`] | Core types: [`algebra::Atom`], [`algebra::Blake3Hash`], commutativity, change application |
+//! | [`ai`] | [`ai::AiResolver`] trait and [`ai::MockResolver`] for conflict resolution |
+//! | [`store`] | CAS, [`store::change::Change`], [`store::graph::ChangeGraph`], [`store::view::View`], author identity |
 
 #![warn(missing_docs)]
 
 pub mod ai;
+/// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
 pub mod store;

@@ -1,10 +1,16 @@
 //! arc object store: CAS, changes, graph, views, and author identity.
 
+/// Author identity and signing-key management.
 pub mod author;
+/// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
+/// Immutable semantic changes and their dependency metadata.
 pub mod change;
+/// Change dependency graph and ancestry algorithms.
 pub mod graph;
+/// Cryptographically-signed immutable tags.
 pub mod tag;
+/// Virtual views (branches) over the change DAG.
 pub mod view;
 
 /// Errors produced by the arc object store.

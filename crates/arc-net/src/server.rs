@@ -52,11 +52,11 @@ async fn get_object(
 /// Start a dumb HTTP server exposing the arc CAS of the current directory.
 ///
 /// Two endpoints:
-/// - `GET /views/:name`   → [`View`] serialised as JSON
-/// - `GET /objects/:hash` → raw `bincode` bytes of a [`Change`]
+/// - `GET /views/:name`   → [`arc_core::store::view::View`] serialised as JSON
+/// - `GET /objects/:hash` → raw `bincode` bytes of a [`arc_core::store::change::Change`]
 ///
-/// The server is intentionally read-only. All [`Change`] objects carry an
-/// Ed25519 signature, so a client that runs [`Repository::verify_graph`]
+/// The server is intentionally read-only. All `Change` objects carry an
+/// Ed25519 signature, so a client that runs `Repository::verify_graph`
 /// after fetching is guaranteed to detect any in-transit tampering.
 pub async fn serve(port: u16) -> anyhow::Result<()> {
     let repo_root = std::env::current_dir()?;

@@ -10,7 +10,7 @@ use arc_core::algebra::commute::commutes;
 use arc_core::algebra::{Atom, Blake3Hash, NodePath};
 use arc_lang::ast::rust_plugin::RustPlugin;
 use arc_lang::ast::LanguagePlugin;
-use arc_core::store::author::Author;
+use arc_core::store::author::{load_identity, Author};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
@@ -1155,6 +1155,91 @@ impl Repository {
 
         Ok(revert_change.id)
     }
+
+    // ------------------------------------------------------------------
+    // Working directory rescue
+    // ------------------------------------------------------------------
+
+    /// Restore `filepath` in the working directory to its state in the
+    /// current view.
+    ///
+    /// If the file exists in the materialized view state, its AST atoms are
+    /// unparsed back to source and written to disk, overwriting any local
+    /// edits.  If the file is **not tracked** in the current view (i.e. it
+    /// has never been snapped), an error is returned and the on-disk file
+    /// is left completely untouched.
+    pub fn restore(&mut self, filepath: &str) -> anyhow::Result<()> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+
+        let tracked = extract_filepaths_from_state(&state);
+        if !tracked.contains(filepath) {
+            anyhow::bail!(
+                "Cannot restore '{}': file is not tracked in the current view.",
+                filepath
+            );
+        }
+
+        let plugin = RustPlugin::new();
+        let source = plugin.unparse(&state, filepath).unwrap_or_default();
+
+        let full = self.root.join(filepath);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&full, source.as_bytes())
+            .map_err(|e| anyhow::anyhow!("failed to restore '{}': {e}", filepath))
+    }
+
+    // ------------------------------------------------------------------
+    // View listing
+    // ------------------------------------------------------------------
+
+    /// Return the names of all non-hidden views in the repository, sorted
+    /// alphabetically.
+    ///
+    /// Hidden views (names beginning with `.`) are excluded, which filters
+    /// out the internal stash views created by [`stash`](Self::stash).
+    pub fn list_views(&self) -> anyhow::Result<Vec<String>> {
+        let views_dir = self.root.join(".arc").join("views");
+        let mut names: Vec<String> = fs::read_dir(&views_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') { None } else { Some(name) }
+            })
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
+    // ------------------------------------------------------------------
+    // Repository telemetry
+    // ------------------------------------------------------------------
+
+    /// Print a telemetry dashboard for the current repository.
+    ///
+    /// Reports the active view, total [`Change`] objects persisted in the
+    /// CAS (counted by a fast directory walk — no deserialization needed),
+    /// total non-hidden views, and the configured signing identity.
+    pub fn info(&self) -> anyhow::Result<()> {
+        let current = self.current_view_name()?;
+        let changes = count_files_recursive(&self.root.join(".arc").join("store"));
+        let views = self.list_views()?.len();
+        let identity = match load_identity() {
+            Ok((Author::Human { name, email, .. }, _)) => format!("{name} <{email}>"),
+            Ok((Author::AI { model, .. }, _)) => format!("{model} [AI]"),
+            Err(_) => "Not configured".to_string(),
+        };
+
+        println!("Arc Repository Status");
+        println!("  Current View:     {current}");
+        println!("  Total Changes:    {changes} (BLAKE3 CAS)");
+        println!("  Total Views:      {views}");
+        println!("  Active Identity:  {identity}");
+        Ok(())
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
@@ -1466,6 +1551,29 @@ fn collect_rs_recursive(
         }
     }
     Ok(())
+}
+
+/// Recursively count all regular files under `dir`.
+///
+/// Used by [`Repository::info`] to report the total number of
+/// [`Change`] objects persisted in the CAS.
+fn count_files_recursive(dir: &Path) -> usize {
+    if !dir.exists() {
+        return 0;
+    }
+    match fs::read_dir(dir) {
+        Err(_) => 0,
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| {
+                if e.path().is_dir() {
+                    count_files_recursive(&e.path())
+                } else {
+                    1
+                }
+            })
+            .sum(),
+    }
 }
 
 #[cfg(test)]

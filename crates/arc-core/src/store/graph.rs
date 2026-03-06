@@ -12,7 +12,7 @@ use crate::store::change::Change;
 /// # Ghost Nodes
 ///
 /// The graph supports "ghost" dependencies — changes referenced by a
-/// `Change.deps` entry that have not yet been inserted via [`add_change`].
+/// `Change.deps` entry that have not yet been inserted via [`ChangeGraph::add_change`].
 /// This occurs naturally in a distributed CRDT network where `Change B`
 /// (depending on `Change A`) may arrive before `Change A`. All traversals
 /// safely halt at graph boundaries by checking `edges.get()` / `nodes.get()`

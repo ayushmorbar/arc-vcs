@@ -11,4 +11,5 @@
 
 #![warn(missing_docs)]
 
+/// HTTP server exposing the arc CAS to remote peers for fetch and pull operations.
 pub mod server;

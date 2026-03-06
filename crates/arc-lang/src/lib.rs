@@ -10,4 +10,5 @@
 
 #![warn(missing_docs)]
 
+/// AST diffing and source reconstruction across supported programming languages.
 pub mod ast;

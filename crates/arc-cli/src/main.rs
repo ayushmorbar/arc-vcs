@@ -110,6 +110,29 @@ enum Command {
         /// Full 64-character hex hash of the change to revert.
         hash: String,
     },
+    /// Restore a file to its snapped state in the current view.
+    Restore {
+        /// Path to the file to restore (relative to the repository root).
+        filepath: String,
+    },
+    /// Print a telemetry dashboard for the current repository.
+    Info,
+    /// Switch to a different view — alias for `view switch`.
+    Checkout {
+        /// Name of the view to switch to.
+        name: String,
+    },
+    /// Create a view or list views — alias for `view create` / `view list`.
+    ///
+    /// With a name: creates the named view. Without a name: lists all views,
+    /// marking the active one with `*`.
+    Branch {
+        /// When provided, creates a new view with this name.
+        /// When omitted, lists all existing views.
+        name: Option<String>,
+    },
+    /// Unsupported — arc uses `snap` instead of `commit`.
+    Commit,
 }
 
 #[derive(Subcommand)]
@@ -453,6 +476,44 @@ fn main() -> anyhow::Result<()> {
             let revert_id = repo.revert(&hash_bytes)?;
             let hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Reverted {} \u{2192} new change {}", &hash[..8], &hex[..8]);
+        }
+        Command::Restore { filepath } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            repo.restore(&filepath)?;
+            println!("Restored '{filepath}' to its snapped state.");
+        }
+        Command::Info => {
+            let repo = Repository::open(".")?;
+            repo.info()?;
+        }
+        Command::Checkout { name } => {
+            let mut repo = Repository::open(".")?;
+            repo.switch_view(&name)?;
+            println!("Switched to view '{name}'");
+        }
+        Command::Branch { name } => match name {
+            Some(n) => {
+                let repo = Repository::open(".")?;
+                repo.create_view(&n)?;
+                println!("Created view '{n}'");
+            }
+            None => {
+                let repo = Repository::open(".")?;
+                let current = repo.current_view_name()?;
+                let views = repo.list_views()?;
+                for v in &views {
+                    if v == &current {
+                        println!("* {v}");
+                    } else {
+                        println!("  {v}");
+                    }
+                }
+            }
+        },
+        Command::Commit => {
+            println!("Hint: arc uses 'snap' instead of 'commit'. Try: arc snap -m \"<message>\"");
         }
     }
 

@@ -1,7 +1,7 @@
 //! Cryptographically-signed immutable tags.
 //!
-//! A [`Tag`] is arc's equivalent of Git's annotated tag: a human-readable name
-//! permanently bound to a [`Blake3Hash`].  Unlike a
+//! A [`Tag`](crate::store::tag::Tag) is arc's equivalent of Git's annotated tag: a human-readable name
+//! permanently bound to a [`Blake3Hash`](crate::algebra::Blake3Hash).  Unlike a
 //! [`View`](crate::store::view::View), a tag never moves.  Every tag is
 //! signed with the author's Ed25519 key, making supply-chain spoofing
 //! detectable without any external PKI.
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::algebra::Blake3Hash;
 use crate::store::author::{Author, PublicKeyBytes, Signature};
 
-/// An immutable, cryptographically-signed pointer to a specific [`Change`].
+/// An immutable, cryptographically-signed pointer to a specific [`Change`](crate::store::change::Change).
 ///
 /// # Cryptographic Guarantee
 ///

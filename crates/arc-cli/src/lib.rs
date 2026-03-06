@@ -13,6 +13,9 @@
 
 #![warn(missing_docs)]
 
+/// Git repository interoperability tools.
 pub mod interop;
+/// Top-level repository operations and VCS commands.
 pub mod repo;
+/// Fetch and pull synchronization primitives.
 pub mod sync;
