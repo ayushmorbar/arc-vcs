@@ -1,6 +1,8 @@
 pub mod rust_plugin;
 
-use crate::algebra::Atom;
+use std::collections::HashMap;
+
+use crate::algebra::{Atom, NodePath};
 
 /// Trait for language-specific AST parsing and diffing.
 ///
@@ -15,4 +17,16 @@ pub trait LanguagePlugin {
 
     /// Diff two source files and produce a list of atomic AST operations.
     fn diff(&self, old_src: &str, new_src: &str) -> Result<Vec<Atom>, String>;
+
+    /// Reconstruct source code for `filepath` from the materialized state.
+    ///
+    /// Finds all state entries whose keys start with `["file", filepath]`,
+    /// sorts them with a priority order (attributes first, then use
+    /// declarations, then everything else alphabetically), and concatenates
+    /// the content of each top-level item separated by double newlines.
+    fn unparse(
+        &self,
+        state: &HashMap<NodePath, Vec<u8>>,
+        filepath: &str,
+    ) -> Result<String, String>;
 }

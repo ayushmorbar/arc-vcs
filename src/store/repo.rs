@@ -159,13 +159,9 @@ impl Repository {
     /// Returns `Some(change_id)` if a change was created, or `None` if
     /// the working directory matches the materialized state exactly.
     ///
-    /// # Source-Map Strategy
-    ///
-    /// AST-level atoms from `tree-sitter` are used for semantic change
-    /// detection only. The actual `Change` stores file-map atoms
-    /// (`["file", path] → full source`) so that replay stays consistent.
-    /// In Phase 7, when `unparse()` is implemented, we will switch to
-    /// storing pure AST atoms and reconstructing source on demand.
+    /// Each file is decomposed into top-level AST items via `diff()`.
+    /// The resulting atoms are prefixed with `["file", filepath]` so that
+    /// `unparse()` can later reconstruct source per file.
     pub fn snap(&mut self, message: &str) -> anyhow::Result<Option<Blake3Hash>> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
@@ -180,35 +176,48 @@ impl Repository {
 
         for filepath in &rs_files {
             let new_src = fs::read_to_string(self.root.join(filepath))?;
-            let new_bytes = new_src.as_bytes();
 
-            let file_key = vec!["file".to_string(), filepath.clone()];
-            let old_bytes = state.get(&file_key);
+            // Reconstruct old source from the materialized AST state.
+            let old_src = plugin
+                .unparse(&state, filepath)
+                .unwrap_or_default();
 
             // Skip unchanged files entirely.
-            if old_bytes == Some(&new_bytes.to_vec()) {
+            if old_src == new_src {
                 continue;
             }
 
-            // Use AST diff for semantic change detection when both
-            // old and new source exist. New files are always a change.
-            if let Some(ob) = old_bytes {
-                let old_src = String::from_utf8_lossy(ob);
-                let ast_atoms = plugin
-                    .diff(&old_src, &new_src)
-                    .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
-                if !ast_atoms.is_empty() {
-                    has_semantic_change = true;
-                }
-            } else {
-                has_semantic_change = true;
+            // Diff at the top-level item granularity.
+            let ast_atoms = plugin
+                .diff(&old_src, &new_src)
+                .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
+
+            if ast_atoms.is_empty() {
+                // Whitespace-only change — not semantically meaningful.
+                continue;
             }
 
-            // Store the full file text as the replayable representation.
-            all_atoms.push(Atom::Insert {
-                at: file_key,
-                content: new_src.into_bytes(),
-            });
+            has_semantic_change = true;
+
+            // Prefix every atom path with ["file", filepath].
+            for atom in ast_atoms {
+                all_atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        // Detect deleted files: present in state but missing from disk.
+        let state_filepaths = extract_filepaths_from_state(&state);
+        for filepath in &state_filepaths {
+            if !self.root.join(filepath).exists() {
+                has_semantic_change = true;
+                // Emit Delete atoms for every state entry belonging to this file.
+                let prefix = ["file".to_string(), filepath.clone()];
+                for key in state.keys() {
+                    if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
+                        all_atoms.push(Atom::Delete { at: key.clone() });
+                    }
+                }
+            }
         }
 
         if !has_semantic_change {
@@ -270,44 +279,7 @@ impl Repository {
         let current_state = self.materialize(&current_name)?;
 
         // Check for un-snapped changes.
-        let plugin = RustPlugin::new();
-        let rs_files = collect_rs_files(&self.root)?;
-
-        for filepath in &rs_files {
-            let new_src = fs::read_to_string(self.root.join(filepath))?;
-            let file_key = vec!["file".to_string(), filepath.clone()];
-            let old_bytes = current_state.get(&file_key);
-
-            if old_bytes != Some(&new_src.as_bytes().to_vec()) {
-                if let Some(ob) = old_bytes {
-                    let old_src = String::from_utf8_lossy(ob);
-                    let ast_atoms = plugin
-                        .diff(&old_src, &new_src)
-                        .map_err(|e| anyhow::anyhow!("diff error: {e}"))?;
-                    if !ast_atoms.is_empty() {
-                        anyhow::bail!(
-                            "working directory is dirty — snap your changes before switching views"
-                        );
-                    }
-                } else {
-                    anyhow::bail!(
-                        "working directory is dirty — snap your changes before switching views"
-                    );
-                }
-            }
-        }
-
-        // Check for files in state that no longer exist on disk.
-        for key in current_state.keys() {
-            if key.first().map(|s| s.as_str()) == Some("file")
-                && let Some(filepath) = key.get(1)
-                && !self.root.join(filepath).exists()
-            {
-                anyhow::bail!(
-                    "working directory is dirty — snap your changes before switching views"
-                );
-            }
-        }
+        check_working_dir_clean(&self.root, &current_state, "switching views")?;
 
         // Hydrate the target view.
         self.hydrate(target)?;
@@ -357,7 +329,7 @@ impl Repository {
 
         // --- Dirty working-directory check ---
         let current_state = self.materialize_heads(&current_view.heads)?;
-        check_working_dir_clean(&self.root, &current_state)?;
+        check_working_dir_clean(&self.root, &current_state, "merging")?;
 
         // Find LCA.
         let lca_heads = self
@@ -559,6 +531,37 @@ fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath>
     None
 }
 
+/// Prepend `["file", filepath]` to every path inside an `Atom`.
+fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
+    let prepend = |mut path: NodePath| -> NodePath {
+        let mut prefixed = vec!["file".to_string(), filepath.to_string()];
+        prefixed.append(&mut path);
+        prefixed
+    };
+    match atom {
+        Atom::Insert { at, content } => Atom::Insert { at: prepend(at), content },
+        Atom::Delete { at } => Atom::Delete { at: prepend(at) },
+        Atom::Move { from, to } => Atom::Move { from: prepend(from), to: prepend(to) },
+        Atom::SemanticsPreserving { at, description } => {
+            Atom::SemanticsPreserving { at: prepend(at), description }
+        }
+    }
+}
+
+/// Collect the set of unique file paths present in a materialized state.
+///
+/// Looks for keys whose first segment is `"file"` and extracts the second
+/// segment as the filepath.
+fn extract_filepaths_from_state(state: &MaterializedState) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    for key in state.keys() {
+        if key.len() >= 2 && key[0] == "file" {
+            paths.insert(key[1].clone());
+        }
+    }
+    paths
+}
+
 /// Extract content at the given path from a materialized state.
 ///
 /// Returns an empty `Vec` if the path is not present.
@@ -570,42 +573,44 @@ fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8
 ///
 /// Returns an error if un-snapped changes are detected, preventing
 /// destructive overwrites during `merge_heads`, `pull`, or `switch_view`.
-fn check_working_dir_clean(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
+fn check_working_dir_clean(
+    root: &Path,
+    state: &MaterializedState,
+    context: &str,
+) -> anyhow::Result<()> {
     let plugin = RustPlugin::new();
     let rs_files = collect_rs_files(root)?;
 
     for filepath in &rs_files {
         let new_src = fs::read_to_string(root.join(filepath))?;
-        let file_key = vec!["file".to_string(), filepath.clone()];
-        let old_bytes = state.get(&file_key);
+        let old_src = plugin.unparse(state, filepath).unwrap_or_default();
 
-        if old_bytes != Some(&new_src.as_bytes().to_vec()) {
-            if let Some(ob) = old_bytes {
-                let old_src = String::from_utf8_lossy(ob);
-                let ast_atoms = plugin
-                    .diff(&old_src, &new_src)
-                    .map_err(|e| anyhow::anyhow!("diff error: {e}"))?;
-                if !ast_atoms.is_empty() {
-                    anyhow::bail!(
-                        "working directory is dirty — snap your changes before merging"
-                    );
-                }
-            } else {
-                anyhow::bail!(
-                    "working directory is dirty — snap your changes before merging"
-                );
-            }
+        if old_src == new_src {
+            continue;
+        }
+
+        // Unparse returned empty but file exists → new file.
+        if old_src.is_empty() {
+            anyhow::bail!(
+                "working directory is dirty — snap your changes before {context}"
+            );
+        }
+
+        let ast_atoms = plugin
+            .diff(&old_src, &new_src)
+            .map_err(|e| anyhow::anyhow!("diff error: {e}"))?;
+        if !ast_atoms.is_empty() {
+            anyhow::bail!(
+                "working directory is dirty — snap your changes before {context}"
+            );
         }
     }
 
     // Check for files in state that no longer exist on disk.
-    for key in state.keys() {
-        if key.first().map(|s| s.as_str()) == Some("file")
-            && let Some(filepath) = key.get(1)
-            && !root.join(filepath).exists()
-        {
+    for filepath in extract_filepaths_from_state(state) {
+        if !root.join(&filepath).exists() {
             anyhow::bail!(
-                "working directory is dirty — snap your changes before merging"
+                "working directory is dirty — snap your changes before {context}"
             );
         }
     }
@@ -618,7 +623,7 @@ fn check_working_dir_clean(root: &Path, state: &MaterializedState) -> anyhow::Re
 /// Instead of blindly wiping all `.rs` files (which can fail on Windows
 /// if an IDE or language server holds a file lock), we iterate the
 /// *known* file set, tolerate `NotFound` errors, and then write the
-/// target state.
+/// target state reconstructed via `unparse()`.
 fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
     // Remove existing .rs files, tolerating NotFound.
     let existing = collect_rs_files(root)?;
@@ -631,17 +636,22 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
         }
     }
 
-    // Write files from the materialized state.
-    for (key, content) in state {
-        if key.first().map(|s| s.as_str()) == Some("file")
-            && let Some(filepath) = key.get(1)
-        {
-            let full = root.join(filepath);
-            if let Some(parent) = full.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::write(&full, content)?;
+    // Reconstruct files from the materialized AST state via unparse.
+    let plugin = RustPlugin::new();
+    for filepath in extract_filepaths_from_state(state) {
+        let source = plugin
+            .unparse(state, &filepath)
+            .map_err(|e| anyhow::anyhow!("unparse error for {filepath}: {e}"))?;
+
+        if source.is_empty() {
+            continue;
         }
+
+        let full = root.join(&filepath);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&full, source.as_bytes())?;
     }
 
     Ok(())
@@ -747,13 +757,17 @@ mod tests {
         let second_id = second.unwrap();
         assert_ne!(first_id, second_id);
 
-        // Materialize and verify the file content.
+        // Materialize and verify the file content via unparse.
         let state = repo.materialize("main").unwrap();
-        let file_key = vec!["file".to_string(), "test.rs".to_string()];
-        let content = state.get(&file_key).expect("file key must exist");
-        assert_eq!(
-            String::from_utf8_lossy(content),
-            "fn main() { let x = 1; }"
+        let plugin = crate::ast::rust_plugin::RustPlugin::new();
+        let reconstructed = plugin.unparse(&state, "test.rs").unwrap();
+        assert_eq!(reconstructed, "fn main() { let x = 1; }");
+
+        // The old flat key ["file", "test.rs"] must NOT exist.
+        let flat_key = vec!["file".to_string(), "test.rs".to_string()];
+        assert!(
+            state.get(&flat_key).is_none(),
+            "source-map hack must be eliminated — no flat file key allowed"
         );
     }
 

@@ -39,8 +39,8 @@ impl LanguagePlugin for RustPlugin {
         let old_tree = self.parse(old_src)?;
         let new_tree = self.parse(new_src)?;
 
-        let old_map = collect_leaf_nodes(old_tree.root_node(), old_src.as_bytes());
-        let new_map = collect_leaf_nodes(new_tree.root_node(), new_src.as_bytes());
+        let old_map = collect_top_level_items(old_tree.root_node(), old_src.as_bytes());
+        let new_map = collect_top_level_items(new_tree.root_node(), new_src.as_bytes());
 
         let mut atoms = Vec::new();
 
@@ -88,6 +88,48 @@ impl LanguagePlugin for RustPlugin {
         });
 
         Ok(atoms)
+    }
+
+    fn unparse(
+        &self,
+        state: &HashMap<NodePath, Vec<u8>>,
+        filepath: &str,
+    ) -> Result<String, String> {
+        let prefix = ["file".to_string(), filepath.to_string()];
+
+        let mut items: Vec<(&NodePath, &Vec<u8>)> = state
+            .iter()
+            .filter(|(key, _)| key.len() > prefix.len() && key[..prefix.len()] == prefix[..])
+            .collect();
+
+        if items.is_empty() {
+            return Ok(String::new());
+        }
+
+        // Custom sort: attribute_item first, use_declaration second, then
+        // alphabetically by path. This guarantees compilable Rust output.
+        items.sort_by(|(a, _), (b, _)| {
+            fn sort_key(path: &NodePath) -> (u8, &NodePath) {
+                // The item-kind segment sits right after the ["file", filepath] prefix.
+                let kind = path.get(2).map(|s| s.as_str()).unwrap_or("");
+                let priority = if kind.starts_with("attribute_item") || kind.starts_with("inner_attribute_item") {
+                    0
+                } else if kind.starts_with("use_declaration") {
+                    1
+                } else {
+                    2
+                };
+                (priority, path)
+            }
+            sort_key(a).cmp(&sort_key(b))
+        });
+
+        let parts: Vec<String> = items
+            .iter()
+            .map(|(_, content)| String::from_utf8_lossy(content).to_string())
+            .collect();
+
+        Ok(parts.join("\n\n"))
     }
 }
 
@@ -148,27 +190,21 @@ fn node_segment(node: &Node, source: &[u8]) -> String {
     kind.to_string()
 }
 
-/// Walk the tree and collect all *leaf* nodes into a map of `NodePath → content bytes`.
+/// Walk the tree and collect all *top-level named* children of the root
+/// (`source_file`) node. Each entry maps a `NodePath` to the node's full
+/// source text.
 ///
-/// A leaf is any node with `child_count() == 0`. The content (`ASTNode` / `Vec<u8>`)
-/// is extracted by slicing `source[node.start_byte()..node.end_byte()]`.
-fn collect_leaf_nodes(root: Node, source: &[u8]) -> HashMap<NodePath, ASTNode> {
+/// For nodes without a semantic `name` field (e.g. `line_comment`,
+/// `block_comment`, `attribute_item`), `generate_path` falls back to
+/// `kind#sibling_index`, so nothing is silently dropped.
+fn collect_top_level_items(root: Node, source: &[u8]) -> HashMap<NodePath, ASTNode> {
     let mut map = HashMap::new();
-    let mut stack = vec![root];
-
-    while let Some(node) = stack.pop() {
-        if node.child_count() == 0 {
-            let path = generate_path(node, source);
-            let content = source[node.start_byte()..node.end_byte()].to_vec();
-            map.insert(path, content);
-        } else {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                stack.push(child);
-            }
-        }
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        let path = generate_path(child, source);
+        let content = source[child.start_byte()..child.end_byte()].to_vec();
+        map.insert(path, content);
     }
-
     map
 }
 
