@@ -26,6 +26,11 @@ pub enum Atom {
     Move { from: NodePath, to: NodePath },
     /// A semantics-preserving transformation rooted at the given path.
     SemanticsPreserving { at: NodePath, description: String },
+    /// Record the existence of an empty directory.
+    ///
+    /// `arc` tracks bare directories natively so that developers never need
+    /// dummy `.gitkeep` files to preserve folder structure.
+    Directory { path: NodePath },
 }
 
 impl Atom {
@@ -37,6 +42,7 @@ impl Atom {
             Atom::Delete { at } => vec![at],
             Atom::Move { from, to } => vec![from, to],
             Atom::SemanticsPreserving { at, .. } => vec![at],
+            Atom::Directory { path } => vec![path],
         }
     }
 }

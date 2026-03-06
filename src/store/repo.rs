@@ -15,6 +15,7 @@ use crate::store::cas::ObjectStore;
 use crate::store::change::Change;
 use crate::store::graph::ChangeGraph;
 use crate::store::view::View;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 /// Persisted conflict state written to `.arc/conflict` when a merge fails.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +157,7 @@ impl Repository {
     /// Replay the DAG in topological order to produce a materialized state
     /// from an arbitrary set of heads.
     pub fn materialize_heads(&self, heads: &HashSet<Blake3Hash>) -> anyhow::Result<MaterializedState> {
+        let agent_ignore = load_agentignore(&self.root);
         let order = self.graph.topological_sort(heads);
         let mut state = MaterializedState::new();
 
@@ -164,7 +166,7 @@ impl Repository {
                 .graph
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(&mut state, change)
+            apply_change(&mut state, change, &agent_ignore)
                 .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
@@ -211,8 +213,10 @@ impl Repository {
         let mut all_atoms = Vec::new();
         let mut has_semantic_change = false;
 
-        // Collect .rs files from the working directory (recursive).
-        let rs_files = collect_rs_files(&self.root)?;
+        // Collect .rs files from the working directory (recursive), filtered
+        // by .arcignore if present.
+        let arcignore = load_arcignore(&self.root);
+        let rs_files = collect_rs_files(&self.root, &arcignore)?;
 
         for filepath in &rs_files {
             let new_src = fs::read_to_string(self.root.join(filepath))?;
@@ -257,6 +261,27 @@ impl Repository {
                         all_atoms.push(Atom::Delete { at: key.clone() });
                     }
                 }
+            }
+        }
+
+        // Detect new empty directories not yet recorded in state.
+        let dir_key = |rel: &str| vec!["dir".to_string(), rel.to_string()];
+        let existing_dirs: std::collections::HashSet<String> = state
+            .keys()
+            .filter(|k| k.len() == 2 && k[0] == "dir")
+            .map(|k| k[1].clone())
+            .collect();
+        for rel_dir in collect_empty_dirs(&self.root, &arcignore)? {
+            if !existing_dirs.contains(&rel_dir) {
+                has_semantic_change = true;
+                all_atoms.push(Atom::Directory { path: dir_key(&rel_dir) });
+            }
+        }
+        // Detect removed directories (recorded in state, no longer on disk).
+        for rel_dir in &existing_dirs {
+            if !self.root.join(rel_dir).exists() {
+                has_semantic_change = true;
+                all_atoms.push(Atom::Delete { at: dir_key(rel_dir) });
             }
         }
 
@@ -587,6 +612,7 @@ pub(crate) fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
         Atom::SemanticsPreserving { at, description } => {
             Atom::SemanticsPreserving { at: prepend(at), description }
         }
+        Atom::Directory { path } => Atom::Directory { path: prepend(path) },
     }
 }
 
@@ -620,8 +646,9 @@ fn check_working_dir_clean(
     state: &MaterializedState,
     context: &str,
 ) -> anyhow::Result<()> {
+    let arcignore = load_arcignore(root);
     let plugin = RustPlugin::new();
-    let rs_files = collect_rs_files(root)?;
+    let rs_files = collect_rs_files(root, &arcignore)?;
 
     for filepath in &rs_files {
         let new_src = fs::read_to_string(root.join(filepath))?;
@@ -668,7 +695,8 @@ fn check_working_dir_clean(
 /// target state reconstructed via `unparse()`.
 fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
     // Remove existing .rs files, tolerating NotFound.
-    let existing = collect_rs_files(root)?;
+    let arcignore = load_arcignore(root);
+    let existing = collect_rs_files(root, &arcignore)?;
     for filepath in &existing {
         let full = root.join(filepath);
         match fs::remove_file(&full) {
@@ -696,13 +724,90 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
         fs::write(&full, source.as_bytes())?;
     }
 
+    // Re-create tracked empty directories.
+    for key in state.keys() {
+        if key.len() == 2 && key[0] == "dir" {
+            fs::create_dir_all(root.join(&key[1]))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn load_agentignore(root: &Path) -> Gitignore {
+    let path = root.join(".agentignore");
+    let mut builder = GitignoreBuilder::new(root);
+    if path.exists() {
+        builder.add(&path);
+    }
+    builder.build().unwrap_or(Gitignore::empty())
+}
+
+fn load_arcignore(root: &Path) -> Gitignore {
+    let path = root.join(".arcignore");
+    let mut builder = GitignoreBuilder::new(root);
+    if path.exists() {
+        builder.add(&path);
+    }
+    builder.build().unwrap_or(Gitignore::empty())
+}
+
+fn collect_empty_dirs(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+    let mut result = Vec::new();
+    collect_empty_dirs_recursive(root, root, arcignore, &mut result)?;
+    result.sort();
+    Ok(result)
+}
+
+fn collect_empty_dirs_recursive(
+    base: &Path,
+    dir: &Path,
+    arcignore: &Gitignore,
+    result: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let entries: Vec<_> = match fs::read_dir(dir) {
+        Ok(e) => e.filter_map(|e| e.ok()).collect(),
+        Err(_) => return Ok(()),
+    };
+    // Skip hidden directories (except base itself).
+    if dir != base {
+        if let Some(name) = dir.file_name().and_then(|n| n.to_str())
+            && name.starts_with('.')
+        {
+            return Ok(());
+        }
+        if let Ok(rel) = dir.strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if arcignore
+                .matched_path_or_any_parents(&rel_str, true)
+                .is_ignore()
+            {
+                return Ok(());
+            }
+        }
+    }
+    let sub_dirs: Vec<_> = entries
+        .iter()
+        .filter(|e| e.path().is_dir())
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .collect();
+    let files: Vec<_> = entries.iter().filter(|e| e.path().is_file()).collect();
+    if sub_dirs.is_empty() && files.is_empty() && dir != base {
+        if let Ok(rel) = dir.strip_prefix(base) {
+            result.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    } else {
+        for sub in &sub_dirs {
+            collect_empty_dirs_recursive(base, &sub.path(), arcignore, result)?;
+        }
+    }
     Ok(())
 }
 
 /// Recursively collect `*.rs` file paths relative to `root`.
-fn collect_rs_files(root: &Path) -> anyhow::Result<Vec<String>> {
+fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
-    collect_rs_recursive(root, root, &mut files)?;
+    collect_rs_recursive(root, root, &mut files, arcignore)?;
     files.sort();
     Ok(files)
 }
@@ -711,6 +816,7 @@ fn collect_rs_recursive(
     base: &Path,
     dir: &Path,
     files: &mut Vec<String>,
+    arcignore: &Gitignore,
 ) -> anyhow::Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -719,14 +825,24 @@ fn collect_rs_recursive(
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        // Skip .arc and hidden directories.
+        // Skip .arc and hidden directories / files.
         if let Some(name) = path.file_name().and_then(|n| n.to_str())
             && name.starts_with('.')
         {
             continue;
         }
+        // Skip paths matched by .arcignore.
+        if let Ok(rel) = path.strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if arcignore
+                .matched_path_or_any_parents(&rel_str, path.is_dir())
+                .is_ignore()
+            {
+                continue;
+            }
+        }
         if path.is_dir() {
-            collect_rs_recursive(base, &path, files)?;
+            collect_rs_recursive(base, &path, files, arcignore)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
             && let Ok(rel) = path.strip_prefix(base)
         {

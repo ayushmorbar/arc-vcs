@@ -82,6 +82,7 @@ impl LanguagePlugin for RustPlugin {
                     | Atom::Delete { at }
                     | Atom::SemanticsPreserving { at, .. } => at,
                     Atom::Move { from, .. } => from,
+                    Atom::Directory { path } => path,
                 }
             }
             key(a).cmp(key(b))
