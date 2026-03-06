@@ -24,6 +24,30 @@ enum Command {
     },
     /// Show the change log (placeholder).
     Log,
+    /// Manage views (branches).
+    View {
+        #[command(subcommand)]
+        action: ViewAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ViewAction {
+    /// Create a new view forked from the current view.
+    Create {
+        /// Name of the new view.
+        name: String,
+    },
+    /// Switch the working directory to a different view.
+    Switch {
+        /// Name of the view to switch to.
+        name: String,
+    },
+    /// Merge another view into the current view.
+    Merge {
+        /// Name of the view to merge.
+        name: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -50,6 +74,23 @@ fn main() -> anyhow::Result<()> {
         Command::Log => {
             println!("(log not yet implemented)");
         }
+        Command::View { action } => match action {
+            ViewAction::Create { name } => {
+                let repo = Repository::open(".")?;
+                repo.create_view(&name)?;
+                println!("Created view '{name}'");
+            }
+            ViewAction::Switch { name } => {
+                let mut repo = Repository::open(".")?;
+                repo.switch_view(&name)?;
+                println!("Switched to view '{name}'");
+            }
+            ViewAction::Merge { name } => {
+                let mut repo = Repository::open(".")?;
+                repo.merge_view(&name)?;
+                println!("Merged view '{name}' into current view");
+            }
+        },
     }
 
     Ok(())

@@ -3,16 +3,14 @@ use crate::store::change::Change;
 
 /// Two changes commute if and only if:
 /// 1. Neither depends on the other (no causal ordering).
-/// 2. Their dependency sets are completely disjoint.
-/// 3. Their atoms operate on disjoint AST subtrees.
+/// 2. Their atoms operate on disjoint AST subtrees.
+///
+/// Sharing a common dependency is harmless — two branches forked from the
+/// same ancestor naturally share that ancestor in their dep sets. Only a
+/// *direct* causal link (`a ∈ b.deps` or `b ∈ a.deps`) prevents commutativity.
 pub fn commutes(a: &Change, b: &Change) -> bool {
     // Fast path: explicit causal dependency
     if b.deps.contains(&a.id) || a.deps.contains(&b.id) {
-        return false;
-    }
-
-    // Dependency sets must be fully disjoint
-    if !a.deps.is_disjoint(&b.deps) {
         return false;
     }
 
