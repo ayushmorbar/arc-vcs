@@ -2,15 +2,26 @@ use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
+use crate::ai::AiResolver;
 use crate::algebra::apply::{apply_change, MaterializedState};
 use crate::algebra::commute::commutes;
-use crate::algebra::{Atom, Blake3Hash};
+use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::ast::rust_plugin::RustPlugin;
 use crate::ast::LanguagePlugin;
 use crate::store::cas::ObjectStore;
 use crate::store::change::Change;
 use crate::store::graph::ChangeGraph;
 use crate::store::view::View;
+
+/// Persisted conflict state written to `.arc/conflict` when a merge fails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingConflict {
+    pub current_view: String,
+    pub target_view: String,
+    pub conflicting_pairs: Vec<(Blake3Hash, Blake3Hash)>,
+}
 
 /// Top-level repository handle, tying together the CAS, the change graph,
 /// and the on-disk `.arc` layout.
@@ -143,7 +154,7 @@ impl Repository {
     /// (`["file", path] → full source`) so that replay stays consistent.
     /// In Phase 7, when `unparse()` is implemented, we will switch to
     /// storing pure AST atoms and reconstructing source on demand.
-    pub fn snap(&mut self, _message: &str) -> anyhow::Result<Option<Blake3Hash>> {
+    pub fn snap(&mut self, message: &str) -> anyhow::Result<Option<Blake3Hash>> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
@@ -195,7 +206,7 @@ impl Repository {
         let mut view = View::load(&self.root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
-        let change = Change::new(view.heads.clone(), all_atoms);
+        let change = Change::new(view.heads.clone(), all_atoms, message);
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
@@ -349,6 +360,7 @@ impl Repository {
             .collect();
 
         // Cross-product commutativity check.
+        let mut conflicting_pairs = Vec::new();
         for &id_a in &delta_a {
             let change_a = self
                 .graph
@@ -360,13 +372,27 @@ impl Repository {
                     .get(&id_b)
                     .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
                 if !commutes(change_a, change_b) {
-                    let hex_a: String = id_a.iter().map(|b| format!("{b:02x}")).collect();
-                    let hex_b: String = id_b.iter().map(|b| format!("{b:02x}")).collect();
-                    anyhow::bail!(
-                        "Semantic Conflict detected between {hex_a} and {hex_b}. AI resolution required."
-                    );
+                    conflicting_pairs.push((id_a, id_b));
                 }
             }
+        }
+
+        if !conflicting_pairs.is_empty() {
+            let conflict = PendingConflict {
+                current_view: current_name.clone(),
+                target_view: target_name.to_string(),
+                conflicting_pairs: conflicting_pairs.clone(),
+            };
+            let conflict_path = self.root.join(".arc").join("conflict");
+            let bytes = bincode::serialize(&conflict)
+                .map_err(|e| anyhow::anyhow!("failed to serialize conflict: {e}"))?;
+            fs::write(&conflict_path, bytes)?;
+
+            let hex_a: String = conflicting_pairs[0].0.iter().map(|b| format!("{b:02x}")).collect();
+            let hex_b: String = conflicting_pairs[0].1.iter().map(|b| format!("{b:02x}")).collect();
+            anyhow::bail!(
+                "Semantic Conflict detected between {hex_a} and {hex_b}. AI resolution required."
+            );
         }
 
         // All commute — union the heads.
@@ -384,6 +410,143 @@ impl Repository {
 
         Ok(())
     }
+
+    /// Resolve a pending conflict stored in `.arc/conflict` using the
+    /// provided [`AiResolver`].
+    ///
+    /// For each conflicting pair the resolver is called with the LCA base,
+    /// both sides' content at the overlapping path, and their intents.
+    /// The resolved content is committed as a new merge change.
+    pub fn resolve_conflict(&mut self, resolver: &dyn AiResolver) -> anyhow::Result<Blake3Hash> {
+        let conflict_path = self.root.join(".arc").join("conflict");
+        if !conflict_path.exists() {
+            anyhow::bail!("no pending conflict — nothing to resolve");
+        }
+
+        let conflict_bytes = fs::read(&conflict_path)?;
+        let conflict: PendingConflict = bincode::deserialize(&conflict_bytes)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize conflict: {e}"))?;
+
+        // Hydrate both views.
+        self.hydrate(&conflict.current_view)?;
+        self.hydrate(&conflict.target_view)?;
+
+        let current_view = View::load(&self.root, &conflict.current_view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
+        let target_view = View::load(&self.root, &conflict.target_view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.target_view))?;
+
+        // Materialize LCA state via a temporary view.
+        // NOTE: Phase 8 debt — materialize directly from a HashSet<Blake3Hash>.
+        let lca_heads = self.graph.merge_base(&current_view.heads, &target_view.heads);
+        let lca_view_name = "__lca_temp__";
+        let lca_view = View::new(lca_view_name, lca_heads);
+        lca_view.save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save temp LCA view: {e}"))?;
+        let lca_state = if lca_view.heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize(lca_view_name)?
+        };
+        // Clean up temp view.
+        let _ = fs::remove_file(self.root.join(".arc").join("views").join(lca_view_name));
+
+        let current_state = self.materialize(&conflict.current_view)?;
+        let target_state = self.materialize(&conflict.target_view)?;
+
+        let mut merge_atoms = Vec::new();
+        let mut combined_intent = String::from("AI merge: ");
+
+        for (id_a, id_b) in &conflict.conflicting_pairs {
+            let change_a = self.graph.get(id_a)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+            let change_b = self.graph.get(id_b)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+
+            let overlap = find_overlapping_path(&change_a.atoms, &change_b.atoms);
+            let path = overlap.ok_or_else(|| {
+                anyhow::anyhow!("no overlapping path found for conflicting pair")
+            })?;
+
+            let base_content = extract_content_at_path(&lca_state, &path);
+            let ours_content = extract_content_at_path(&current_state, &path);
+            let theirs_content = extract_content_at_path(&target_state, &path);
+
+            let resolved = resolver
+                .resolve(
+                    &base_content,
+                    &ours_content,
+                    &theirs_content,
+                    &change_a.intent,
+                    &change_b.intent,
+                )
+                .map_err(|e| anyhow::anyhow!("AI resolver failed: {e}"))?;
+
+            merge_atoms.push(Atom::Insert {
+                at: path,
+                content: resolved,
+            });
+
+            combined_intent.push_str(&change_a.intent);
+            combined_intent.push_str(" + ");
+            combined_intent.push_str(&change_b.intent);
+            combined_intent.push_str("; ");
+        }
+
+        // Deps = union of both views' heads.
+        let mut merge_deps = current_view.heads.clone();
+        merge_deps.extend(&target_view.heads);
+
+        let merge_change = Change::new(merge_deps, merge_atoms, combined_intent);
+        self.store.write_change(&merge_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph.add_change(merge_change.clone());
+
+        // Update the current view to point to the merge change.
+        let updated = View::new(&conflict.current_view, HashSet::from([merge_change.id]));
+        updated.save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save resolved view: {e}"))?;
+
+        // Re-materialize and write to working directory.
+        let resolved_state = self.materialize(&conflict.current_view)?;
+        write_state_to_working_dir(&self.root, &resolved_state)?;
+
+        // Remove the conflict file.
+        fs::remove_file(&conflict_path)?;
+
+        Ok(merge_change.id)
+    }
+}
+
+/// Find the first overlapping AST path between two sets of atoms.
+fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath> {
+    for a in atoms_a {
+        for b in atoms_b {
+            for pa in a.paths() {
+                for pb in b.paths() {
+                    let min_len = pa.len().min(pb.len());
+                    if pa[..min_len] == pb[..min_len] {
+                        // Return the longer (more specific) path.
+                        if pa.len() >= pb.len() {
+                            return Some(pa.clone());
+                        } else {
+                            return Some(pb.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract content at the given path from a materialized state.
+///
+/// Returns an empty `Vec` if the path is not present.
+fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8> {
+    state.get(path).cloned().unwrap_or_default()
 }
 
 /// Overwrite the working directory with the given materialized state.
@@ -613,6 +776,65 @@ mod tests {
         assert!(
             err_msg.contains("Semantic Conflict"),
             "error must mention 'Semantic Conflict', got: {err_msg}"
+        );
+
+        // Verify .arc/conflict was persisted.
+        assert!(
+            repo_path.join(".arc").join("conflict").exists(),
+            ".arc/conflict must exist after a failed merge"
+        );
+    }
+
+    #[test]
+    fn test_ai_conflict_resolution() {
+        use crate::ai::MockResolver;
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("ai_resolve_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+
+        // Snap initial file on main.
+        fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
+        repo.snap("initial shared.rs").unwrap();
+
+        // Create and switch to "feature".
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+
+        // Modify shared.rs on feature.
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }").unwrap();
+        repo.snap("modify shared.rs on feature").unwrap();
+
+        // Switch back to main and modify the same file differently.
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
+        repo.snap("modify shared.rs on main").unwrap();
+
+        // Merge fails — creates .arc/conflict.
+        let result = repo.merge_view("feature");
+        assert!(result.is_err());
+
+        // Resolve via the mock AI resolver.
+        let resolver = MockResolver;
+        let merge_id = repo.resolve_conflict(&resolver).unwrap();
+
+        // The merge change ID should be non-zero.
+        assert_ne!(merge_id, [0u8; 32]);
+
+        // .arc/conflict should be cleaned up.
+        assert!(
+            !repo_path.join(".arc").join("conflict").exists(),
+            ".arc/conflict must be removed after resolution"
+        );
+
+        // The working directory should have shared.rs with merged content.
+        let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
+        // MockResolver concatenates ours + "\n" + theirs.
+        assert!(
+            content.contains("fn shared() { let b = 2; }")
+                && content.contains("fn shared() { let a = 1; }"),
+            "merged content must contain both sides, got: {content}"
         );
     }
 }

@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+use arc::ai::MockResolver;
 use arc::store::repo::Repository;
 
 #[derive(Parser)]
@@ -29,6 +30,11 @@ enum Command {
         #[command(subcommand)]
         action: ViewAction,
     },
+    /// AI-powered operations.
+    Ai {
+        #[command(subcommand)]
+        action: AiAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -48,6 +54,12 @@ enum ViewAction {
         /// Name of the view to merge.
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum AiAction {
+    /// Resolve a pending semantic conflict using the AI resolver.
+    Resolve,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -89,6 +101,15 @@ fn main() -> anyhow::Result<()> {
                 let mut repo = Repository::open(".")?;
                 repo.merge_view(&name)?;
                 println!("Merged view '{name}' into current view");
+            }
+        },
+        Command::Ai { action } => match action {
+            AiAction::Resolve => {
+                let mut repo = Repository::open(".")?;
+                let resolver = MockResolver;
+                let id = repo.resolve_conflict(&resolver)?;
+                let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Resolved conflict → {hex}");
             }
         },
     }

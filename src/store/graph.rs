@@ -221,6 +221,7 @@ mod tests {
                 at: vec![label.to_string()],
                 content: label.as_bytes().to_vec(),
             }],
+            "test",
         )
     }
 

@@ -59,7 +59,7 @@ mod tests {
                 content: vec![],
             })
             .collect();
-        Change::new(deps, atoms)
+        Change::new(deps, atoms, "test")
     }
 
     #[test]

@@ -91,6 +91,7 @@ mod tests {
                 at: vec!["root".into(), "child".into()],
                 content: b"hello world".to_vec(),
             }],
+            "test",
         )
     }
 

@@ -65,6 +65,7 @@ mod tests {
                     content: b"x + 1".to_vec(),
                 },
             ],
+            "test",
         );
 
         apply_change(&mut state, &insert_change).unwrap();
@@ -80,6 +81,7 @@ mod tests {
             vec![Atom::Delete {
                 at: vec!["fn_main".into(), "ret".into()],
             }],
+            "test",
         );
 
         apply_change(&mut state, &delete_change).unwrap();
@@ -98,6 +100,7 @@ mod tests {
             vec![Atom::Delete {
                 at: vec!["ghost".into()],
             }],
+            "test",
         );
 
         let result = apply_change(&mut state, &bad_delete);
