@@ -29,8 +29,15 @@ enum Command {
         #[arg(short = 'i', long, default_value_t = false)]
         interactive: bool,
     },
-    /// Show the change log (placeholder).
+    /// Show the change log.
     Log,
+    /// Show uncommitted changes as semantic AST atoms.
+    Status,
+    /// Port an existing change into the current view by its hash.
+    CherryPick {
+        /// Full 64-character hex hash of the change to port.
+        hash: String,
+    },
     /// Query semantic blame: who authored each AST node in a file.
     Blame {
         /// Path to the file (relative to the repository root).
@@ -168,7 +175,48 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::Log => {
-            println!("(log not yet implemented)");
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let changes = repo.log()?;
+            if changes.is_empty() {
+                println!("No changes yet.");
+            } else {
+                for change in changes {
+                    let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
+                    let author_str = match &change.author {
+                        arc::store::author::Author::Human { name, email, .. } => {
+                            format!("{name} <{email}>")
+                        }
+                        arc::store::author::Author::AI { model, human_sponsor } => {
+                            let sponsor: String =
+                                human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                            format!("{model} | sponsor:{}", &sponsor[..8])
+                        }
+                    };
+                    println!("{} — {} — {}", &hex[..8], author_str, change.intent);
+                }
+            }
+        }
+        Command::Status => {
+            let mut repo = Repository::open(".")?;
+            let atoms = repo.status()?;
+            if atoms.is_empty() {
+                println!("Nothing to snap — working directory is clean.");
+            } else {
+                println!("Uncommitted changes:");
+                for atom in &atoms {
+                    println!("  {}", atom_display_label(atom));
+                }
+            }
+        }
+        Command::CherryPick { hash } => {
+            let hash_bytes = hex_to_hash(&hash)?;
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            repo.cherry_pick(&hash_bytes)?;
+            println!("Cherry-picked {} into current view.", &hash[..8]);
         }
         Command::Blame { filepath } => {
             let mut repo = Repository::open(".")?;
@@ -326,4 +374,59 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse a 64-character hex string into a [`arc::algebra::Blake3Hash`].
+fn hex_to_hash(hex: &str) -> anyhow::Result<arc::algebra::Blake3Hash> {
+    if hex.len() != 64 {
+        anyhow::bail!("hash must be exactly 64 hex characters, got {}", hex.len());
+    }
+    let mut out = [0u8; 32];
+    for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+        let hi = dehex(chunk[0])?;
+        let lo = dehex(chunk[1])?;
+        out[i] = (hi << 4) | lo;
+    }
+    Ok(out)
+}
+
+fn dehex(b: u8) -> anyhow::Result<u8> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => anyhow::bail!("invalid hex character: {}", b as char),
+    }
+}
+
+/// Human-readable single-line description of an [`arc::algebra::Atom`].
+fn atom_display_label(atom: &arc::algebra::Atom) -> String {
+    use arc::algebra::Atom;
+    match atom {
+        Atom::Insert { at, .. } => {
+            let node = at.last().cloned().unwrap_or_else(|| "?".to_string());
+            let file = at.get(1).cloned().unwrap_or_else(|| "?".to_string());
+            format!("+ {node}  ({file})")
+        }
+        Atom::Delete { at } => {
+            let node = at.last().cloned().unwrap_or_else(|| "?".to_string());
+            let file = at.get(1).cloned().unwrap_or_else(|| "?".to_string());
+            format!("- {node}  ({file})")
+        }
+        Atom::Move { from, to } => {
+            format!(
+                "~ {} → {}",
+                from.last().cloned().unwrap_or_else(|| "?".to_string()),
+                to.last().cloned().unwrap_or_else(|| "?".to_string())
+            )
+        }
+        Atom::SemanticsPreserving { at, description } => {
+            let node = at.last().cloned().unwrap_or_else(|| "?".to_string());
+            format!("~ {node}  ({description})")
+        }
+        Atom::Directory { path } => {
+            let dir = path.last().cloned().unwrap_or_else(|| "?".to_string());
+            format!("d {dir}")
+        }
+    }
 }

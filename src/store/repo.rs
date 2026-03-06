@@ -255,107 +255,64 @@ impl Repository {
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
 
-        let plugin = RustPlugin::new();
-        let mut all_atoms = Vec::new();
-        let mut has_semantic_change = false;
+        // Compute every atom that would represent the current working-directory
+        // delta relative to the materialized state.
+        let raw_atoms = self.compute_working_directory_delta(&state)?;
 
-        // Collect .rs files from the working directory (recursive), filtered
-        // by .arcignore if present.
-        let arcignore = load_arcignore(&self.root);
-        let rs_files = collect_rs_files(&self.root, &arcignore)?;
-
-        for filepath in &rs_files {
-            let new_src = fs::read_to_string(self.root.join(filepath))?;
-
-            // Reconstruct old source from the materialized AST state.
-            let old_src = plugin
-                .unparse(&state, filepath)
-                .unwrap_or_default();
-
-            // Skip unchanged files entirely.
-            if old_src == new_src {
-                continue;
-            }
-
-            // Diff at the top-level item granularity.
-            let ast_atoms = plugin
-                .diff(&old_src, &new_src)
-                .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
-
-            if ast_atoms.is_empty() {
-                // Whitespace-only change — not semantically meaningful.
-                continue;
-            }
-
-            // Interactive staging: present each atom and let the user accept/reject.
-            let accepted_atoms: Vec<_> = if interactive {
-                use std::io::Write;
-                println!("-- {filepath} --");
-                let mut accepted = Vec::new();
-                for atom in ast_atoms {
-                    let label = atom_label(&atom);
-                    print!("  {label}\n  Stage this change? [y/N] ");
-                    std::io::stdout().flush().ok();
-                    let mut line = String::new();
-                    std::io::stdin().read_line(&mut line).ok();
-                    if line.trim().eq_ignore_ascii_case("y") {
-                        accepted.push(atom);
-                    }
-                }
-                accepted
-            } else {
-                ast_atoms
-            };
-
-            if accepted_atoms.is_empty() {
-                continue;
-            }
-
-            has_semantic_change = true;
-
-            // Prefix every atom path with ["file", filepath].
-            for atom in accepted_atoms {
-                all_atoms.push(prefix_atom_path(atom, filepath));
-            }
+        if raw_atoms.is_empty() {
+            return Ok(None);
         }
 
-        // Detect deleted files: present in state but missing from disk.
-        let state_filepaths = extract_filepaths_from_state(&state);
-        for filepath in &state_filepaths {
-            if !self.root.join(filepath).exists() {
-                has_semantic_change = true;
-                // Emit Delete atoms for every state entry belonging to this file.
-                let prefix = ["file".to_string(), filepath.clone()];
-                for key in state.keys() {
-                    if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
-                        all_atoms.push(Atom::Delete { at: key.clone() });
-                    }
+        // Interactive staging: filter atoms the user does not want to stage.
+        // Deletion / directory atoms are always kept to avoid ghost-file state.
+        let all_atoms: Vec<Atom> = if interactive {
+            use std::io::Write;
+            let mut accepted: Vec<Atom> = Vec::new();
+            let mut current_file: Option<String> = None;
+            for atom in raw_atoms {
+                // Only AST diff atoms (Insert / Delete file nodes) are interactive.
+                // Directory atoms and whole-file deletions are always staged.
+                let is_file_ast = matches!(&atom,
+                    Atom::Insert { at, .. } | Atom::Delete { at } if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 2
+                );
+                if !is_file_ast {
+                    accepted.push(atom);
+                    continue;
+                }
+                // Print per-file header once.
+                let filepath = atom.paths()[0].get(1).cloned().unwrap_or_default();
+                if current_file.as_deref() != Some(&filepath) {
+                    println!("-- {filepath} --");
+                    current_file = Some(filepath.clone());
+                }
+                let label = atom_label(&atom);
+                print!("  {label}\n  Stage this change? [y/N] ");
+                std::io::stdout().flush().ok();
+                let mut line = String::new();
+                std::io::stdin().read_line(&mut line).ok();
+                if line.trim().eq_ignore_ascii_case("y") {
+                    accepted.push(atom);
                 }
             }
+            accepted
+        } else {
+            raw_atoms
+        };
+
+        // Strip the interactive-filtered result: if nothing left after filtering
+        // file-AST atoms, and the only remaining atoms are non-AST (dirs etc.),
+        // check whether there are any real changes.
+        let has_file_change = all_atoms.iter().any(|a| {
+            a.paths().first().and_then(|p| p.first()).map(|s| s == "file").unwrap_or(false)
+                || matches!(a, Atom::Directory { .. })
+                || matches!(a, Atom::Delete { at } if at.first().map(|s| s == "dir").unwrap_or(false))
+        });
+
+        if !has_file_change && all_atoms.is_empty() {
+            return Ok(None);
         }
 
-        // Detect new empty directories not yet recorded in state.
-        let dir_key = |rel: &str| vec!["dir".to_string(), rel.to_string()];
-        let existing_dirs: std::collections::HashSet<String> = state
-            .keys()
-            .filter(|k| k.len() == 2 && k[0] == "dir")
-            .map(|k| k[1].clone())
-            .collect();
-        for rel_dir in collect_empty_dirs(&self.root, &arcignore)? {
-            if !existing_dirs.contains(&rel_dir) {
-                has_semantic_change = true;
-                all_atoms.push(Atom::Directory { path: dir_key(&rel_dir) });
-            }
-        }
-        // Detect removed directories (recorded in state, no longer on disk).
-        for rel_dir in &existing_dirs {
-            if !self.root.join(rel_dir).exists() {
-                has_semantic_change = true;
-                all_atoms.push(Atom::Delete { at: dir_key(rel_dir) });
-            }
-        }
-
-        if !has_semantic_change {
+        if all_atoms.is_empty() {
             return Ok(None);
         }
 
@@ -377,9 +334,70 @@ impl Repository {
         Ok(Some(change.id))
     }
 
-    // ------------------------------------------------------------------
-    // View orchestration
-    // ------------------------------------------------------------------
+    /// Compute every [`Atom`] that represents the difference between the
+    /// materialized `state` and the current working directory.
+    ///
+    /// This is the pure-computation core shared by [`snap`] and [`status`].
+    /// It never touches the CAS, the graph, or any view file.
+    fn compute_working_directory_delta(
+        &self,
+        state: &MaterializedState,
+    ) -> anyhow::Result<Vec<Atom>> {
+        let plugin = RustPlugin::new();
+        let arcignore = load_arcignore(&self.root);
+        let rs_files = collect_rs_files(&self.root, &arcignore)?;
+        let mut atoms: Vec<Atom> = Vec::new();
+
+        for filepath in &rs_files {
+            let new_src = fs::read_to_string(self.root.join(filepath))?;
+            let old_src = plugin.unparse(state, filepath).unwrap_or_default();
+            if old_src == new_src {
+                continue;
+            }
+            let ast_atoms = plugin
+                .diff(&old_src, &new_src)
+                .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
+            if ast_atoms.is_empty() {
+                continue;
+            }
+            for atom in ast_atoms {
+                atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        // Deleted files.
+        let state_filepaths = extract_filepaths_from_state(state);
+        for filepath in &state_filepaths {
+            if !self.root.join(filepath).exists() {
+                let prefix = ["file".to_string(), filepath.clone()];
+                for key in state.keys() {
+                    if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
+                        atoms.push(Atom::Delete { at: key.clone() });
+                    }
+                }
+            }
+        }
+
+        // New / removed empty directories.
+        let dir_key = |rel: &str| vec!["dir".to_string(), rel.to_string()];
+        let existing_dirs: HashSet<String> = state
+            .keys()
+            .filter(|k| k.len() == 2 && k[0] == "dir")
+            .map(|k| k[1].clone())
+            .collect();
+        for rel_dir in collect_empty_dirs(&self.root, &arcignore)? {
+            if !existing_dirs.contains(&rel_dir) {
+                atoms.push(Atom::Directory { path: dir_key(&rel_dir) });
+            }
+        }
+        for rel_dir in &existing_dirs {
+            if !self.root.join(rel_dir).exists() {
+                atoms.push(Atom::Delete { at: dir_key(rel_dir) });
+            }
+        }
+
+        Ok(atoms)
+    }
 
     /// Create a new view forked from the current view's heads.
     pub fn create_view(&self, name: &str) -> anyhow::Result<()> {
@@ -789,6 +807,118 @@ impl Repository {
         });
         Ok(names)
     }
+
+    // ------------------------------------------------------------------
+    // Workspace observability
+    // ------------------------------------------------------------------
+
+    /// Return the list of atoms representing uncommitted changes in the
+    /// working directory relative to the current view's materialized state.
+    pub fn status(&mut self) -> anyhow::Result<Vec<Atom>> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+        self.compute_working_directory_delta(&state)
+    }
+
+    /// Return all changes in the current view's history, newest-first.
+    pub fn log(&mut self) -> anyhow::Result<Vec<Change>> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let view = View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let mut order = self.graph.topological_sort(&view.heads);
+        order.reverse(); // oldest-first → newest-first
+        order
+            .iter()
+            .map(|id| {
+                self.graph
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("change {} missing from graph", _hex(id)))
+            })
+            .collect()
+    }
+
+    // ------------------------------------------------------------------
+    // Cherry-pick
+    // ------------------------------------------------------------------
+
+    /// Port an existing [`Change`] identified by `hash` into the current view.
+    ///
+    /// The change must:
+    /// - Exist in the CAS.
+    /// - Have all of its dependencies already in the current view's ancestry.
+    /// - Commute with every change that is in the current view's ancestry but
+    ///   NOT in the cherry-pick source's ancestry (the "exclusive" set).
+    ///
+    /// Because we reuse the original [`Change`] object (same hash, same atoms),
+    /// no new CAS objects are written — the change is simply added to the
+    /// graph and to the current view's heads.
+    pub fn cherry_pick(&mut self, hash: &Blake3Hash) -> anyhow::Result<()> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        let change = self
+            .store
+            .read_change(hash)
+            .map_err(|_| anyhow::anyhow!("cherry-pick target {} not found in CAS", _hex(hash)))?;
+
+        let current_view = View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        let ancestors_v = self.graph.ancestors(&current_view.heads);
+
+        // All declared dependencies of the change must already be in the view.
+        for dep in &change.deps {
+            if !ancestors_v.contains(dep) {
+                anyhow::bail!(
+                    "Cannot cherry-pick {}: missing causal dependency {}",
+                    _hex(hash),
+                    _hex(dep)
+                );
+            }
+        }
+
+        // Exclusive changes: in the current view's ancestry but NOT in the
+        // ancestry of the change being cherry-picked.  The cherry-picked
+        // change must commute with every one of them.
+        let ancestors_x = self.graph.ancestors(&HashSet::from([*hash]));
+        let exclusive: Vec<Blake3Hash> = ancestors_v
+            .difference(&ancestors_x)
+            .copied()
+            .collect();
+        for exc_id in &exclusive {
+            let exc_change = self
+                .graph
+                .get(exc_id)
+                .ok_or_else(|| anyhow::anyhow!("change {} missing from graph during cherry-pick", _hex(exc_id)))?;
+            if !commutes(&change, exc_change) {
+                anyhow::bail!(
+                    "Cannot cherry-pick {}: semantic conflict with {}. AI resolution required.",
+                    _hex(hash),
+                    _hex(exc_id)
+                );
+            }
+        }
+
+        // Reuse the existing Change object (same hash → same CAS entry).
+        self.graph.add_change(change);
+        let mut new_heads = current_view.heads.clone();
+        new_heads.insert(*hash);
+        let updated_view = View::new(&view_name, new_heads.clone());
+        updated_view
+            .save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save view after cherry-pick: {e}"))?;
+        let new_state = self.materialize_heads(&new_heads)?;
+        write_state_to_working_dir(&self.root, &new_state)?;
+        Ok(())
+    }
+}
+
+/// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
+fn _hex(hash: &Blake3Hash) -> String {
+    hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Return a human-readable label for an atom, used in interactive staging.
@@ -1408,4 +1538,64 @@ mod tests {
         let list_after = repo.stash_list().unwrap();
         assert!(list_after.is_empty(), "stash list must be empty after pop");
     }
+
+    /// Cherry-pick must reuse the exact same [`Blake3Hash`] — no new CAS objects.
+    #[test]
+    fn test_cherry_pick() {
+        use crate::ast::{rust_plugin::RustPlugin, LanguagePlugin};
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("cp_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        // ── main: snap fn a() ──────────────────────────────────────────────
+        fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
+        repo.snap("add a", false).unwrap();
+
+        // ── create "feature" view, snap fn b() ────────────────────────────
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+
+        fs::write(repo_path.join("b.rs"), "fn b() {}").unwrap();
+        let b_id = repo.snap("add b", false).unwrap().expect("snap must produce a change");
+
+        // ── switch back to main, snap fn c() ──────────────────────────────
+        repo.switch_view("main").unwrap();
+
+        fs::write(repo_path.join("c.rs"), "fn c() {}").unwrap();
+        repo.snap("add c", false).unwrap();
+
+        // ── cherry-pick b_id onto main ─────────────────────────────────────
+        repo.cherry_pick(&b_id).unwrap();
+
+        // The same hash must appear in main's heads — no duplication.
+        let view = View::load(&repo_path, "main").unwrap();
+        assert!(
+            view.heads.contains(&b_id),
+            "cherry-picked hash must be present in destination view's heads"
+        );
+
+        // b.rs must exist on disk with the correct content.
+        assert!(
+            repo_path.join("b.rs").exists(),
+            "cherry-picked file must appear on disk"
+        );
+
+        // a.rs and c.rs must still be intact.
+        assert!(repo_path.join("a.rs").exists(), "a.rs must not be disturbed");
+        assert!(repo_path.join("c.rs").exists(), "c.rs must not be disturbed");
+
+        // Verify the AST content of b.rs through the plugin.
+        let state = repo.materialize("main").unwrap();
+        let plugin = RustPlugin::new();
+        let src = plugin.unparse(&state, "b.rs").unwrap_or_default();
+        assert!(
+            src.contains("fn b"),
+            "materialized b.rs must contain fn b, got: {src}"
+        );
+    }
 }
+
