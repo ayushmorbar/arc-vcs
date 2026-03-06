@@ -19,7 +19,7 @@ use crate::store::view::View;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingConflict {
     pub current_view: String,
-    pub target_view: String,
+    pub target_heads: HashSet<Blake3Hash>,
     pub conflicting_pairs: Vec<(Blake3Hash, Blake3Hash)>,
 }
 
@@ -94,13 +94,12 @@ impl Repository {
         Ok(name.trim().to_string())
     }
 
-    /// Populate the in-memory [`ChangeGraph`] by walking backward from a
-    /// view's heads through the CAS.
-    pub fn hydrate(&mut self, view_name: &str) -> anyhow::Result<()> {
-        let view = View::load(&self.root, view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-
-        let mut queue: VecDeque<Blake3Hash> = view.heads.iter().copied().collect();
+    /// Populate the in-memory [`ChangeGraph`] by walking backward from an
+    /// arbitrary set of heads through the CAS.
+    ///
+    /// This is idempotent — already-present nodes are skipped.
+    pub fn hydrate_heads(&mut self, heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
+        let mut queue: VecDeque<Blake3Hash> = heads.iter().copied().collect();
 
         while let Some(id) = queue.pop_front() {
             if self.graph.get(&id).is_some() {
@@ -121,12 +120,18 @@ impl Repository {
         Ok(())
     }
 
-    /// Replay the DAG in topological order to produce a materialized state.
-    pub fn materialize(&self, view_name: &str) -> anyhow::Result<MaterializedState> {
+    /// Populate the in-memory [`ChangeGraph`] by walking backward from a
+    /// view's heads through the CAS.
+    pub fn hydrate(&mut self, view_name: &str) -> anyhow::Result<()> {
         let view = View::load(&self.root, view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        self.hydrate_heads(&view.heads)
+    }
 
-        let order = self.graph.topological_sort(&view.heads);
+    /// Replay the DAG in topological order to produce a materialized state
+    /// from an arbitrary set of heads.
+    pub fn materialize_heads(&self, heads: &HashSet<Blake3Hash>) -> anyhow::Result<MaterializedState> {
+        let order = self.graph.topological_sort(heads);
         let mut state = MaterializedState::new();
 
         for id in order {
@@ -139,6 +144,13 @@ impl Repository {
         }
 
         Ok(state)
+    }
+
+    /// Replay the DAG in topological order to produce a materialized state.
+    pub fn materialize(&self, view_name: &str) -> anyhow::Result<MaterializedState> {
+        let view = View::load(&self.root, view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        self.materialize_heads(&view.heads)
     }
 
     /// Scan the working directory, diff against the materialized history,
@@ -322,25 +334,39 @@ impl Repository {
     /// If all exclusive changes commute, the merge is a simple head-union
     /// with no merge commit. If any pair conflicts, aborts with an error.
     pub fn merge_view(&mut self, target_name: &str) -> anyhow::Result<()> {
+        self.hydrate(target_name)?;
+        let target_view = View::load(&self.root, target_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{target_name}': {e}"))?;
+        self.merge_heads(&target_view.heads)
+    }
+
+    /// Merge an arbitrary set of heads into the current view.
+    ///
+    /// This is the head-based primitive underlying `merge_view`. It performs
+    /// a dirty-check on the working directory before mutating any state,
+    /// then runs the algebraic commutativity check on the exclusive deltas.
+    pub fn merge_heads(&mut self, target_heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
         let current_name = self.current_view_name()?;
 
-        // Hydrate both views.
+        // Hydrate both sides (idempotent — already-present nodes are skipped).
         self.hydrate(&current_name)?;
-        self.hydrate(target_name)?;
+        self.hydrate_heads(target_heads)?;
 
         let current_view = View::load(&self.root, &current_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{current_name}': {e}"))?;
-        let target_view = View::load(&self.root, target_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{target_name}': {e}"))?;
+
+        // --- Dirty working-directory check ---
+        let current_state = self.materialize_heads(&current_view.heads)?;
+        check_working_dir_clean(&self.root, &current_state)?;
 
         // Find LCA.
         let lca_heads = self
             .graph
-            .merge_base(&current_view.heads, &target_view.heads);
+            .merge_base(&current_view.heads, target_heads);
 
         // Compute ancestors from each side and from the LCA.
         let ancestors_current = self.graph.ancestors(&current_view.heads);
-        let ancestors_target = self.graph.ancestors(&target_view.heads);
+        let ancestors_target = self.graph.ancestors(target_heads);
         let ancestors_lca = if lca_heads.is_empty() {
             HashSet::new()
         } else {
@@ -380,7 +406,7 @@ impl Repository {
         if !conflicting_pairs.is_empty() {
             let conflict = PendingConflict {
                 current_view: current_name.clone(),
-                target_view: target_name.to_string(),
+                target_heads: target_heads.clone(),
                 conflicting_pairs: conflicting_pairs.clone(),
             };
             let conflict_path = self.root.join(".arc").join("conflict");
@@ -397,15 +423,15 @@ impl Repository {
 
         // All commute — union the heads.
         let mut merged_heads = current_view.heads;
-        merged_heads.extend(&target_view.heads);
+        merged_heads.extend(target_heads);
 
-        let updated_view = View::new(&current_name, merged_heads);
+        let updated_view = View::new(&current_name, merged_heads.clone());
         updated_view
             .save(&self.root)
             .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
 
         // Re-materialize and write to working directory.
-        let merged_state = self.materialize(&current_name)?;
+        let merged_state = self.materialize_heads(&merged_heads)?;
         write_state_to_working_dir(&self.root, &merged_state)?;
 
         Ok(())
@@ -427,32 +453,23 @@ impl Repository {
         let conflict: PendingConflict = bincode::deserialize(&conflict_bytes)
             .map_err(|e| anyhow::anyhow!("failed to deserialize conflict: {e}"))?;
 
-        // Hydrate both views.
+        // Hydrate current view and target heads.
         self.hydrate(&conflict.current_view)?;
-        self.hydrate(&conflict.target_view)?;
+        self.hydrate_heads(&conflict.target_heads)?;
 
         let current_view = View::load(&self.root, &conflict.current_view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
-        let target_view = View::load(&self.root, &conflict.target_view)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.target_view))?;
 
-        // Materialize LCA state via a temporary view.
-        // NOTE: Phase 8 debt — materialize directly from a HashSet<Blake3Hash>.
-        let lca_heads = self.graph.merge_base(&current_view.heads, &target_view.heads);
-        let lca_view_name = "__lca_temp__";
-        let lca_view = View::new(lca_view_name, lca_heads);
-        lca_view.save(&self.root)
-            .map_err(|e| anyhow::anyhow!("failed to save temp LCA view: {e}"))?;
-        let lca_state = if lca_view.heads.is_empty() {
+        // Materialize LCA state directly from heads — no temp view needed.
+        let lca_heads = self.graph.merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_state = if lca_heads.is_empty() {
             MaterializedState::new()
         } else {
-            self.materialize(lca_view_name)?
+            self.materialize_heads(&lca_heads)?
         };
-        // Clean up temp view.
-        let _ = fs::remove_file(self.root.join(".arc").join("views").join(lca_view_name));
 
-        let current_state = self.materialize(&conflict.current_view)?;
-        let target_state = self.materialize(&conflict.target_view)?;
+        let current_state = self.materialize_heads(&current_view.heads)?;
+        let target_state = self.materialize_heads(&conflict.target_heads)?;
 
         let mut merge_atoms = Vec::new();
         let mut combined_intent = String::from("AI merge: ");
@@ -495,9 +512,9 @@ impl Repository {
             combined_intent.push_str("; ");
         }
 
-        // Deps = union of both views' heads.
+        // Deps = union of current view's heads and target heads.
         let mut merge_deps = current_view.heads.clone();
-        merge_deps.extend(&target_view.heads);
+        merge_deps.extend(&conflict.target_heads);
 
         let merge_change = Change::new(merge_deps, merge_atoms, combined_intent);
         self.store.write_change(&merge_change)
@@ -510,7 +527,7 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to save resolved view: {e}"))?;
 
         // Re-materialize and write to working directory.
-        let resolved_state = self.materialize(&conflict.current_view)?;
+        let resolved_state = self.materialize_heads(&HashSet::from([merge_change.id]))?;
         write_state_to_working_dir(&self.root, &resolved_state)?;
 
         // Remove the conflict file.
@@ -547,6 +564,53 @@ fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath>
 /// Returns an empty `Vec` if the path is not present.
 fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8> {
     state.get(path).cloned().unwrap_or_default()
+}
+
+/// Check that the working directory matches the given materialized state.
+///
+/// Returns an error if un-snapped changes are detected, preventing
+/// destructive overwrites during `merge_heads`, `pull`, or `switch_view`.
+fn check_working_dir_clean(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
+    let plugin = RustPlugin::new();
+    let rs_files = collect_rs_files(root)?;
+
+    for filepath in &rs_files {
+        let new_src = fs::read_to_string(root.join(filepath))?;
+        let file_key = vec!["file".to_string(), filepath.clone()];
+        let old_bytes = state.get(&file_key);
+
+        if old_bytes != Some(&new_src.as_bytes().to_vec()) {
+            if let Some(ob) = old_bytes {
+                let old_src = String::from_utf8_lossy(ob);
+                let ast_atoms = plugin
+                    .diff(&old_src, &new_src)
+                    .map_err(|e| anyhow::anyhow!("diff error: {e}"))?;
+                if !ast_atoms.is_empty() {
+                    anyhow::bail!(
+                        "working directory is dirty — snap your changes before merging"
+                    );
+                }
+            } else {
+                anyhow::bail!(
+                    "working directory is dirty — snap your changes before merging"
+                );
+            }
+        }
+    }
+
+    // Check for files in state that no longer exist on disk.
+    for key in state.keys() {
+        if key.first().map(|s| s.as_str()) == Some("file")
+            && let Some(filepath) = key.get(1)
+            && !root.join(filepath).exists()
+        {
+            anyhow::bail!(
+                "working directory is dirty — snap your changes before merging"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Overwrite the working directory with the given materialized state.

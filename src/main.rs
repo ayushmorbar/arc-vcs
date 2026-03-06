@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use arc::ai::MockResolver;
+use arc::network::sync::{fetch, pull};
 use arc::store::repo::Repository;
 
 #[derive(Parser)]
@@ -34,6 +35,20 @@ enum Command {
     Ai {
         #[command(subcommand)]
         action: AiAction,
+    },
+    /// Fetch missing changes from a remote repository.
+    Fetch {
+        /// Path to the remote repository.
+        remote_path: String,
+        /// Name of the remote view to fetch.
+        view: String,
+    },
+    /// Pull changes from a remote repository and merge into the current view.
+    Pull {
+        /// Path to the remote repository.
+        remote_path: String,
+        /// Name of the remote view to pull.
+        view: String,
     },
 }
 
@@ -112,6 +127,16 @@ fn main() -> anyhow::Result<()> {
                 println!("Resolved conflict → {hex}");
             }
         },
+        Command::Fetch { remote_path, view } => {
+            let mut repo = Repository::open(".")?;
+            let heads = fetch(&mut repo, &remote_path, &view)?;
+            println!("Fetched {} head(s) from {remote_path}", heads.len());
+        }
+        Command::Pull { remote_path, view } => {
+            let mut repo = Repository::open(".")?;
+            pull(&mut repo, &remote_path, &view)?;
+            println!("Pulled and merged view '{view}' from {remote_path}");
+        }
     }
 
     Ok(())
