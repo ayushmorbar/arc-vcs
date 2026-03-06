@@ -133,6 +133,8 @@ enum Command {
     },
     /// Unsupported — arc uses `snap` instead of `commit`.
     Commit,
+    /// Undo the last view-mutating operation using the operation log.
+    Undo,
 }
 
 #[derive(Subcommand)]
@@ -515,6 +517,10 @@ fn main() -> anyhow::Result<()> {
         Command::Commit => {
             println!("Hint: arc uses 'snap' instead of 'commit'. Try: arc snap -m \"<message>\"");
         }
+        Command::Undo => {
+            let mut repo = Repository::open(".")?;
+            repo.undo()?;
+        }
     }
 
     Ok(())
@@ -561,6 +567,9 @@ fn atom_display_label(atom: &Atom) -> String {
         ),
         Atom::Directory { path } => {
             format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Blob { path, .. } => {
+            format!("Blob:     {}", path.last().unwrap_or(&"?".to_string()))
         }
     }
 }

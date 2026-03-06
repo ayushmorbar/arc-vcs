@@ -38,6 +38,21 @@ pub struct PendingConflict {
     pub conflicting_pairs: Vec<(Blake3Hash, Blake3Hash)>,
 }
 
+/// A single entry in the operation log, recording every view-mutating command.
+///
+/// Used by [`Repository::undo`] to rewind the last operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpLogEntry {
+    /// Unix timestamp (seconds since epoch) when the operation ran.
+    pub timestamp: u64,
+    /// Human-readable command name (e.g. `"snap"`, `"merge"`, `"cherry-pick"`).
+    pub command: String,
+    /// Name of the view that was mutated.
+    pub view: String,
+    /// Heads of the view **before** the operation, used to restore the DAG state.
+    pub previous_heads: HashSet<Blake3Hash>,
+}
+
 /// Top-level repository handle, tying together the CAS, the change graph,
 /// and the on-disk `.arc` layout.
 pub struct Repository {
@@ -76,6 +91,7 @@ impl Repository {
         fs::create_dir_all(arc_dir.join("store"))?;
         fs::create_dir_all(arc_dir.join("views"))?;
         fs::create_dir_all(arc_dir.join("tags"))?;
+        fs::create_dir_all(arc_dir.join("blobs"))?;
 
         // Create the default "main" view with an empty head set.
         let main_view = View::new("main", HashSet::new());
@@ -337,11 +353,18 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
         let (author, signing_key) = self.signing_identity()?;
+
+        // Persist raw bytes for every Atom::Blob before committing the change.
+        self.write_blob_atoms(&all_atoms)?;
+
         let change = Change::new(view.heads.clone(), all_atoms, message, author.clone(), signing_key);
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(change.clone());
+
+        // Log before mutating view frontier so undo can restore previous state.
+        self.log_operation("snap", &view_name, view.heads.clone())?;
 
         // Advance the frontier: new change becomes the sole head.
         view.heads = HashSet::from([change.id]);
@@ -382,13 +405,32 @@ impl Repository {
             }
         }
 
+        // ── Pass 2: Non-Rust files — O(1) BLAKE3 blob diff ───────────────────
+        let all_files = collect_all_files(&self.root, &arcignore)?;
+        for filepath in all_files.iter().filter(|f| !f.ends_with(".rs")) {
+            let bytes = fs::read(self.root.join(filepath))
+                .map_err(|e| anyhow::anyhow!("failed to read '{filepath}': {e}"))?;
+            let new_hash: Blake3Hash = *blake3::hash(&bytes).as_bytes();
+            let path_key = vec!["file".to_string(), filepath.clone()];
+            // Skip if the blob ref in state already matches this hash.
+            if let Some(existing) = state.get(&path_key)
+                && existing.starts_with(b"ARC_BLOB_REF:") && existing.len() >= 45 {
+                    let old_hash: Blake3Hash = existing[13..45].try_into().unwrap_or([0u8; 32]);
+                    if old_hash == new_hash {
+                        continue;
+                    }
+                }
+            atoms.push(Atom::Blob { path: path_key, hash: new_hash });
+        }
+
         // Deleted files.
         let state_filepaths = extract_filepaths_from_state(state);
         for filepath in &state_filepaths {
             if !self.root.join(filepath).exists() {
                 let prefix = ["file".to_string(), filepath.clone()];
                 for key in state.keys() {
-                    if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
+                    // >= covers blob keys (len==2) as well as AST sub-keys (len>2).
+                    if key.len() >= prefix.len() && key[..prefix.len()] == prefix[..] {
                         atoms.push(Atom::Delete { at: key.clone() });
                     }
                 }
@@ -565,9 +607,11 @@ impl Repository {
         }
 
         // All commute — union the heads.
+        let prev_heads = current_view.heads.clone();
         let mut merged_heads = current_view.heads;
         merged_heads.extend(target_heads);
 
+        self.log_operation("merge", &current_name, prev_heads)?;
         let updated_view = View::new(&current_name, merged_heads.clone());
         updated_view
             .save(&self.root)
@@ -921,6 +965,7 @@ impl Repository {
 
         // Reuse the existing Change object (same hash → same CAS entry).
         self.graph.add_change(change);
+        self.log_operation("cherry-pick", &view_name, current_view.heads.clone())?;
         let mut new_heads = current_view.heads.clone();
         new_heads.insert(*hash);
         let updated_view = View::new(&view_name, new_heads.clone());
@@ -1143,6 +1188,9 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(revert_change.clone());
 
+        // Log before mutating the view frontier.
+        self.log_operation("revert", &view_name, current_view.heads.clone())?;
+
         // Advance the current view to point at the revert change.
         let updated_view = View::new(&view_name, HashSet::from([revert_change.id]));
         updated_view
@@ -1181,15 +1229,40 @@ impl Repository {
             );
         }
 
-        let plugin = RustPlugin::new();
-        let source = plugin.unparse(&state, filepath).unwrap_or_default();
+        // Log before writing so undo() can re-materialize the view state.
+        let view_heads = View::load(&self.root, &view_name)
+            .map(|v| v.heads)
+            .unwrap_or_default();
+        self.log_operation("restore", &view_name, view_heads)?;
 
         let full = self.root.join(filepath);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&full, source.as_bytes())
-            .map_err(|e| anyhow::anyhow!("failed to restore '{}': {e}", filepath))
+
+        if filepath.ends_with(".rs") {
+            let plugin = RustPlugin::new();
+            let source = plugin.unparse(&state, filepath).unwrap_or_default();
+            fs::write(&full, source.as_bytes())
+                .map_err(|e| anyhow::anyhow!("failed to restore '{}': {e}", filepath))
+        } else {
+            // Blob restore: fetch raw bytes from .arc/blobs/{hex(hash)}.
+            let path_key = vec!["file".to_string(), filepath.to_string()];
+            if let Some(content) = state.get(&path_key) {
+                if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
+                    let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
+                    let blob_path = self.root.join(".arc").join("blobs").join(_hex(&hash));
+                    let bytes = fs::read(&blob_path)
+                        .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
+                    fs::write(&full, bytes)
+                        .map_err(|e| anyhow::anyhow!("failed to restore '{}': {e}", filepath))
+                } else {
+                    Ok(())
+                }
+            } else {
+                Ok(())
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1240,6 +1313,141 @@ impl Repository {
         println!("  Active Identity:  {identity}");
         Ok(())
     }
+
+    // ------------------------------------------------------------------
+    // Operation log
+    // ------------------------------------------------------------------
+
+    /// Persist raw bytes for every [`Atom::Blob`] in `atoms` to `.arc/blobs/`.
+    ///
+    /// Called from [`snap`](Self::snap) so that `apply_change` (which is pure)
+    /// can later find the bytes it needs without performing disk I/O itself.
+    fn write_blob_atoms(&self, atoms: &[Atom]) -> anyhow::Result<()> {
+        for atom in atoms {
+            if let Atom::Blob { path, hash } = atom {
+                let filepath = path
+                    .get(1)
+                    .ok_or_else(|| anyhow::anyhow!("invalid blob path: {path:?}"))?;
+                let bytes = fs::read(self.root.join(filepath))
+                    .map_err(|e| anyhow::anyhow!("failed to read blob source '{filepath}': {e}"))?;
+                let blobs_dir = self.root.join(".arc").join("blobs");
+                fs::create_dir_all(&blobs_dir)?;
+                let blob_file = blobs_dir.join(_hex(hash));
+                if !blob_file.exists() {
+                    fs::write(&blob_file, &bytes)
+                        .map_err(|e| anyhow::anyhow!("failed to write blob: {e}"))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Append an [`OpLogEntry`] to `.arc/oplog.json` recording the DAG state
+    /// **before** a mutating operation.
+    ///
+    /// Called by every method that advances view heads so that
+    /// [`undo`](Self::undo) can rewind the last operation.
+    fn log_operation(
+        &self,
+        command: &str,
+        view: &str,
+        previous_heads: HashSet<Blake3Hash>,
+    ) -> anyhow::Result<()> {
+        let oplog_path = self.root.join(".arc").join("oplog.json");
+        let mut entries: Vec<OpLogEntry> = if oplog_path.exists() {
+            let json = fs::read_to_string(&oplog_path)
+                .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
+            serde_json::from_str(&json).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        entries.push(OpLogEntry {
+            timestamp,
+            command: command.to_string(),
+            view: view.to_string(),
+            previous_heads,
+        });
+        fs::write(&oplog_path, serde_json::to_string_pretty(&entries)?)
+            .map_err(|e| anyhow::anyhow!("failed to write oplog: {e}"))
+    }
+
+    /// Undo the last view-mutating operation recorded in the operation log.
+    ///
+    /// Reads `.arc/oplog.json`, pops the most-recent [`OpLogEntry`], restores
+    /// the view to its `previous_heads`, re-materializes the state, and writes
+    /// the working directory to match.  Blob files that existed before but are
+    /// absent in the restored state are deleted from disk.
+    ///
+    /// Returns an error if the operation log is empty.
+    pub fn undo(&mut self) -> anyhow::Result<()> {
+        let oplog_path = self.root.join(".arc").join("oplog.json");
+        if !oplog_path.exists() {
+            anyhow::bail!("nothing to undo — operation log is empty");
+        }
+        let json = fs::read_to_string(&oplog_path)
+            .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
+        let mut entries: Vec<OpLogEntry> =
+            serde_json::from_str(&json).unwrap_or_default();
+        let entry = entries
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("nothing to undo — operation log is empty"))?;
+
+        // Load the current view and materialise it so we know which blob files
+        // exist right now (and may need to be removed after the undo).
+        let current_view = View::load(&self.root, &entry.view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", entry.view))?;
+        self.hydrate_heads(&current_view.heads)?;
+        let current_state = if current_view.heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&current_view.heads)?
+        };
+
+        // Restore the view to its pre-operation heads.
+        let restored_view = View::new(&entry.view, entry.previous_heads.clone());
+        restored_view
+            .save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", entry.view))?;
+
+        // Materialise the restored state.
+        self.hydrate_heads(&entry.previous_heads)?;
+        let restored_state = if entry.previous_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&entry.previous_heads)?
+        };
+
+        // Remove non-RS blob files that exist now but shouldn't after the undo.
+        let blobs_after: HashSet<String> = extract_filepaths_from_state(&restored_state)
+            .into_iter()
+            .filter(|f| !f.ends_with(".rs"))
+            .collect();
+        for filepath in extract_filepaths_from_state(&current_state)
+            .into_iter()
+            .filter(|f| !f.ends_with(".rs"))
+        {
+            if !blobs_after.contains(&filepath) {
+                let _ = fs::remove_file(self.root.join(&filepath));
+            }
+        }
+
+        // Write the restored state to the working directory.
+        write_state_to_working_dir(&self.root, &restored_state)?;
+
+        // Persist the updated oplog (without the popped entry).
+        fs::write(&oplog_path, serde_json::to_string_pretty(&entries)?)
+            .map_err(|e| anyhow::anyhow!("failed to update oplog: {e}"))?;
+
+        println!(
+            "Undid '{}' on view '{}'. Restored to previous state.",
+            entry.command, entry.view
+        );
+        Ok(())
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
@@ -1272,6 +1480,9 @@ fn atom_label(atom: &Atom) -> String {
         }
         Atom::Directory { path } => {
             format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Blob { path, .. } => {
+            format!("Blob:     {}", path.last().unwrap_or(&"?".to_string()))
         }
     }
 }
@@ -1313,6 +1524,7 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
             Atom::SemanticsPreserving { at: prepend(at), description }
         }
         Atom::Directory { path } => Atom::Directory { path: prepend(path) },
+        Atom::Blob { path, hash } => Atom::Blob { path: prepend(path), hash },
     }
 }
 
@@ -1406,22 +1618,34 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
         }
     }
 
-    // Reconstruct files from the materialized AST state via unparse.
+    // Reconstruct all tracked files from the materialized state.
     let plugin = RustPlugin::new();
     for filepath in extract_filepaths_from_state(state) {
-        let source = plugin
-            .unparse(state, &filepath)
-            .map_err(|e| anyhow::anyhow!("unparse error for {filepath}: {e}"))?;
-
-        if source.is_empty() {
-            continue;
-        }
-
         let full = root.join(&filepath);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&full, source.as_bytes())?;
+        if filepath.ends_with(".rs") {
+            // Rust files: reconstruct source from AST atoms via unparse.
+            let source = plugin
+                .unparse(state, &filepath)
+                .map_err(|e| anyhow::anyhow!("unparse error for {filepath}: {e}"))?;
+            if source.is_empty() {
+                continue;
+            }
+            fs::write(&full, source.as_bytes())?;
+        } else {
+            // Blob files: fetch raw bytes from .arc/blobs/{hex(hash)}.
+            let path_key = vec!["file".to_string(), filepath.clone()];
+            if let Some(content) = state.get(&path_key)
+                && content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
+                    let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
+                    let blob_path = root.join(".arc").join("blobs").join(_hex(&hash));
+                    let bytes = fs::read(&blob_path)
+                        .map_err(|e| anyhow::anyhow!("missing blob for '{filepath}': {e}"))?;
+                    fs::write(&full, &bytes)?;
+                }
+        }
     }
 
     // Re-create tracked empty directories.
@@ -1510,6 +1734,57 @@ fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<St
     collect_rs_recursive(root, root, &mut files, arcignore)?;
     files.sort();
     Ok(files)
+}
+
+/// Recursively collect **all** regular file paths relative to `root`.
+///
+/// Unlike [`collect_rs_files`], this returns every file regardless of
+/// extension.  Used by [`Repository::compute_working_directory_delta`] to
+/// detect changes in non-Rust assets tracked as [`Atom::Blob`].
+fn collect_all_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+    let mut files = Vec::new();
+    collect_all_recursive(root, root, &mut files, arcignore)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_all_recursive(
+    base: &Path,
+    dir: &Path,
+    files: &mut Vec<String>,
+    arcignore: &Gitignore,
+) -> anyhow::Result<()> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        // Skip .arc and other hidden entries.
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.starts_with('.')
+        {
+            continue;
+        }
+        // Skip paths matched by .arcignore.
+        if let Ok(rel) = path.strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if arcignore
+                .matched_path_or_any_parents(&rel_str, path.is_dir())
+                .is_ignore()
+            {
+                continue;
+            }
+        }
+        if path.is_dir() {
+            collect_all_recursive(base, &path, files, arcignore)?;
+        } else if let Ok(rel) = path.strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            files.push(rel_str);
+        }
+    }
+    Ok(())
 }
 
 fn collect_rs_recursive(
@@ -2062,5 +2337,114 @@ mod tests {
             "http://new.localhost:8080",
             "remote overwrite must update the URL"
         );
+    }
+
+    /// Universal asset engine: non-Rust files are tracked as [`Atom::Blob`].
+    ///
+    /// Verifies that:
+    /// 1. Snapping a `.txt` file writes raw bytes to `.arc/blobs/`.
+    /// 2. The materialized state holds an `ARC_BLOB_REF:` entry.
+    /// 3. `restore()` reconstructs the original bytes on disk.
+    /// 4. The snap change carries a valid signature.
+    #[test]
+    fn test_universal_asset() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("blob_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Write a non-Rust text file and snap it.
+        let txt_path = repo_path.join("readme.txt");
+        fs::write(&txt_path, b"Hello, arc universal assets!").unwrap();
+
+        let snap_id = repo
+            .snap("add readme.txt", false)
+            .unwrap()
+            .expect("snap must produce a change for a new txt file");
+
+        // .arc/blobs/ must contain exactly one file.
+        let blobs_dir = repo_path.join(".arc").join("blobs");
+        assert!(blobs_dir.is_dir(), ".arc/blobs/ must exist");
+        let blob_count = fs::read_dir(&blobs_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .count();
+        assert_eq!(blob_count, 1, "must have exactly one blob");
+
+        // The materialized state must carry an ARC_BLOB_REF: entry.
+        let state = repo.materialize("main").unwrap();
+        let path_key = vec!["file".to_string(), "readme.txt".to_string()];
+        let blob_ref = state.get(&path_key).expect("blob ref must be in state");
+        assert!(
+            blob_ref.starts_with(b"ARC_BLOB_REF:"),
+            "state entry must start with ARC_BLOB_REF:"
+        );
+        assert_eq!(blob_ref.len(), 45, "blob ref must be 13 + 32 bytes");
+
+        // restore() must recover the original bytes.
+        fs::write(&txt_path, b"corrupted").unwrap();
+        repo.restore("readme.txt").unwrap();
+        let restored = fs::read(&txt_path).unwrap();
+        assert_eq!(
+            restored,
+            b"Hello, arc universal assets!",
+            "restore must recover original bytes"
+        );
+
+        // Snap must carry a valid cryptographic signature.
+        let change = repo.graph.get(&snap_id).expect("snap must be in graph");
+        assert!(change.verify_signature(), "blob snap must carry a valid signature");
+    }
+
+    /// OpLog + undo: snapping a file then calling `undo()` must revert the
+    /// view to its pre-snap state and remove the file from disk.
+    #[test]
+    fn test_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("undo_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Snap a text file.
+        let txt_path = repo_path.join("data.txt");
+        fs::write(&txt_path, b"important data").unwrap();
+        repo.snap("add data.txt", false)
+            .unwrap()
+            .expect("snap must produce a change");
+
+        // Oplog must exist after snap.
+        let oplog_path = repo_path.join(".arc").join("oplog.json");
+        assert!(oplog_path.exists(), "oplog must be created after snap");
+
+        // View must have exactly one head.
+        let view_before = View::load(&repo_path, "main").unwrap();
+        assert_eq!(view_before.heads.len(), 1, "view must have 1 head after snap");
+
+        // Undo the snap.
+        repo.undo().unwrap();
+
+        // View heads must now be empty (pre-snap state).
+        let view_after = View::load(&repo_path, "main").unwrap();
+        assert!(
+            view_after.heads.is_empty(),
+            "undo must restore view to empty heads (pre-snap), got: {:?}",
+            view_after.heads
+        );
+
+        // The blob file must be gone from disk.
+        assert!(
+            !txt_path.exists(),
+            "undo must remove the blob file that was introduced by the snapped change"
+        );
+
+        // Oplog must be empty (the only entry was consumed).
+        let oplog_raw = fs::read_to_string(&oplog_path).unwrap_or_default();
+        let oplog: Vec<serde_json::Value> =
+            serde_json::from_str(&oplog_raw).unwrap_or_default();
+        assert!(oplog.is_empty(), "oplog must be empty after undoing the only entry");
     }
 }

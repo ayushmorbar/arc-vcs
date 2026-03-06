@@ -100,6 +100,16 @@ pub fn apply_change(
             Atom::SemanticsPreserving { .. } => {
                 return Err("SemanticsPreserving atoms are not yet supported".to_string());
             }
+            Atom::Blob { path, hash } => {
+                // Store a magic reference token; write_state_to_working_dir
+                // detects this prefix and reads raw bytes from .arc/blobs/.
+                let mut token = b"ARC_BLOB_REF:".to_vec();
+                token.extend_from_slice(hash);
+                state.insert(path.clone(), token);
+                if let Some(ref mut b) = blame {
+                    b.insert(path.clone(), change.id);
+                }
+            }
         }
     }
     Ok(())

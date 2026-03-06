@@ -54,6 +54,16 @@ pub enum Atom {
         /// Path key for the directory (e.g. `["dir", "src/utils"]`).
         path: NodePath,
     },
+    /// Track a non-AST binary or text asset by its BLAKE3 content hash.
+    ///
+    /// Raw bytes live in `.arc/blobs/{hex(hash)}` on disk; the DAG only
+    /// stores the 32-byte pointer so large binaries never bloat change objects.
+    Blob {
+        /// Path segments identifying the asset (e.g. `["file", "logo.png"]`).
+        path: NodePath,
+        /// BLAKE3 hash of the raw file bytes, used to fetch from `.arc/blobs/`.
+        hash: Blake3Hash,
+    },
 }
 
 impl Atom {
@@ -66,6 +76,7 @@ impl Atom {
             Atom::Move { from, to } => vec![from, to],
             Atom::SemanticsPreserving { at, .. } => vec![at],
             Atom::Directory { path } => vec![path],
+            Atom::Blob { path, .. } => vec![path],
         }
     }
 }
