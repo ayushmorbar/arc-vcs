@@ -570,6 +570,13 @@ fn main() -> anyhow::Result<()> {
         },
         Command::Import { source } => match source {
             ImportSource::Git { git_path } => {
+                let analysis =
+                    arc_core::git_bridge::analyze_git_repo(std::path::Path::new(&git_path))?;
+                println!(
+                    "Git bridge: {} commit(s) scanned (HEAD {})",
+                    analysis.commit_count,
+                    &analysis.head_hex[..8]
+                );
                 let mut repo = match Repository::open(".") {
                     Ok(r) => r,
                     Err(_) => Repository::init(".")?,

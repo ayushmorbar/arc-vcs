@@ -21,4 +21,6 @@
 pub mod ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
+/// Pure‑Rust Git interoperability bridge for reading legacy repositories.
+pub mod git_bridge;
 pub mod store;
