@@ -111,6 +111,10 @@ pub struct Repository {
     /// Required before calling [`Repository::snap`] or
     /// [`Repository::resolve_conflict`].
     identity: Option<(Author, ed25519_dalek::SigningKey)>,
+    /// Exclusive filesystem lock held for the duration of any mutable
+    /// operation.  `None` until [`Repository::acquire_lock`] is called;
+    /// automatically released when the `Repository` is dropped.
+    lock_file: Option<std::fs::File>,
 }
 
 impl Repository {
@@ -153,6 +157,7 @@ impl Repository {
             shared_root: root.clone(),
             work_root: root,
             identity: None,
+            lock_file: None,
         })
     }
 
@@ -186,6 +191,7 @@ impl Repository {
                 shared_root,
                 work_root,
                 identity: None,
+                lock_file: None,
             });
         }
 
@@ -200,6 +206,7 @@ impl Repository {
             shared_root: work_root.clone(),
             work_root,
             identity: None,
+            lock_file: None,
         })
     }
 
@@ -437,6 +444,37 @@ impl Repository {
         Ok(result)
     }
 
+    /// Acquire an exclusive filesystem lock on `.arc/lock`.
+    ///
+    /// Uses the OS kernel (POSIX `flock` / Windows `LockFile`) to ensure only
+    /// one `arc` process mutates the repository at a time.  If the lock is
+    /// already held by another process, this call blocks until it is released.
+    /// The lock is automatically released when the [`Repository`] is dropped.
+    fn acquire_lock(&mut self) -> anyhow::Result<()> {
+        // Re-entrancy guard: if this Repository instance already holds the lock
+        // (e.g. a top-level command already called acquire_lock() and then
+        // invokes another method that also calls it), return immediately without
+        // trying to open a second file descriptor — that would deadlock.
+        if self.lock_file.is_some() {
+            return Ok(());
+        }
+        use fs2::FileExt;
+        let lock_path = self.shared_root.join(".arc").join("lock");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|e| anyhow::anyhow!("could not open .arc/lock: {e}"))?;
+        if file.try_lock_exclusive().is_err() {
+            tracing::info!("Waiting for repository lock held by another process...");
+            file.lock_exclusive()
+                .map_err(|e| anyhow::anyhow!("could not acquire repository lock: {e}"))?;
+        }
+        self.lock_file = Some(file);
+        Ok(())
+    }
+
     /// Scan the working directory, diff against the materialized history,
     /// and create a new semantic `Change`.
     ///
@@ -448,6 +486,7 @@ impl Repository {
     /// `unparse()` can later reconstruct source per file.
     pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
         self.run_hook("pre-snap")?;
+        self.acquire_lock()?;
         let view_name = self.current_view_name()?;
         tracing::info!(view = %view_name, message, "snap started");
         self.hydrate(&view_name)?;
@@ -718,6 +757,7 @@ impl Repository {
     /// a dirty-check on the working directory before mutating any state,
     /// then runs the algebraic commutativity check on the exclusive deltas.
     pub fn merge_heads(&mut self, target_heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let current_name = self.current_view_name()?;
         tracing::info!(view = %current_name, "merge_heads started");
 
@@ -1131,6 +1171,7 @@ impl Repository {
     /// no new CAS objects are written — the change is simply added to the
     /// graph and to the current view's heads.
     pub fn cherry_pick(&mut self, hash: &Blake3Hash) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
 
@@ -1471,6 +1512,7 @@ impl Repository {
     /// has never been snapped), an error is returned and the on-disk file
     /// is left completely untouched.
     pub fn restore(&mut self, filepath: &str) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
@@ -1662,6 +1704,7 @@ impl Repository {
     ///
     /// Returns an error if the operation log is empty.
     pub fn undo(&mut self) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let oplog_path = self.shared_root.join(".arc").join("oplog.json");
         if !oplog_path.exists() {
             anyhow::bail!("nothing to undo — operation log is empty");
@@ -1745,6 +1788,7 @@ impl Repository {
     ///   Files that fall *outside* the new cone are physically removed so IDEs
     ///   do not encounter stale, unmanaged files.
     pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let sparse_path = self.work_root.join(".arc").join("sparse.json");
 
         // Step 1: remove stale files that are outside the new cone.
@@ -1899,6 +1943,7 @@ impl Repository {
     /// given `view` (defaulting to the current view when `None`), and checks out
     /// that view's working directory.
     pub fn workspace_add(&mut self, work_root: &Path, view: Option<&str>) -> anyhow::Result<()> {
+        self.acquire_lock()?;
         let view_name = match view {
             Some(v) => v.to_string(),
             None => self.current_view_name()?,
@@ -2131,6 +2176,7 @@ impl Repository {
     /// *read path* in `hydrate_heads()`, so peers that have not yet compacted
     /// remain fully interoperable.
     pub fn compact(&mut self) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
         // --- Step 1: build per-view ancestors (same as gc()) ---------------
         let views_dir = self.shared_root.join(".arc").join("views");
         let mut per_view_ancestors: Vec<HashSet<Blake3Hash>> = Vec::new();
@@ -2278,6 +2324,202 @@ impl Repository {
         );
 
         Ok(genesis_id)
+    }
+
+    /// Amend the most recent change in-place.
+    ///
+    /// Rewrites the last snap by replacing its atoms with the full diff of the
+    /// **current working directory against the grandparent state** (the state
+    /// before the amended change was applied).  An optional new `message`
+    /// replaces the original commit intent; if omitted the original is kept.
+    ///
+    /// The old change ID is written into the Epoch Map (`old → new`) so that
+    /// peers who already pulled the original ID transparently graft onto the
+    /// amended commit during `hydrate`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The current view has more than one head (merge commit — ambiguous).
+    /// * The working directory contains no changes relative to the grandparent
+    ///   **and** no new message was supplied.
+    pub fn amend(&mut self, message: Option<&str>) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        if view.heads.len() != 1 {
+            anyhow::bail!(
+                "amend requires exactly one head; current view '{}' has {} heads",
+                view_name,
+                view.heads.len()
+            );
+        }
+        let old_head = *view.heads.iter().next().unwrap();
+
+        // Load the change being amended from CAS.
+        let parent = self
+            .store
+            .read_change(&old_head)
+            .map_err(|_| anyhow::anyhow!("change {} not found in CAS", _hex(&old_head)))?;
+
+        // Hydrate the grandparent (the deps of the change we are amending) so
+        // we can materialize the state from before the amended change existed.
+        self.hydrate_heads(&parent.deps)?;
+        let grandparent_state = self.materialize_heads(&parent.deps)?;
+
+        // Diff the working directory against the grandparent state.
+        let delta = self.compute_working_directory_delta(&grandparent_state)?;
+
+        if delta.is_empty() && message.is_none() {
+            anyhow::bail!("nothing to amend — working directory matches the pre-amend state and no new message was supplied");
+        }
+
+        let new_intent = message.unwrap_or(parent.intent.as_str()).to_string();
+
+        let (author, signing_key) = self.signing_identity()?;
+        let author = author.clone();
+
+        // Persist raw bytes for any Atom::Blob before committing.
+        self.write_blob_atoms(&delta)?;
+
+        // Build the amended Change with the grandparent's deps (not the old
+        // head) so history is rewritten cleanly.
+        let new_change = Change::new(
+            parent.deps.clone(),
+            delta,
+            new_intent,
+            author,
+            signing_key,
+        );
+        let new_id = new_change.id;
+
+        self.store
+            .write_change(&new_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph.add_change(new_change.clone());
+
+        // Update the Epoch Map: old_head → new_id, so peers transparently graft.
+        let epochs_path = self.shared_root.join(".arc").join("epochs");
+        let mut epoch_json: HashMap<String, String> = if epochs_path.exists() {
+            let raw = fs::read_to_string(&epochs_path).unwrap_or_default();
+            serde_json::from_str(&raw).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        epoch_json.insert(_hex(&old_head), _hex(&new_id));
+        let serialized = serde_json::to_string_pretty(&epoch_json)
+            .map_err(|e| anyhow::anyhow!("epoch map serialisation error: {e}"))?;
+        let tmp = epochs_path.with_extension("tmp");
+        fs::write(&tmp, &serialized)
+            .map_err(|e| anyhow::anyhow!("could not write epoch map: {e}"))?;
+        fs::rename(&tmp, &epochs_path)
+            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
+
+        // Log before mutating the view.
+        self.log_operation("amend", &view_name, view.heads.clone())?;
+
+        // Repoint the view to the new change.
+        let updated_view = View::new(&view_name, HashSet::from([new_id]));
+        updated_view
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        // Rematerialize and write the working directory.
+        let new_state = self.materialize(&view_name)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
+
+        tracing::info!(old = %_hex(&old_head), new = %_hex(&new_id), "amend complete");
+        Ok(new_id)
+    }
+
+    /// Resolve a human-readable revision query to a [`Blake3Hash`].
+    ///
+    /// Supported query formats:
+    ///
+    /// | Format | Example | Meaning |
+    /// |--------|---------|---------|
+    /// | `HEAD` / `@` | `HEAD` | Current view's sole head |
+    /// | View name | `main` | Sole head of the named view |
+    /// | Partial hex | `a1b2c3` | Unique prefix of a CAS object hash |
+    /// | `<base>~N` | `HEAD~2` | N-th ancestor of `<base>` |
+    ///
+    /// Ancestor traversal (`~N`) deterministically follows the first dependency
+    /// (sorted by hex) when a change has multiple parents (merge commits).
+    pub fn resolve_rev(&self, query: &str) -> anyhow::Result<Blake3Hash> {
+        // Split off the optional `~N` ancestor suffix.
+        let (base_str, n) = if let Some(tilde_pos) = query.find('~') {
+            let base = &query[..tilde_pos];
+            let steps_str = &query[tilde_pos + 1..];
+            let steps: usize = steps_str
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid ancestor count in '{query}': expected an integer after '~'"))?;
+            (base, steps)
+        } else {
+            (query, 0)
+        };
+
+        // Resolve the base reference to a starting hash.
+        let mut current: Blake3Hash = if base_str == "HEAD" || base_str == "@" {
+            let view_name = self.current_view_name()?;
+            let view = View::load(&self.shared_root, &view_name)
+                .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+            if view.heads.len() != 1 {
+                anyhow::bail!(
+                    "HEAD is ambiguous — view '{view_name}' has {} heads; use a specific hash",
+                    view.heads.len()
+                );
+            }
+            *view.heads.iter().next().unwrap()
+        } else if let Ok(view) = View::load(&self.shared_root, base_str) {
+            // base_str is a view name.
+            if view.heads.len() != 1 {
+                anyhow::bail!(
+                    "view '{base_str}' has {} heads; use a specific hash",
+                    view.heads.len()
+                );
+            }
+            *view.heads.iter().next().unwrap()
+        } else {
+            // Partial hex prefix — scan .arc/store/ for a unique filename match.
+            let store_dir = self.shared_root.join(".arc").join("store");
+            let mut matches: Vec<Blake3Hash> = Vec::new();
+            if let Ok(rd) = fs::read_dir(&store_dir) {
+                for entry in rd.filter_map(|e| e.ok()) {
+                    let fname = entry.file_name().to_string_lossy().into_owned();
+                    if fname.starts_with(base_str)
+                        && let Some(hash) = _unhex(&fname)
+                    {
+                        matches.push(hash);
+                    }
+                }
+            }
+            match matches.len() {
+                0 => anyhow::bail!("no change found matching '{base_str}'"),
+                1 => matches.remove(0),
+                n => anyhow::bail!("ambiguous prefix '{base_str}' matches {n} changes; use more characters"),
+            }
+        };
+
+        // Walk n ancestor steps.
+        for i in 0..n {
+            let change = self
+                .store
+                .read_change(&current)
+                .map_err(|_| anyhow::anyhow!("change {} not found in CAS", _hex(&current)))?;
+            // Sort deps by hex for deterministic traversal when there are multiple parents.
+            let mut sorted_deps: Vec<Blake3Hash> = change.deps.into_iter().collect();
+            sorted_deps.sort_by_key(_hex);
+            current = sorted_deps
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("cannot traverse ~{n}: change at step {i} has no ancestors"))?;
+        }
+
+        Ok(current)
     }
 }
 
@@ -3601,6 +3843,66 @@ mod tests {
         assert!(
             all_content.contains("fn c"),
             "materialised state must contain 'fn c'; got: {all_content:?}"
+        );
+    }
+
+    #[test]
+    fn test_amend() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("amend_project");
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Create a file and snap it.
+        fs::create_dir_all(repo_path.join("src")).unwrap();
+        fs::write(repo_path.join("src").join("main.rs"), "fn a() {}").unwrap();
+        let snap_id = repo
+            .snap("add fn a", false)
+            .unwrap()
+            .expect("snap must produce a change");
+
+        // Modify the file and amend — no new message supplied.
+        fs::write(
+            repo_path.join("src").join("main.rs"),
+            "fn a() {}\nfn amended() {}",
+        )
+        .unwrap();
+        let new_id = repo.amend(None).expect("amend must succeed");
+
+        // The amended change must have a different ID.
+        assert_ne!(snap_id, new_id, "amend must produce a new change ID");
+
+        // The view must point at the amended change as its sole head.
+        let view = View::load(&repo_path, "main").expect("load view");
+        assert_eq!(view.heads.len(), 1, "view must have exactly one head after amend");
+        assert!(view.heads.contains(&new_id), "view head must be the amended change");
+        assert!(!view.heads.contains(&snap_id), "original snap must no longer be a head");
+
+        // Materialising the view must reflect the amended content.
+        let state = repo.materialize("main").expect("materialize after amend");
+        let all_content: String = state
+            .values()
+            .filter_map(|v| std::str::from_utf8(v).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            all_content.contains("amended"),
+            "materialised state must contain 'amended'; got: {all_content:?}"
+        );
+
+        // The epoch map must redirect the old snap ID to the new amended ID.
+        let epochs_path = repo_path.join(".arc").join("epochs");
+        assert!(epochs_path.exists(), ".arc/epochs must exist after amend");
+        let raw = fs::read_to_string(&epochs_path).unwrap();
+        let epoch_map: std::collections::HashMap<String, String> =
+            serde_json::from_str(&raw).unwrap();
+        let snap_hex: String = snap_id.iter().map(|b| format!("{b:02x}")).collect();
+        let new_hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            epoch_map.get(&snap_hex).map(String::as_str),
+            Some(new_hex.as_str()),
+            "epoch map must redirect old snap ID to amended ID"
         );
     }
 }

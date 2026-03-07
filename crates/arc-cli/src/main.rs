@@ -166,8 +166,16 @@ enum Command {
     /// CRDT tombstones and reducing repository size.  An Epoch Map is
     /// written to `.arc/epochs` so future `hydrate` calls transparently
     /// redirect compacted IDs; no live Change object is ever rewritten.
-    Compact,
-    /// Get or set arc configuration / global aliases.
+    Compact,    /// Amend the most recent snap, optionally replacing its message.
+    ///
+    /// Rewrites the last change in-place: the amended commit gets a new hash
+    /// and the old hash is added to the Epoch Map so peers transparently graft
+    /// onto the amended history.
+    Amend {
+        /// New commit message.  If omitted, the original message is kept.
+        #[arg(short, long)]
+        message: Option<String>,
+    },    /// Get or set arc configuration / global aliases.
     Config {
         #[command(subcommand)]
         action: ConfigAction,
@@ -601,10 +609,10 @@ fn main() -> anyhow::Result<()> {
             }
         },
         Command::Tag { name, hash } => {
-            let hash_bytes = hex_to_hash(&hash)?;
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
+            let hash_bytes = repo.resolve_rev(&hash)?;
             repo.create_tag(&name, &hash_bytes)?;
             println!("Tagged {} as '{name}'", &hash[..8]);
         }
@@ -626,10 +634,10 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::Revert { hash } => {
-            let hash_bytes = hex_to_hash(&hash)?;
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
+            let hash_bytes = repo.resolve_rev(&hash)?;
             let revert_id = repo.revert(&hash_bytes)?;
             let hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Reverted {} \u{2192} new change {}", &hash[..8], &hex[..8]);
@@ -748,6 +756,14 @@ fn main() -> anyhow::Result<()> {
             let genesis_id = repo.compact()?;
             let hex: String = genesis_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Successfully compacted causally stable history into new base state: {hex}");
+        }
+        Command::Amend { message } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let new_id = repo.amend(message.as_deref())?;
+            let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Amended → {}", &hex[..8]);
         }
         Command::Config { action } => match action {
             ConfigAction::Alias { name, expansion } => {
