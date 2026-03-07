@@ -208,15 +208,44 @@ arc restore src/widget.rs
 
 ---
 
+## `arc op log`
+
+Print the spacetime operation log in reverse-chronological order.
+
+```sh
+arc op log
+```
+
+Displays a table of every view-mutating operation recorded in `.arc/oplog.json` — most recent first.
+
+| Column | Description |
+|---|---|
+| `ID` | 8-character BLAKE3 operation ID |
+| `Time` | Wall-clock timestamp (`YYYY-MM-DD HH:MM:SS`) |
+| `View` | Name of the view that was mutated |
+| `Agent` | `👤 Human` or `🤖 AI` |
+| `Command` | Operation type (`snap`, `merge`, `cherry-pick`, `revert`, `restore`, `mount add`, `amend`) |
+| `Before→After` | 8-char hex of the DAG frontier before and after the operation |
+
+The log is local-only and is never pushed or fetched. It is bounded at **1 000 entries** via a sliding-window compaction policy (oldest entries are evicted first).
+
+---
+
 ## `arc undo`
 
-Pop the last operation from the OpLog and reverse it.
+Rewind the last view-mutating operation using an O(1) pointer-swap.
 
 ```sh
 arc undo
 ```
 
-Creates a new reverse `Change` rather than rewriting history. Safe to run at any time.
+Pops the most-recent entry from the spacetime operation log and restores the affected view's head set to its pre-operation state. The working directory is rematerialized to match. This is a **pure pointer update** — no Change objects are deleted from the CAS.
+
+Prints `⏪ Undid '<command>' on view '<view>'. Restored: <after> → <before>`.
+
+Exits with no output if the operation log is empty.
+
+See [Spacetime Operation Log](../design/oplog.md) for the full design.
 
 ---
 

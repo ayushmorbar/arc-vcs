@@ -8,6 +8,7 @@ use arc_cli::sync::{fetch, pull};
 use arc_core::ai::MockResolver;
 use arc_core::algebra::Blake3Hash;
 use arc_core::store::author::{Author, load_identity, save_identity};
+use arc_core::store::oplog::OperationAgent;
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
 
@@ -144,8 +145,13 @@ enum Command {
     },
     /// Unsupported — arc uses `snap` instead of `commit`.
     Commit,
-    /// Undo the last view-mutating operation using the operation log.
+    /// Undo the last view-mutating operation using the operation log (O(1) pointer-swap).
     Undo,
+    /// Inspect and manage the spacetime operation log.
+    Op {
+        #[command(subcommand)]
+        action: OpAction,
+    },
     /// Manage semantic sparse checkouts (monorepo tamer).
     Sparse {
         #[command(subcommand)]
@@ -230,6 +236,12 @@ enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+}
+
+#[derive(Subcommand)]
+enum OpAction {
+    /// Print the operation log in reverse-chronological order.
+    Log,
 }
 
 #[derive(Subcommand)]
@@ -798,8 +810,57 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Undo => {
             let mut repo = Repository::open(".")?;
-            repo.undo()?;
+            match repo.undo()? {
+                Some(op) => {
+                    let before = op.before_short();
+                    let after = op.after_short();
+                    println!(
+                        "{} Undid {} on view {}. Restored: {} \u{2192} {}",
+                        "⏪".cyan(),
+                        format!("'{}'", op.command).green(),
+                        format!("'{}'", op.view).yellow(),
+                        after.dimmed(),
+                        before.dimmed(),
+                    );
+                }
+                None => println!("Nothing to undo — operation log is empty."),
+            }
         }
+        Command::Op { action } => match action {
+            OpAction::Log => {
+                let repo = Repository::open(".")?;
+                let ops = repo.op_log()?;
+                if ops.is_empty() {
+                    println!("Operation log is empty.");
+                } else {
+                    let mut table = Table::new();
+                    table.load_preset(presets::UTF8_FULL);
+                    table.set_header(vec![
+                        Cell::new("ID").fg(Color::Cyan),
+                        Cell::new("Time"),
+                        Cell::new("View").fg(Color::Yellow),
+                        Cell::new("Agent"),
+                        Cell::new("Command").fg(Color::Green),
+                        Cell::new("Before→After"),
+                    ]);
+                    for op in &ops {
+                        let agent_label = match op.agent {
+                            OperationAgent::Human => op.agent.label().to_string(),
+                            OperationAgent::Ai => op.agent.label().cyan().to_string(),
+                        };
+                        table.add_row(vec![
+                            Cell::new(&op.id).fg(Color::Cyan),
+                            Cell::new(op.formatted_time()),
+                            Cell::new(&op.view).fg(Color::Yellow),
+                            Cell::new(agent_label),
+                            Cell::new(&op.command).fg(Color::Green),
+                            Cell::new(format!("{} → {}", op.before_short(), op.after_short())),
+                        ]);
+                    }
+                    println!("{table}");
+                }
+            }
+        },
         Command::Sparse { action } => match action {
             SparseAction::Set { paths } => {
                 let mut repo = Repository::open(".")?;

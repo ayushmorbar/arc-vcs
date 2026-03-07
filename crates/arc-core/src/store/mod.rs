@@ -1,4 +1,4 @@
-//! arc object store: CAS, changes, graph, views, and author identity.
+//! arc object store: CAS, changes, graph, views, author identity, and oplog.
 
 /// Author identity and signing-key management.
 pub mod author;
@@ -8,6 +8,8 @@ pub mod cas;
 pub mod change;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
+/// Append-only spacetime operation log for O(1) undo.
+pub mod oplog;
 /// Cryptographically-signed immutable tags.
 pub mod tag;
 /// Virtual views (branches) over the change DAG.

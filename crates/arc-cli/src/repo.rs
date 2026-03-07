@@ -12,6 +12,7 @@ use arc_core::store::author::{Author, load_identity};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
+use arc_core::store::oplog::{Operation, OpLog};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
 use arc_lang::ast::LanguagePlugin;
@@ -60,21 +61,6 @@ pub struct PendingConflict {
     pub target_heads: HashSet<Blake3Hash>,
     /// List of conflicting (local, remote) change id pairs.
     pub conflicting_pairs: Vec<(Blake3Hash, Blake3Hash)>,
-}
-
-/// A single entry in the operation log, recording every view-mutating command.
-///
-/// Used by [`Repository::undo`] to rewind the last operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpLogEntry {
-    /// Unix timestamp (seconds since epoch) when the operation ran.
-    pub timestamp: u64,
-    /// Human-readable command name (e.g. `"snap"`, `"merge"`, `"cherry-pick"`).
-    pub command: String,
-    /// Name of the view that was mutated.
-    pub view: String,
-    /// Heads of the view **before** the operation, used to restore the DAG state.
-    pub previous_heads: HashSet<Blake3Hash>,
 }
 
 /// Summary returned by [`Repository::gc`].
@@ -576,13 +562,16 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(change.clone());
 
-        // Log before mutating view frontier so undo can restore previous state.
-        self.log_operation("snap", &view_name, view.heads.clone())?;
+        // Capture the current frontier before advancing it.
+        let before_heads = view.heads.clone();
 
         // Advance the frontier: new change becomes the sole head.
         view.heads = HashSet::from([change.id]);
         view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        // Record the completed snap in the spacetime log.
+        self.log_operation("snap", &view_name, before_heads, HashSet::from([change.id]))?;
 
         tracing::info!(change_id = ?change.id, "snap complete");
         Ok(Some(change.id))
@@ -849,11 +838,13 @@ impl Repository {
         let mut merged_heads = current_view.heads;
         merged_heads.extend(target_heads);
 
-        self.log_operation("merge", &current_name, prev_heads)?;
         let updated_view = View::new(&current_name, merged_heads.clone());
         updated_view
             .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
+
+        // Record the completed merge in the spacetime log.
+        self.log_operation("merge", &current_name, prev_heads, merged_heads.clone())?;
 
         // Re-materialize and write to working directory.
         let merged_state = self.materialize_heads(&merged_heads)?;
@@ -1271,13 +1262,17 @@ impl Repository {
 
         // Reuse the existing Change object (same hash → same CAS entry).
         self.graph.add_change(change);
-        self.log_operation("cherry-pick", &view_name, current_view.heads.clone())?;
+        let before_cp = current_view.heads.clone();
         let mut new_heads = current_view.heads.clone();
         new_heads.insert(*hash);
         let updated_view = View::new(&view_name, new_heads.clone());
         updated_view
             .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view after cherry-pick: {e}"))?;
+
+        // Record the completed cherry-pick in the spacetime log.
+        self.log_operation("cherry-pick", &view_name, before_cp, new_heads.clone())?;
+
         let new_state = self.materialize_heads(&new_heads)?;
         write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
         Ok(())
@@ -1549,10 +1544,9 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(revert_change.clone());
 
-        // Log before mutating the view frontier.
-        self.log_operation("revert", &view_name, current_view.heads.clone())?;
-
-        // Advance the current view to point at the revert change.
+        // Advance the current view to point at the revert change and record
+        // the completed revert in the spacetime log.
+        self.log_operation("revert", &view_name, current_view.heads.clone(), HashSet::from([revert_change.id]))?;
         let updated_view = View::new(&view_name, HashSet::from([revert_change.id]));
         updated_view
             .save(&self.shared_root)
@@ -1595,7 +1589,7 @@ impl Repository {
         let view_heads = View::load(&self.shared_root, &view_name)
             .map(|v| v.heads)
             .unwrap_or_default();
-        self.log_operation("restore", &view_name, view_heads)?;
+        self.log_operation("restore", &view_name, view_heads.clone(), view_heads)?;
 
         let full = self.work_root.join(filepath);
         if let Some(parent) = full.parent() {
@@ -1728,64 +1722,42 @@ impl Repository {
         Ok(())
     }
 
-    /// Append an [`OpLogEntry`] to `.arc/oplog.json` recording the DAG state
-    /// **before** a mutating operation.
+    /// Append an [`Operation`] to the spacetime oplog, recording both the
+    /// **before** and **after** head sets for this mutating operation.
     ///
-    /// Called by every method that advances view heads so that
-    /// [`undo`](Self::undo) can rewind the last operation.
+    /// Delegates entirely to [`OpLog`]; the 1 000-entry sliding-window
+    /// compaction and backward-compat deserialization are handled there.
     fn log_operation(
         &self,
         command: &str,
         view: &str,
-        previous_heads: HashSet<Blake3Hash>,
+        before_heads: HashSet<Blake3Hash>,
+        after_heads: HashSet<Blake3Hash>,
     ) -> anyhow::Result<()> {
-        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
-        let mut entries: Vec<OpLogEntry> = if oplog_path.exists() {
-            let json = fs::read_to_string(&oplog_path)
-                .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
-            serde_json::from_str(&json).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        entries.push(OpLogEntry {
-            timestamp,
-            command: command.to_string(),
-            view: view.to_string(),
-            previous_heads,
-        });
-        fs::write(&oplog_path, serde_json::to_string_pretty(&entries)?)
-            .map_err(|e| anyhow::anyhow!("failed to write oplog: {e}"))
+        let op = Operation::new(command, view, before_heads, after_heads);
+        OpLog::new(&self.shared_root.join(".arc")).append(&op)
     }
 
     /// Undo the last view-mutating operation recorded in the operation log.
     ///
-    /// Reads `.arc/oplog.json`, pops the most-recent [`OpLogEntry`], restores
-    /// the view to its `previous_heads`, re-materializes the state, and writes
-    /// the working directory to match.  Blob files that existed before but are
-    /// absent in the restored state are deleted from disk.
+    /// Pops the most-recent [`Operation`] via [`OpLog`], restores the view to
+    /// its `before_heads`, re-materializes the state, and writes the working
+    /// directory to match.  Blob files that existed before but are absent in
+    /// the restored state are deleted from disk.
     ///
-    /// Returns an error if the operation log is empty.
-    pub fn undo(&mut self) -> anyhow::Result<()> {
+    /// Returns `Ok(Some(op))` on success, `Ok(None)` if the log is empty.
+    pub fn undo(&mut self) -> anyhow::Result<Option<Operation>> {
         self.acquire_lock()?;
-        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
-        if !oplog_path.exists() {
-            anyhow::bail!("nothing to undo — operation log is empty");
-        }
-        let json = fs::read_to_string(&oplog_path)
-            .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
-        let mut entries: Vec<OpLogEntry> = serde_json::from_str(&json).unwrap_or_default();
-        let entry = entries
-            .pop()
-            .ok_or_else(|| anyhow::anyhow!("nothing to undo — operation log is empty"))?;
+        let arc_dir = self.shared_root.join(".arc");
+        let op = match OpLog::new(&arc_dir).pop()? {
+            Some(op) => op,
+            None => return Ok(None),
+        };
 
         // Load the current view and materialise it so we know which blob files
         // exist right now (and may need to be removed after the undo).
-        let current_view = View::load(&self.shared_root, &entry.view)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", entry.view))?;
+        let current_view = View::load(&self.shared_root, &op.view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", op.view))?;
         self.hydrate_heads(&current_view.heads)?;
         let current_state = if current_view.heads.is_empty() {
             MaterializedState::new()
@@ -1794,18 +1766,17 @@ impl Repository {
         };
 
         // Restore the view to its pre-operation heads.
-        let restored_view = View::new(&entry.view, entry.previous_heads.clone());
+        let restored_view = View::new(&op.view, op.before_heads.clone());
         restored_view
             .save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", entry.view))?;
-
+            .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", op.view))?;
 
         // Materialise the restored state.
-        self.hydrate_heads(&entry.previous_heads)?;
-        let restored_state = if entry.previous_heads.is_empty() {
+        self.hydrate_heads(&op.before_heads)?;
+        let restored_state = if op.before_heads.is_empty() {
             MaterializedState::new()
         } else {
-            self.materialize_heads(&entry.previous_heads)?
+            self.materialize_heads(&op.before_heads)?
         };
 
         // Remove non-RS blob files that exist now but shouldn't after the undo.
@@ -1825,15 +1796,16 @@ impl Repository {
         // Write the restored state to the working directory.
         write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)?;
 
-        // Persist the updated oplog (without the popped entry).
-        fs::write(&oplog_path, serde_json::to_string_pretty(&entries)?)
-            .map_err(|e| anyhow::anyhow!("failed to update oplog: {e}"))?;
+        Ok(Some(op))
+    }
 
-        println!(
-            "Undid '{}' on view '{}'. Restored to previous state.",
-            entry.command, entry.view
-        );
-        Ok(())
+    /// Return the full operation log in reverse-chronological order (most
+    /// recent first).
+    ///
+    /// Delegates to [`OpLog::read_reversed`]; returns an empty `Vec` when the
+    /// log file does not yet exist.
+    pub fn op_log(&self) -> anyhow::Result<Vec<Operation>> {
+        OpLog::new(&self.shared_root.join(".arc")).read_reversed()
     }
 
     // ------------------------------------------------------------------
@@ -1928,8 +1900,8 @@ impl Repository {
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(change.clone());
-        // Log before mutating view frontier so arc undo can rewind this operation.
-        self.log_operation("mount add", &view_name, view.heads.clone())?;
+        // Record the completed mount-add in the spacetime log.
+        self.log_operation("mount add", &view_name, view.heads.clone(), HashSet::from([change.id]))?;
         view.heads = HashSet::from([change.id]);
         view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
@@ -2102,14 +2074,11 @@ impl Repository {
             }
         }
 
-        // OpLog protection: every previous_heads set.
-        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
-        if oplog_path.exists()
-            && let Ok(json) = fs::read_to_string(&oplog_path)
-            && let Ok(entries) = serde_json::from_str::<Vec<OpLogEntry>>(&json)
-        {
-            for entry in &entries {
-                root_set.extend(entry.previous_heads.iter().copied());
+        // OpLog protection: every before_heads and after_heads in the log.
+        if let Ok(ops) = OpLog::new(&self.shared_root.join(".arc")).read_all() {
+            for op in &ops {
+                root_set.extend(op.before_heads.iter().copied());
+                root_set.extend(op.after_heads.iter().copied());
             }
         }
 
@@ -2485,8 +2454,8 @@ impl Repository {
         fs::rename(&tmp, &epochs_path)
             .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
 
-        // Log before mutating the view.
-        self.log_operation("amend", &view_name, view.heads.clone())?;
+        // Record the completed amend in the spacetime log.
+        self.log_operation("amend", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
 
         // Repoint the view to the new change.
         let updated_view = View::new(&view_name, HashSet::from([new_id]));

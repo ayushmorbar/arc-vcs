@@ -7,7 +7,7 @@
 //!
 //! # Internal modules
 //!
-//! - [`repo`] — Top-level repository handle and all VCS operations.
+//! - [`repo`] — Top-level repository handle and all VCS operations (snap, merge, undo, op_log, …).
 //! - [`sync`] — Fetch / pull primitives for peer-to-peer sync.
 //! - [`interop`] — Importers from other VCS systems.
 //! - [`semantic_diff`] — Sesame-aligned semantic text diff rendering engine.
