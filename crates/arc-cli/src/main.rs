@@ -428,7 +428,8 @@ fn main() -> anyhow::Result<()> {
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
             repo.cherry_pick(&hash_bytes)?;
-            println!("Cherry-picked {} into current view.", &hash[..8]);
+            let hex: String = hash_bytes.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Cherry-picked {} into current view.", &hex[..8]);
         }
         Command::Blame { filepath } => {
             let mut repo = Repository::open(".")?;
@@ -614,7 +615,8 @@ fn main() -> anyhow::Result<()> {
             repo.set_identity(author, signing_key);
             let hash_bytes = repo.resolve_rev(&hash)?;
             repo.create_tag(&name, &hash_bytes)?;
-            println!("Tagged {} as '{name}'", &hash[..8]);
+            let hex: String = hash_bytes.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Tagged {} as '{name}'", &hex[..8]);
         }
         Command::Tags => {
             let repo = Repository::open(".")?;
@@ -638,9 +640,10 @@ fn main() -> anyhow::Result<()> {
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
             let hash_bytes = repo.resolve_rev(&hash)?;
+            let target_hex: String = hash_bytes.iter().map(|b| format!("{b:02x}")).collect();
             let revert_id = repo.revert(&hash_bytes)?;
-            let hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
-            println!("Reverted {} \u{2192} new change {}", &hash[..8], &hex[..8]);
+            let revert_hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Reverted {} \u{2192} new change {}", &target_hex[..8], &revert_hex[..8]);
         }
         Command::Restore { filepath } => {
             let mut repo = Repository::open(".")?;
