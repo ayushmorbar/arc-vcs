@@ -13,7 +13,7 @@
 //! object I/O (loose + pack) → commit parsing → DAG traversal.
 
 use anyhow::{bail, Context, Result};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -120,7 +120,11 @@ pub fn oid_hex(oid: &GitOid) -> String {
 
 // ── git dir resolution ─────────────────────────────────────────────────
 
-fn resolve_git_dir(path: &Path) -> Result<PathBuf> {
+/// Locate the `.git` directory for the repository rooted at `path`.
+///
+/// Handles plain repositories (`.git/` subdirectory), worktrees
+/// (`.git` file with a `gitdir:` pointer), and bare repositories.
+pub fn resolve_git_dir(path: &Path) -> Result<PathBuf> {
     let dot_git = path.join(".git");
     if dot_git.is_dir() {
         return Ok(dot_git);
@@ -685,4 +689,104 @@ pub fn read_blob(git_dir: &Path, oid: &GitOid) -> Result<Vec<u8>> {
         bail!("object {} is not a blob", oid_hex(oid));
     }
     Ok(obj.data)
+}
+
+/// Recursively extract all blob entries from a Git tree into a flat map.
+///
+/// Keys are repo-relative slash-separated paths, e.g. `"src/main.rs"`.
+/// Subdirectories are traversed recursively.  Gitlinks (submodules) are
+/// skipped.  Symlinks (mode `120000`) are stored as raw bytes.
+///
+/// Call this with `prefix = ""` for the root tree of a commit.
+pub fn extract_tree_to_memory(
+    git_dir: &Path,
+    tree_oid: &GitOid,
+    prefix: &str,
+    out: &mut HashMap<String, Vec<u8>>,
+) -> Result<()> {
+    let obj = read_object(git_dir, tree_oid)?;
+    if obj.kind != ObjKind::Tree {
+        bail!("object {} is not a tree", oid_hex(tree_oid));
+    }
+    let tree = parse_tree(&obj.data)?;
+    for entry in &tree.entries {
+        let path = if prefix.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{prefix}/{}", entry.name)
+        };
+        let oid = parse_hex_oid(&entry.oid)?;
+        if entry.mode == "40000" || entry.mode == "040000" {
+            // Subdirectory — recurse.
+            extract_tree_to_memory(git_dir, &oid, &path, out)?;
+        } else if entry.mode.starts_with("100") || entry.mode.starts_with("120") {
+            // Regular file (100644 / 100755) or symlink (120000).
+            let blob_obj = read_object(git_dir, &oid)?;
+            if blob_obj.kind == ObjKind::Blob {
+                out.insert(path, blob_obj.data);
+            }
+        }
+        // mode "160000" (gitlink/submodule) — skip.
+    }
+    Ok(())
+}
+
+/// Return all local branch names and their tip commit OIDs.
+///
+/// Reads loose refs from `refs/heads/` and then fills in any additional
+/// branches from `packed-refs` without overwriting loose entries.
+pub fn list_branch_heads(path: &Path) -> Result<HashMap<String, GitOid>> {
+    let git_dir = resolve_git_dir(path)?;
+    let mut branches: HashMap<String, GitOid> = HashMap::new();
+
+    // Loose refs
+    let heads_dir = git_dir.join("refs").join("heads");
+    if heads_dir.is_dir() {
+        collect_loose_refs(&heads_dir, &heads_dir, &mut branches)?;
+    }
+
+    // packed-refs (only fills gaps — loose refs take priority)
+    let packed = git_dir.join("packed-refs");
+    if packed.is_file() {
+        for line in std::fs::read_to_string(&packed)?.lines() {
+            if line.starts_with('#') || line.starts_with('^') {
+                continue;
+            }
+            let mut parts = line.splitn(2, ' ');
+            if let (Some(hex), Some(refname)) = (parts.next(), parts.next())
+                && let Some(branch) = refname.strip_prefix("refs/heads/")
+                && let Ok(oid) = parse_hex_oid(hex)
+            {
+                branches.entry(branch.to_string()).or_insert(oid);
+            }
+        }
+    }
+
+    Ok(branches)
+}
+
+/// Recursively collect loose ref files under `dir` into `out`.
+///
+/// Keys are slash-separated paths relative to `base` (the
+/// `refs/heads/` directory), e.g. `"main"` or `"feature/fix-42"`.
+fn collect_loose_refs(
+    base: &Path,
+    dir: &Path,
+    out: &mut HashMap<String, GitOid>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_loose_refs(base, &path, out)?;
+        } else if path.is_file() {
+            let rel = path.strip_prefix(base)?;
+            let name = rel.to_string_lossy().replace('\\', "/");
+            let hex = std::fs::read_to_string(&path)?;
+            if let Ok(oid) = parse_hex_oid(hex.trim()) {
+                out.insert(name, oid);
+            }
+        }
+    }
+    Ok(())
 }
