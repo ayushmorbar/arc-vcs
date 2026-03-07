@@ -172,10 +172,10 @@ fn resolve_ref(git_dir: &Path, refpath: &str) -> Result<GitOid> {
                 continue;
             }
             let mut parts = line.splitn(2, ' ');
-            if let (Some(hex), Some(name)) = (parts.next(), parts.next()) {
-                if name == refpath {
-                    return parse_hex_oid(hex);
-                }
+            if let (Some(hex), Some(name)) = (parts.next(), parts.next())
+                && name == refpath
+            {
+                return parse_hex_oid(hex);
             }
         }
     }
@@ -588,4 +588,101 @@ fn zlib_decompress(data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     flate2::read::ZlibDecoder::new(data).read_to_end(&mut out)?;
     Ok(out)
+}
+
+// ── Tree & Blob Extraction Layer ─────────────────────────────
+
+/// A single entry inside a Git tree object.
+///
+/// Each entry corresponds to either a file (`blob`) or a subdirectory
+/// (`tree`).  The `mode` string follows Git conventions:
+///
+/// | Mode     | Meaning                          |
+/// |----------|----------------------------------|
+/// | `100644` | Regular file                     |
+/// | `100755` | Executable file                  |
+/// | `120000` | Symbolic link                    |
+/// | `040000` | Subdirectory (another tree)      |
+/// | `160000` | Gitlink (submodule)              |
+#[derive(Debug, Clone)]
+pub struct TreeEntry {
+    /// Octal mode as a UTF-8 string (e.g. `"100644"`).
+    pub mode: String,
+    /// File or directory name (not a full path).
+    pub name: String,
+    /// 40-char lowercase hex SHA-1 of the pointed-to object.
+    pub oid: String,
+}
+
+/// Structured representation of a Git tree object.
+#[derive(Debug, Clone)]
+pub struct GitTree {
+    /// All file and directory entries listed in this tree.
+    pub entries: Vec<TreeEntry>,
+}
+
+/// Parses raw Git tree object bytes into a [`GitTree`].
+///
+/// Git tree format (binary, no terminating newline):
+/// ```text
+/// <mode SP <name> NUL <20-byte-binary-OID>  (repeated)
+/// ```
+///
+/// # Errors
+/// Returns an error only on I/O-level anomalies; a truncated trailing
+/// entry is silently skipped (same behaviour as `git cat-file -p`).
+pub fn parse_tree(raw_data: &[u8]) -> Result<GitTree> {
+    let mut entries = Vec::new();
+    let mut i = 0;
+
+    while i < raw_data.len() {
+        // ── mode (terminated by SP) ───────────────────────────────────
+        let space_idx = match raw_data[i..].iter().position(|&b| b == b' ') {
+            Some(rel) => i + rel,
+            None => break, // malformed — stop gracefully
+        };
+        let mode = String::from_utf8_lossy(&raw_data[i..space_idx]).into_owned();
+
+        // ── name (terminated by NUL) ──────────────────────────────────
+        let name_start = space_idx + 1;
+        let null_idx = match raw_data[name_start..].iter().position(|&b| b == 0) {
+            Some(rel) => name_start + rel,
+            None => break,
+        };
+        let name = String::from_utf8_lossy(&raw_data[name_start..null_idx]).into_owned();
+
+        // ── 20-byte binary OID ────────────────────────────────────────
+        let oid_start = null_idx + 1;
+        let oid_end = oid_start + 20;
+        if oid_end > raw_data.len() {
+            break; // truncated entry — stop gracefully
+        }
+        let oid = raw_data[oid_start..oid_end]
+            .iter()
+            .fold(String::with_capacity(40), |mut s, b| {
+                use std::fmt::Write;
+                let _ = write!(s, "{b:02x}");
+                s
+            });
+
+        entries.push(TreeEntry { mode, name, oid });
+        i = oid_end;
+    }
+
+    Ok(GitTree { entries })
+}
+
+/// Reads the blob (file content) for `oid` from the repository at
+/// `git_dir` and returns the raw bytes.
+///
+/// This is the bridge between the Git DAG and the Tree-sitter AST
+/// engine: call [`parse_tree`] on a commit's `tree` OID to enumerate
+/// files, then call `read_blob` on each file's OID to obtain the bytes
+/// that feed into `tree_sitter::Parser`.
+pub fn read_blob(git_dir: &Path, oid: &GitOid) -> Result<Vec<u8>> {
+    let obj = read_object(git_dir, oid)?;
+    if obj.kind != ObjKind::Blob {
+        bail!("object {} is not a blob", oid_hex(oid));
+    }
+    Ok(obj.data)
 }
