@@ -185,8 +185,10 @@ enum Command {
     /// Generates a fresh Ed25519 keypair and persists it alongside the identity.
     Identity {
         /// Your full name.
+        #[arg(long)]
         name: String,
         /// Your email address.
+        #[arg(long)]
         email: String,
     },
     /// Show uncommitted working-directory changes as a coloured semantic diff.
@@ -410,7 +412,7 @@ fn main() -> anyhow::Result<()> {
             repo.set_identity(author, signing_key);
             let changes = repo.log()?;
             if changes.is_empty() {
-                println!("No changes yet.");
+                println!("No changes yet. Use 'arc snap' to create your first change.");
             } else {
                 let mut table = Table::new();
                 table.load_preset(presets::NOTHING);
@@ -440,6 +442,8 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Status => {
             let mut repo = Repository::open(".")?;
+            let view_name = repo.current_view_name()?;
+            println!("On view: {}", view_name.cyan().bold());
             let atoms = repo.status()?;
             if atoms.is_empty() {
                 println!("Nothing to snap — working directory is clean.");
@@ -804,6 +808,8 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Diff => {
             let mut repo = Repository::open(".")?;
+            let view_name = repo.current_view_name()?;
+            println!("On view: {}", view_name.cyan().bold());
             let atoms = repo.status()?;
             if atoms.is_empty() {
                 println!("Working directory clean — nothing to diff.");

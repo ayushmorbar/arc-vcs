@@ -485,6 +485,9 @@ impl Repository {
     /// The resulting atoms are prefixed with `["file", filepath]` so that
     /// `unparse()` can later reconstruct source per file.
     pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
+        load_identity().map_err(|_| anyhow::anyhow!(
+            "Identity not configured. Please run:\n  arc identity --name \"Your Name\" --email \"your@email.com\"\nbefore snapping changes."
+        ))?;
         self.run_hook("pre-snap")?;
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;

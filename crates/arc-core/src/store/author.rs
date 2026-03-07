@@ -155,7 +155,7 @@ pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
     let path = identity_path()?;
     let json = std::fs::read_to_string(&path).map_err(|_| {
         anyhow::anyhow!(
-            "No identity found. Please run 'arc auth login --name <NAME> --email <EMAIL>' first."
+            "No identity configured. Please set one using:\n  arc identity --name \"Your Name\" --email \"you@example.com\""
         )
     })?;
     let profile: IdentityProfile = serde_json::from_str(&json)
