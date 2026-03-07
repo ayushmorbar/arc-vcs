@@ -182,4 +182,69 @@ mod tests {
             "tampered atom content must fail layer-1 content re-hash check"
         );
     }
+
+    /// Deps must survive the content-addressed id computation and be included
+    /// in the hash (so changing deps changes the id).
+    #[test]
+    fn test_change_deps_are_preserved() {
+        let (author, signing_key) = test_keypair();
+        let dep_id = [42u8; 32];
+
+        let with_dep = Change::new(
+            HashSet::from([dep_id]),
+            vec![Atom::Insert {
+                at: vec!["fn_child".into()],
+                content: b"child".to_vec(),
+            }],
+            "child change",
+            author.clone(),
+            &signing_key,
+        );
+
+        assert!(with_dep.deps.contains(&dep_id), "deps must be present in the Change");
+        assert!(with_dep.verify_signature(), "change with deps must carry a valid signature");
+
+        // A change with the same atoms/intent/author but no deps must get a different id.
+        let no_dep = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["fn_child".into()],
+                content: b"child".to_vec(),
+            }],
+            "child change",
+            author,
+            &signing_key,
+        );
+
+        assert_ne!(
+            with_dep.id, no_dep.id,
+            "including deps must change the content-addressed id"
+        );
+    }
+
+    /// A `Change` must survive a `bincode` serialise → deserialise roundtrip.
+    #[test]
+    fn test_change_serialization_roundtrip() {
+        let (author, signing_key) = test_keypair();
+
+        let original = Change::new(
+            HashSet::from([[1u8; 32], [2u8; 32]]),
+            vec![
+                Atom::Insert {
+                    at: vec!["fn_a".into()],
+                    content: b"a".to_vec(),
+                },
+                Atom::Delete { at: vec!["fn_b".into()] },
+            ],
+            "roundtrip",
+            author,
+            &signing_key,
+        );
+
+        let bytes = bincode::serialize(&original).expect("serialization must succeed");
+        let decoded: Change = bincode::deserialize(&bytes).expect("deserialization must succeed");
+
+        assert_eq!(original, decoded, "Change must survive a bincode roundtrip");
+        assert!(decoded.verify_signature(), "decoded Change must still verify");
+    }
 }

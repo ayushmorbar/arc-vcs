@@ -253,4 +253,134 @@ mod tests {
             "sentinel rule must hold even with empty agent_ignore"
         );
     }
-}
+    /// `Directory` atoms must store an empty value at their path.
+    #[test]
+    fn test_apply_directory_atom() {
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Directory {
+                path: vec!["dir".into(), "src/utils".into()],
+            }],
+            "create utils dir",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &Gitignore::empty(), None).unwrap();
+        let key = vec!["dir".into(), "src/utils".into()];
+        assert!(state.contains_key(&key), "Directory atom must insert an entry at its path");
+        assert_eq!(
+            state[&key].as_slice(),
+            b"",
+            "Directory atom must store an empty value"
+        );
+    }
+
+    /// `Blob` atoms must store an `ARC_BLOB_REF:` token with the embedded hash.
+    #[test]
+    fn test_apply_blob_atom() {
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        let hash = [0xab_u8; 32];
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: vec!["file".into(), "logo.png".into()],
+                hash,
+            }],
+            "add binary asset",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &Gitignore::empty(), None).unwrap();
+        let key = vec!["file".into(), "logo.png".into()];
+        let val = state.get(&key).expect("Blob atom must insert an entry");
+        assert!(
+            val.starts_with(b"ARC_BLOB_REF:"),
+            "Blob atom must write ARC_BLOB_REF: prefix, got: {val:?}"
+        );
+        assert_eq!(&val[13..], &hash, "Blob atom must embed the 32-byte hash after the prefix");
+    }
+
+    /// `Move` atoms must return an error (unimplemented).
+    #[test]
+    fn test_apply_move_atom_returns_error() {
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Move {
+                from: vec!["fn_old".into()],
+                to: vec!["fn_new".into()],
+            }],
+            "rename fn",
+            author,
+            &signing_key,
+        );
+
+        let result = apply_change(&mut state, &change, &Gitignore::empty(), None);
+        assert!(result.is_err(), "Move atom must return an error (not yet implemented)");
+        assert!(
+            result.unwrap_err().contains("Move"),
+            "error message must mention Move"
+        );
+    }
+
+    /// Blame state must be populated for every inserted path.
+    #[test]
+    fn test_blame_state_population() {
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![
+                Atom::Insert {
+                    at: vec!["fn_a".into()],
+                    content: b"fn a() {}".to_vec(),
+                },
+                Atom::Insert {
+                    at: vec!["fn_b".into()],
+                    content: b"fn b() {}".to_vec(),
+                },
+            ],
+            "add a and b",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &Gitignore::empty(), Some(&mut blame)).unwrap();
+
+        assert_eq!(
+            blame.get(&vec!["fn_a".into()]),
+            Some(&change.id),
+            "blame must attribute fn_a to its change"
+        );
+        assert_eq!(
+            blame.get(&vec!["fn_b".into()]),
+            Some(&change.id),
+            "blame must attribute fn_b to its change"
+        );
+
+        // Delete fn_a — blame entry must be removed.
+        let (author2, signing_key2) = crate::store::author::test_keypair();
+        let del = Change::new(
+            HashSet::from([change.id]),
+            vec![Atom::Delete { at: vec!["fn_a".into()] }],
+            "remove a",
+            author2,
+            &signing_key2,
+        );
+        apply_change(&mut state, &del, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        assert!(
+            blame.get(&vec!["fn_a".into()]).is_none(),
+            "blame must remove fn_a after Delete"
+        );
+    }}

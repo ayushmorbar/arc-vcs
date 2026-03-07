@@ -790,3 +790,106 @@ fn collect_loose_refs(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::process::Command;
+
+    fn git(args: &[&str], dir: &Path) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@test.com")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@test.com")
+            .status()
+            .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+        assert!(status.success(), "git {args:?} failed with {status}");
+    }
+
+    /// `analyze_git_repo` must return the correct commit count and metadata.
+    #[test]
+    fn test_analyze_git_repo_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        git(&["init"], path);
+        git(&["config", "user.email", "test@test.com"], path);
+        git(&["config", "user.name", "test"], path);
+        git(&["config", "core.autocrlf", "false"], path);
+        std::fs::write(path.join("a.rs"), "fn a() {}").unwrap();
+        git(&["add", "."], path);
+        git(&["commit", "-m", "first commit"], path);
+
+        let analysis = analyze_git_repo(path).unwrap();
+
+        assert_eq!(analysis.commit_count, 1, "must report exactly 1 commit");
+        assert_eq!(analysis.commits.len(), 1);
+        assert_eq!(analysis.commits[0].message, "first commit");
+        assert_eq!(analysis.head_hex.len(), 40, "HEAD hex must be 40 chars");
+    }
+
+    /// `extract_tree_to_memory` must return the exact bytes for all files in
+    /// the tree, including files in subdirectories.
+    #[test]
+    fn test_extract_tree_to_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        git(&["init"], path);
+        git(&["config", "user.email", "test@test.com"], path);
+        git(&["config", "user.name", "test"], path);
+        git(&["config", "core.autocrlf", "false"], path);
+
+        std::fs::write(path.join("root.rs"), b"fn root() {}" as &[u8]).unwrap();
+        std::fs::create_dir_all(path.join("sub")).unwrap();
+        std::fs::write(path.join("sub").join("nested.rs"), b"fn nested() {}" as &[u8]).unwrap();
+
+        git(&["add", "."], path);
+        git(&["commit", "-m", "initial"], path);
+
+        let analysis = analyze_git_repo(path).unwrap();
+        let git_dir = resolve_git_dir(path).unwrap();
+        let tree_oid = analysis.commits[0].tree;
+
+        let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+        extract_tree_to_memory(&git_dir, &tree_oid, "", &mut files).unwrap();
+
+        assert!(files.contains_key("root.rs"), "root-level file must be extracted");
+        assert!(files.contains_key("sub/nested.rs"), "nested file must be extracted");
+        assert_eq!(files["root.rs"], b"fn root() {}", "root.rs bytes must match exactly");
+        assert_eq!(files["sub/nested.rs"], b"fn nested() {}", "sub/nested.rs bytes must match exactly");
+    }
+
+    /// `list_branch_heads` must return the correct branch name and its tip OID.
+    #[test]
+    fn test_list_branch_heads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        git(&["init"], path);
+        git(&["config", "user.email", "test@test.com"], path);
+        git(&["config", "user.name", "test"], path);
+        git(&["config", "core.autocrlf", "false"], path);
+        std::fs::write(path.join("a.rs"), "fn a() {}").unwrap();
+        git(&["add", "."], path);
+        git(&["commit", "-m", "first"], path);
+
+        let heads = list_branch_heads(path).unwrap();
+        assert_eq!(heads.len(), 1, "must find exactly one branch");
+
+        let branch_name = heads.keys().next().unwrap();
+        assert!(
+            branch_name == "main" || branch_name == "master",
+            "branch name must be main or master, got: {branch_name}"
+        );
+
+        // The branch tip OID must match the HEAD reported by analyze_git_repo.
+        let analysis = analyze_git_repo(path).unwrap();
+        let tip_hex = oid_hex(heads.values().next().unwrap());
+        assert_eq!(tip_hex, analysis.head_hex, "branch tip OID must equal HEAD");
+    }
+}

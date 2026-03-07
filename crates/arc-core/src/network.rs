@@ -154,3 +154,42 @@ impl NetworkClient {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `NetworkClient::new()` is pure construction — must always succeed on any platform.
+    #[test]
+    fn test_network_client_new() {
+        let result = NetworkClient::new();
+        assert!(result.is_ok(), "NetworkClient::new() must succeed: {:?}", result.err());
+    }
+
+    /// `push()` must return `Ok(())` even when the remote is unreachable.
+    /// The current design swallows connectivity failures and prints a message
+    /// rather than propagating the error to callers.
+    #[tokio::test]
+    async fn test_push_unreachable_remote_returns_ok() {
+        let client = NetworkClient::new().unwrap();
+        // Port 19999 is almost certainly not listening on CI.
+        let result = client.push("ghost", "http://127.0.0.1:19999").await;
+        assert!(
+            result.is_ok(),
+            "push must return Ok even when the remote is unreachable, got: {:?}",
+            result.err()
+        );
+    }
+
+    /// `pull()` must return `Ok(())` even when the remote is unreachable.
+    #[tokio::test]
+    async fn test_pull_unreachable_remote_returns_ok() {
+        let client = NetworkClient::new().unwrap();
+        let result = client.pull("ghost", "http://127.0.0.1:19999").await;
+        assert!(
+            result.is_ok(),
+            "pull must return Ok even when the remote is unreachable, got: {:?}",
+            result.err()
+        );
+    }
+}

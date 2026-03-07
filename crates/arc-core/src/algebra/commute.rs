@@ -110,4 +110,25 @@ mod tests {
             "changes under different children of the same parent must commute"
         );
     }
+
+    /// A `Delete` and an `Insert` that target the same AST path must NOT commute.
+    #[test]
+    fn test_no_commute_delete_insert_same_path() {
+        let (author, signing_key) = crate::store::author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Delete { at: vec!["fn_foo".into()] }],
+            "delete",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert { at: vec!["fn_foo".into()], content: vec![] }],
+            "insert",
+            author,
+            &signing_key,
+        );
+        assert!(!commutes(&a, &b), "Delete and Insert at the same path must NOT commute");
+    }
 }

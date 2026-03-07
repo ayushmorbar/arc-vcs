@@ -22,3 +22,4 @@ reqwest = { version = "0.13", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3.26.0"
+tokio = { version = "1.50.0", features = ["rt", "macros"] }

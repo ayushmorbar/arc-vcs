@@ -192,6 +192,14 @@ mod tests {
             .expect("git rev-parse failed");
         let branch_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
+        // Verify the branch view was saved with at least one head.
+        let imported_view =
+            arc_core::store::view::View::load(&arc_path, &branch_name).unwrap();
+        assert!(
+            !imported_view.heads.is_empty(),
+            "imported branch view '{branch_name}' must have at least one head after import"
+        );
+
         // Hydrate and materialize the imported view.
         arc_repo.hydrate(&branch_name).unwrap();
         let state = arc_repo.materialize(&branch_name).unwrap();
