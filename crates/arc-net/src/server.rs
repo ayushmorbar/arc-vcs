@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 
 use arc_core::store::view::View;
@@ -24,10 +24,7 @@ async fn get_view(
         .map_err(|_| StatusCode::NOT_FOUND)
 }
 
-async fn get_object(
-    State(state): State<AppState>,
-    Path(hash): Path<String>,
-) -> impl IntoResponse {
+async fn get_object(State(state): State<AppState>, Path(hash): Path<String>) -> impl IntoResponse {
     // Security: validate exactly 64 lowercase hex digits to prevent path traversal
     // (e.g. reject "../../etc/passwd" style inputs).
     if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {

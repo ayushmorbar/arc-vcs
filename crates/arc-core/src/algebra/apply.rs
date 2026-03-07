@@ -164,9 +164,7 @@ mod tests {
 
         apply_change(&mut state, &delete_change, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 1);
-        assert!(state
-            .get(&vec!["fn_main".into(), "ret".into()])
-            .is_none());
+        assert!(state.get(&vec!["fn_main".into(), "ret".into()]).is_none());
     }
 
     #[test]
@@ -218,8 +216,14 @@ mod tests {
         let result = apply_change(&mut state, &change, &agent_ignore, None);
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.contains("Security Violation"), "expected security violation, got: {msg}");
-        assert!(msg.contains("src/crypto.rs"), "expected path in error, got: {msg}");
+        assert!(
+            msg.contains("Security Violation"),
+            "expected security violation, got: {msg}"
+        );
+        assert!(
+            msg.contains("src/crypto.rs"),
+            "expected path in error, got: {msg}"
+        );
 
         // Hardcoded sentinel: AI must never modify .agentignore itself,
         // even when the file is NOT listed in the rules.

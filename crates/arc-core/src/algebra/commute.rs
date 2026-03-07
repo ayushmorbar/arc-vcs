@@ -87,10 +87,7 @@ mod tests {
     fn test_no_commute_explicit_dependency() {
         let a = make_change(HashSet::new(), vec![vec!["mod_a".into()]]);
         // b explicitly depends on a
-        let b = make_change(
-            HashSet::from([a.id]),
-            vec![vec!["mod_b".into()]],
-        );
+        let b = make_change(HashSet::from([a.id]), vec![vec!["mod_b".into()]]);
         assert!(
             !commutes(&a, &b),
             "changes with an explicit dependency must NOT commute"

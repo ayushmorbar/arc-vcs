@@ -25,9 +25,6 @@ pub trait LanguagePlugin {
     /// sorts them with a priority order (attributes first, then use
     /// declarations, then everything else alphabetically), and concatenates
     /// the content of each top-level item separated by double newlines.
-    fn unparse(
-        &self,
-        state: &HashMap<NodePath, Vec<u8>>,
-        filepath: &str,
-    ) -> Result<String, String>;
+    fn unparse(&self, state: &HashMap<NodePath, Vec<u8>>, filepath: &str)
+    -> Result<String, String>;
 }

@@ -1,14 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::time::Duration;
 
 use git2::Sort;
+use indicatif::ProgressBar;
 
-use arc_lang::ast::rust_plugin::RustPlugin;
-use arc_lang::ast::LanguagePlugin;
+use crate::repo::{Repository, prefix_atom_path};
 use arc_core::store::author::Author;
 use arc_core::store::change::Change;
 use arc_core::store::view::View;
-use crate::repo::{prefix_atom_path, Repository};
+use arc_lang::ast::LanguagePlugin;
+use arc_lang::ast::rust_plugin::RustPlugin;
 
 /// Import a Git repository's history into an `arc` repository.
 ///
@@ -37,8 +39,13 @@ pub fn import_repo(
     // Git OID → arc Blake3Hash mapping.
     let mut oid_map: HashMap<git2::Oid, arc_core::algebra::Blake3Hash> = HashMap::new();
 
+    let pb = ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb.set_message("Importing git history...");
+
     for oid_result in revwalk {
         let oid = oid_result?;
+        pb.set_message(format!("Importing commit {}...", &format!("{oid}")[..8]));
         let commit = git_repo.find_commit(oid)?;
 
         // Map parent OIDs to arc deps.
@@ -58,8 +65,7 @@ pub fn import_repo(
         };
 
         // Diff parent tree ↔ current tree.
-        let diff =
-            git_repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
+        let diff = git_repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
 
         let mut all_atoms = Vec::new();
 
@@ -115,6 +121,7 @@ pub fn import_repo(
 
         oid_map.insert(oid, change.id);
     }
+    pb.finish_with_message(format!("Imported {} commits.", oid_map.len()));
 
     // Map Git branches to arc Views.
     for reference in git_repo.references()? {
@@ -130,9 +137,8 @@ pub fn import_repo(
             && let Some(&arc_id) = oid_map.get(&target_oid)
         {
             let view = View::new(branch_name, HashSet::from([arc_id]));
-            view.save(&arc_repo.root).map_err(|e| {
-                anyhow::anyhow!("failed to save view '{branch_name}': {e}")
-            })?;
+            view.save(&arc_repo.root)
+                .map_err(|e| anyhow::anyhow!("failed to save view '{branch_name}': {e}"))?;
         }
     }
 

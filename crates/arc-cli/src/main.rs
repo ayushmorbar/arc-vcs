@@ -1,11 +1,13 @@
 use clap::{Parser, Subcommand};
 
-use arc_core::ai::MockResolver;
-use arc_core::store::author::{load_identity, save_identity, Author};
-use arc_core::algebra::Blake3Hash;
 use arc_cli::interop::git::import_repo;
-use arc_cli::sync::{fetch, pull};
 use arc_cli::repo::Repository;
+use arc_cli::sync::{fetch, pull};
+use arc_core::ai::MockResolver;
+use arc_core::algebra::Blake3Hash;
+use arc_core::store::author::{Author, load_identity, save_identity};
+use comfy_table::{Cell, Color, Table, presets};
+use owo_colors::OwoColorize;
 
 #[derive(Parser)]
 #[command(name = "arc", version, about = "Atomic Replayable Changes")]
@@ -218,7 +220,10 @@ fn main() -> anyhow::Result<()> {
             Repository::init(&target)?;
             println!("Initialized empty arc repository in {target}/.arc");
         }
-        Command::Snap { message, interactive } => {
+        Command::Snap {
+            message,
+            interactive,
+        } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
@@ -240,20 +245,30 @@ fn main() -> anyhow::Result<()> {
             if changes.is_empty() {
                 println!("No changes yet.");
             } else {
+                let mut table = Table::new();
+                table.load_preset(presets::NOTHING);
                 for change in changes {
                     let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
                     let author_str = match &change.author {
                         Author::Human { name, email, .. } => {
                             format!("{name} <{email}>")
                         }
-                        Author::AI { model, human_sponsor } => {
+                        Author::AI {
+                            model,
+                            human_sponsor,
+                        } => {
                             let sponsor: String =
                                 human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                             format!("{model} | sponsor:{}", &sponsor[..8])
                         }
                     };
-                    println!("{} — {} — {}", &hex[..8], author_str, change.intent);
+                    table.add_row(vec![
+                        Cell::new(&hex[..8]).fg(Color::Cyan),
+                        Cell::new(&author_str).fg(Color::Magenta),
+                        Cell::new(&change.intent),
+                    ]);
                 }
+                println!("{table}");
             }
         }
         Command::Status => {
@@ -289,14 +304,16 @@ fn main() -> anyhow::Result<()> {
                 for (path, change) in &entries {
                     // Use only the node-level suffix (strip the ["file","path"] prefix).
                     let node = path[2..].join("/");
-                    let hash_hex: String =
-                        change.id.iter().map(|b| format!("{b:02x}")).collect();
+                    let hash_hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
                     let short_hash = &hash_hex[..8];
                     let author_str = match &change.author {
                         Author::Human { name, email, .. } => {
                             format!("{name} <{email}>")
                         }
-                        Author::AI { model, human_sponsor } => {
+                        Author::AI {
+                            model,
+                            human_sponsor,
+                        } => {
                             let sponsor: String =
                                 human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                             format!("{model} | sponsor:{}", &sponsor[..8])
@@ -416,7 +433,10 @@ fn main() -> anyhow::Result<()> {
                         println!("Email:  {email}");
                         println!("Key:    {hex}");
                     }
-                    Author::AI { model, human_sponsor } => {
+                    Author::AI {
+                        model,
+                        human_sponsor,
+                    } => {
                         let hex: String =
                             human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                         println!("Model:          {model}");
@@ -465,7 +485,11 @@ fn main() -> anyhow::Result<()> {
             } else {
                 for t in &tags {
                     let h: String = t.target.iter().map(|b| format!("{b:02x}")).collect();
-                    let sig = if t.verify() { "[verified]" } else { "[UNVERIFIED]" };
+                    let sig = if t.verify() {
+                        "[verified]"
+                    } else {
+                        "[UNVERIFIED]"
+                    };
                     println!("{} {} {sig}", t.name, &h[..8]);
                 }
             }
@@ -553,23 +577,39 @@ use arc_core::algebra::Atom;
 
 fn atom_display_label(atom: &Atom) -> String {
     match atom {
-        Atom::Insert { at, .. } => format!("Insert:   {}", at.last().unwrap_or(&"?".to_string())),
-        Atom::Delete { at } => format!("Delete:   {}", at.last().unwrap_or(&"?".to_string())),
+        Atom::Insert { at, .. } => {
+            format!("++ Added:   {}", at.last().unwrap_or(&"?".to_string()))
+                .green()
+                .to_string()
+        }
+        Atom::Delete { at } => {
+            format!("-- Deleted: {}", at.last().unwrap_or(&"?".to_string()))
+                .red()
+                .to_string()
+        }
         Atom::Move { from, to } => format!(
-            "Move:     {} → {}",
+            "~~ Moved:   {} → {}",
             from.last().unwrap_or(&"?".to_string()),
             to.last().unwrap_or(&"?".to_string())
-        ),
+        )
+        .yellow()
+        .to_string(),
         Atom::SemanticsPreserving { at, description } => format!(
-            "Reformat: {} ({})",
+            "~~ Reformat: {} ({})",
             at.last().unwrap_or(&"?".to_string()),
             description
-        ),
+        )
+        .yellow()
+        .to_string(),
         Atom::Directory { path } => {
-            format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
+            format!("++ Dir:     {}", path.last().unwrap_or(&"?".to_string()))
+                .green()
+                .to_string()
         }
         Atom::Blob { path, .. } => {
-            format!("Blob:     {}", path.last().unwrap_or(&"?".to_string()))
+            format!("~~ Blob:    {}", path.last().unwrap_or(&"?".to_string()))
+                .yellow()
+                .to_string()
         }
     }
 }

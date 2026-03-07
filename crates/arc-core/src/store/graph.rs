@@ -176,8 +176,7 @@ impl ChangeGraph {
         let ancestors_a = self.ancestors(heads_a);
         let ancestors_b = self.ancestors(heads_b);
 
-        let common: HashSet<Blake3Hash> =
-            ancestors_a.intersection(&ancestors_b).copied().collect();
+        let common: HashSet<Blake3Hash> = ancestors_a.intersection(&ancestors_b).copied().collect();
 
         if common.is_empty() {
             return HashSet::new();
@@ -198,9 +197,7 @@ impl ChangeGraph {
                             }
                             if let Some(parent_deps) = self.edges.get(&cur) {
                                 for &p in parent_deps {
-                                    if common.contains(&p)
-                                        && !strict_ancestors.contains(&p)
-                                    {
+                                    if common.contains(&p) && !strict_ancestors.contains(&p) {
                                         queue.push_back(p);
                                     }
                                 }

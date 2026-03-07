@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use memmap2::Mmap;
 
 use crate::algebra::Blake3Hash;
-use crate::store::change::Change;
 use crate::store::StoreError;
+use crate::store::change::Change;
 
 /// Content-addressable object store backed by BLAKE3 hashes and `bincode`
 /// serialization.
@@ -109,7 +109,10 @@ mod tests {
         assert_eq!(hash, original.id, "write must return the change's own id");
 
         let loaded = store.read_change(&hash).unwrap();
-        assert_eq!(loaded, original, "deserialized change must equal the original");
+        assert_eq!(
+            loaded, original,
+            "deserialized change must equal the original"
+        );
     }
 
     #[test]
@@ -121,7 +124,10 @@ mod tests {
         let h1 = store.write_change(&change).unwrap();
         let h2 = store.write_change(&change).unwrap();
 
-        assert_eq!(h1, h2, "writing the same change twice must return the same hash");
+        assert_eq!(
+            h1, h2,
+            "writing the same change twice must return the same hash"
+        );
 
         let path = store.object_path(&change.id);
         assert!(path.exists());

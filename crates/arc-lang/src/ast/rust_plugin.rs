@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use tree_sitter::{Node, Parser};
 
-use arc_core::algebra::{ASTNode, Atom, NodePath};
 use crate::ast::LanguagePlugin;
+use arc_core::algebra::{ASTNode, Atom, NodePath};
 
 /// Rust language plugin backed by `tree-sitter-rust`.
 pub struct RustPlugin;
@@ -115,7 +115,9 @@ impl LanguagePlugin for RustPlugin {
             fn sort_key(path: &NodePath) -> (u8, &NodePath) {
                 // The item-kind segment sits right after the ["file", filepath] prefix.
                 let kind = path.get(2).map(|s| s.as_str()).unwrap_or("");
-                let priority = if kind.starts_with("attribute_item") || kind.starts_with("inner_attribute_item") {
+                let priority = if kind.starts_with("attribute_item")
+                    || kind.starts_with("inner_attribute_item")
+                {
                     0
                 } else if kind.starts_with("use_declaration") {
                     1
@@ -254,10 +256,7 @@ mod tests {
         let path = generate_path(fn_node, src.as_bytes());
 
         let has_main = path.iter().any(|seg| seg.contains("main"));
-        assert!(
-            has_main,
-            "function path must contain 'main', got: {path:?}"
-        );
+        assert!(has_main, "function path must contain 'main', got: {path:?}");
 
         let has_fn_kind = path.iter().any(|seg| seg.contains("function_item"));
         assert!(

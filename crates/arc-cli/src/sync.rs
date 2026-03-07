@@ -1,9 +1,10 @@
 use std::collections::{HashSet, VecDeque};
+use std::time::Duration;
 
+use crate::repo::Repository;
 use arc_core::algebra::Blake3Hash;
 use arc_core::store::change::Change;
 use arc_core::store::view::View;
-use crate::repo::Repository;
 
 /// Resolve `name_or_path` to a concrete URL or filesystem path.
 ///
@@ -117,6 +118,9 @@ fn fetch_http(
     let mut queue: VecDeque<Blake3Hash> = remote_view.heads.iter().copied().collect();
     let mut visited: HashSet<Blake3Hash> = HashSet::new();
     let client = reqwest::blocking::Client::new();
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb.set_message(format!("Fetching view '{view_name}' from {remote_url}..."));
 
     while let Some(id) = queue.pop_front() {
         if !visited.insert(id) {
@@ -132,6 +136,7 @@ fn fetch_http(
         }
 
         let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+        pb.set_message(format!("Downloading {}...", &hex[..8]));
         let obj_url = format!("{remote_url}/objects/{hex}");
         let bytes = client
             .get(&obj_url)
@@ -154,6 +159,7 @@ fn fetch_http(
         }
         local.graph.add_change(change);
     }
+    pb.finish_with_message(format!("Fetched {} objects from {remote_url}.", visited.len()));
 
     Ok(remote_view.heads)
 }
@@ -162,11 +168,7 @@ fn fetch_http(
 /// local active view.
 ///
 /// This is `fetch` followed by `merge_heads` — the CRDT sync primitive.
-pub fn pull(
-    local: &mut Repository,
-    remote_path: &str,
-    view_name: &str,
-) -> anyhow::Result<()> {
+pub fn pull(local: &mut Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()> {
     let remote_heads = fetch(local, remote_path, view_name)?;
     local.merge_heads(&remote_heads)?;
     Ok(())
@@ -218,10 +220,7 @@ mod tests {
         pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();
 
         // B's working directory should have all three files.
-        assert!(
-            path_b.join("a.rs").exists(),
-            "a.rs must survive the merge"
-        );
+        assert!(path_b.join("a.rs").exists(), "a.rs must survive the merge");
         assert!(
             path_b.join("b.rs").exists(),
             "b.rs (local to B) must survive the merge"
@@ -240,8 +239,17 @@ mod tests {
         );
 
         // Verify content.
-        assert_eq!(fs::read_to_string(path_b.join("a.rs")).unwrap(), "fn a() {}");
-        assert_eq!(fs::read_to_string(path_b.join("b.rs")).unwrap(), "fn b() {}");
-        assert_eq!(fs::read_to_string(path_b.join("c.rs")).unwrap(), "fn c() {}");
+        assert_eq!(
+            fs::read_to_string(path_b.join("a.rs")).unwrap(),
+            "fn a() {}"
+        );
+        assert_eq!(
+            fs::read_to_string(path_b.join("b.rs")).unwrap(),
+            "fn b() {}"
+        );
+        assert_eq!(
+            fs::read_to_string(path_b.join("c.rs")).unwrap(),
+            "fn c() {}"
+        );
     }
 }

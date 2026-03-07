@@ -75,9 +75,9 @@ impl<'de> serde::Deserialize<'de> for Signature {
             {
                 let mut bytes = [0u8; 64];
                 for (i, b) in bytes.iter_mut().enumerate() {
-                    *b = seq.next_element()?.ok_or_else(|| {
-                        serde::de::Error::invalid_length(i, &self)
-                    })?;
+                    *b = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
                 }
                 Ok(Signature(bytes))
             }
@@ -160,5 +160,8 @@ pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
     })?;
     let profile: IdentityProfile = serde_json::from_str(&json)
         .map_err(|e| anyhow::anyhow!("identity file is corrupt: {e}"))?;
-    Ok((profile.author, ed25519_dalek::SigningKey::from_bytes(&profile.secret_key)))
+    Ok((
+        profile.author,
+        ed25519_dalek::SigningKey::from_bytes(&profile.secret_key),
+    ))
 }
