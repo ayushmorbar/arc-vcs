@@ -5,6 +5,28 @@ language = "en"
 multilingual = false
 src = "src"
 
+[preprocessor.links]
+
 [output.html]
 git-repository-url = "https://github.com/your-org/arc-vcs"
 edit-url-template = "https://github.com/your-org/arc-vcs/edit/main/docs/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 3
+boost-hierarchy = 2
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+
+[output.html.code]
+hidelines = "#"

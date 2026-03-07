@@ -173,7 +173,7 @@ mod tests {
 
         apply_change(&mut state, &delete_change, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 1);
-        assert!(state.get(&vec!["fn_main".into(), "ret".into()]).is_none());
+        assert!(!state.contains_key(&vec!["fn_main".into(), "ret".into()]));
     }
 
     #[test]

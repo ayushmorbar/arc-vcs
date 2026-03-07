@@ -2,6 +2,7 @@
 name = "arc-net"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 description = "arc HTTP transport layer: read-only CAS and view server"
 
 [dependencies]

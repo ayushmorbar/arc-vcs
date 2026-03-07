@@ -1,0 +1,20 @@
+# arc .mailmap — Canonical identity mapping
+#
+# Maps historical committer name/email combinations to canonical arc identities.
+# Consumed by `git shortlog`, `git log --use-mailmap`, and arc's own `arc auth`
+# identity system when importing Git histories via `arc git-import`.
+#
+# Format:
+#   Canonical Name <canonical@email>  Old Name <old@email>
+#   Canonical Name <canonical@email>  <old@email>
+#
+# Examples:
+#   Ada Lovelace <ada@example.com>  <ada.lovelace@oldemployer.com>
+#   Ada Lovelace <ada@example.com>  A. Lovelace <a.lovelace@example.com>
+#
+# Arc identity note:
+# arc's Ed25519 keypair is tied to the email supplied at `arc auth login`.
+# If your email changes, add a mapping here so that `arc log` correctly
+# attributes historical changes to your new canonical identity.
+#
+# Add contributor mappings below this line:

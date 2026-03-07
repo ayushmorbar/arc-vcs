@@ -2,6 +2,7 @@
 name = "arc-core"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 description = "arc algebraic foundation: atoms, CAS, change graph, cryptographic identity"
 
 [dependencies]

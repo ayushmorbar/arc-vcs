@@ -45,6 +45,10 @@ pub struct RepoConfig {
     /// User-defined command aliases (e.g. `"st"` → `"status"`).
     #[serde(default)]
     pub aliases: HashMap<String, String>,
+    /// Lifecycle hooks: event name → list of shell command strings.
+    /// Supported events: `pre-snap`, `post-merge`.
+    #[serde(default)]
+    pub hooks: HashMap<String, Vec<String>>,
 }
 
 /// Persisted conflict state written to `.arc/conflict` when a merge fails.
@@ -391,7 +395,9 @@ impl Repository {
     /// The resulting atoms are prefixed with `["file", filepath]` so that
     /// `unparse()` can later reconstruct source per file.
     pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
+        self.run_hook("pre-snap")?;
         let view_name = self.current_view_name()?;
+        tracing::info!(view = %view_name, message, "snap started");
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
 
@@ -484,6 +490,7 @@ impl Repository {
         view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
+        tracing::info!(change_id = ?change.id, "snap complete");
         Ok(Some(change.id))
     }
 
@@ -660,6 +667,7 @@ impl Repository {
     /// then runs the algebraic commutativity check on the exclusive deltas.
     pub fn merge_heads(&mut self, target_heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
         let current_name = self.current_view_name()?;
+        tracing::info!(view = %current_name, "merge_heads started");
 
         // Hydrate both sides (idempotent — already-present nodes are skipped).
         self.hydrate(&current_name)?;
@@ -755,7 +763,8 @@ impl Repository {
         // Re-materialize and write to working directory.
         let merged_state = self.materialize_heads(&merged_heads)?;
         write_state_to_working_dir(&self.work_root, &self.shared_root, &merged_state)?;
-
+        self.run_hook("post-merge")?;
+        tracing::info!("merge_heads complete");
         Ok(())
     }
 
@@ -1158,6 +1167,48 @@ impl Repository {
         }
         fs::write(&path, serde_json::to_string_pretty(config)?)
             .map_err(|e| anyhow::anyhow!("failed to write .arc/config.json: {e}"))
+    }
+
+    /// Run all commands registered for `event` in `.arc/config.json`.
+    ///
+    /// Each command is parsed via `shlex::split` so it supports quoted
+    /// arguments. The process inherits the current environment and runs with
+    /// `work_root` as its working directory. On a non-zero exit code, or if
+    /// the binary cannot be found, the error is returned and the calling
+    /// operation is aborted.
+    ///
+    /// **Windows note:** shell built-ins such as `echo` are not standalone
+    /// executables and are not in `PATH`. Use an explicit interpreter
+    /// (e.g. `cmd /C echo hello`) or a real binary.
+    fn run_hook(&self, event: &str) -> anyhow::Result<()> {
+        let hooks = self.read_config()?.hooks;
+        let commands = match hooks.get(event) {
+            Some(v) if !v.is_empty() => v.clone(),
+            _ => return Ok(()),
+        };
+        for cmd_str in &commands {
+            let parts = shlex::split(cmd_str)
+                .ok_or_else(|| anyhow::anyhow!("hook command parse error: {cmd_str}"))?;
+            let (bin, args) = parts
+                .split_first()
+                .ok_or_else(|| anyhow::anyhow!("empty hook command for event '{event}'"))?;
+            let status = std::process::Command::new(bin)
+                .args(args)
+                .current_dir(&self.work_root)
+                .status()
+                .map_err(|e| anyhow::anyhow!(
+                    "Hook '{event}' failed to launch '{bin}': {e}. \
+                     Ensure the command is an executable in your PATH \
+                     (shell built-ins like 'echo' are not PATH executables \
+                     on Windows — use 'cmd /C echo ...' instead)."
+                ))?;
+            if !status.success() {
+                anyhow::bail!(
+                    "hook '{event}' exited with {status} — operation aborted."
+                );
+            }
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------
@@ -2170,6 +2221,7 @@ fn write_state_to_working_dir(
     shared_root: &Path,
     state: &MaterializedState,
 ) -> anyhow::Result<()> {
+    tracing::debug!(work_root = ?work_root, "writing state to working directory");
     let sparse_patterns = load_sparse_patterns(work_root);
     let is_sparse = !sparse_patterns.is_empty();
     let in_sparse = |fp: &str| -> bool {
@@ -2573,7 +2625,7 @@ mod tests {
         // The old flat key ["file", "test.rs"] must NOT exist.
         let flat_key = vec!["file".to_string(), "test.rs".to_string()];
         assert!(
-            state.get(&flat_key).is_none(),
+            !state.contains_key(&flat_key),
             "source-map hack must be eliminated — no flat file key allowed"
         );
     }

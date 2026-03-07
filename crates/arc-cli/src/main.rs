@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
 
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{Repository, load_merged_config, save_global_config};
@@ -298,7 +299,30 @@ enum ConfigAction {
     Aliases,
 }
 
+fn init_tracing() {
+    if let Ok(path) = std::env::var("ARC_TRACE_EVENT") {
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = tracing_subscriber::fmt()
+                .json()
+                .with_writer(std::sync::Mutex::new(file))
+                .with_env_filter(EnvFilter::new("arc_cli=debug,info"))
+                .try_init();
+        }
+    } else if std::env::var("ARC_TRACE").is_ok_and(|v| v == "1") {
+        let _ = tracing_subscriber::fmt()
+            .compact()
+            .with_env_filter(EnvFilter::new("arc_cli=debug,info"))
+            .try_init();
+    }
+    // Default: no subscriber installed — tracing macros are zero-overhead.
+}
+
 fn main() -> anyhow::Result<()> {
+    init_tracing();
     // --- Single-pass alias interception (no recursion) -------------------
     let mut raw_args: Vec<String> = std::env::args().collect();
     if raw_args.len() >= 2
