@@ -838,13 +838,21 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::Push { remote } => {
-            let target = remote.as_deref().unwrap_or("origin");
-            println!(
-                "Hint: arc is a P2P CRDT — there is no central server to push to.\n\
-                 Use 'arc sync' or 'arc pull <url>' to exchange state with remotes.\n\
-                 (Remote '{}' noted — native push payload transmission coming in v0.2.0)",
-                target
-            );
+            let repo = Repository::open(".")?;
+            let remote_name = remote.as_deref().unwrap_or("origin");
+            let remotes = repo.list_remotes()?;
+            let url = remotes.get(remote_name).cloned().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Remote '{}' not found. Add one with:\n  arc remote add {} <url>",
+                    remote_name,
+                    remote_name
+                )
+            })?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let client = arc_core::network::NetworkClient::new()?;
+                client.push(remote_name, &url).await
+            })?;
         }
         Command::Config { action } => match action {
             ConfigAction::Alias { name, expansion } => {

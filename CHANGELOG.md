@@ -7,6 +7,70 @@ arc uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.0-beta.1] — 2026-03-08
+
+First versioned beta release covering Phases 26–33.
+**Zero C dependencies** — `git2`/libgit2 excised, `reqwest` built with
+`rustls-tls`. `arc` builds to a single static binary on Linux, macOS, and
+Windows with no cmake, no OpenSSL headers, and no C compiler required.
+WASM compilation is now structurally unblocked.
+
+### Added — Phase 33 (Async Network Engine)
+- **`arc-core::network`** — new module implementing [`NetworkClient`]: a
+  pure-Rust async HTTP client built on `reqwest` + `rustls-tls` (zero OpenSSL).
+  `push` and `pull` are async, skeleton-complete, connectivity-verifying.
+  Full incremental CRDT delta upload/download lands in Phase 34.
+- **`arc push [remote]`** upgraded from hint to live skeleton: resolves the
+  named remote from `.arc/config.json`, boots a `tokio::runtime` at the CLI
+  edge (keeping all other commands zero-latency synchronous), and calls
+  `NetworkClient::push`. Actionable error when remote is unconfigured.
+- **`reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }`**
+  added to `arc-core` — the only new dependency; no C libs required.
+- All four crates bumped to **`0.1.0-beta.1`**.
+
+### Added — Phase 32 (The Great Amputation — plan ready, applying next)
+- Pure-Rust `interop/git.rs` rewrite using `git_bridge` pipeline
+  (scheduled for Phase 32 apply commit).
+
+### Added — Phase 31 (Tree & Blob Extraction Layer)
+- `TreeEntry`, `GitTree`, `parse_tree()` — binary Git tree format decoder with
+  safe NUL/SP state machine; gracefully handles truncated trailing entries.
+- `read_blob()` — bridge between the Git DAG and the Tree-sitter AST engine.
+- `read_tree_for_commit()`, `extract_tree_to_memory()` — full recursive tree
+  walk returning `HashMap<path, bytes>` for every blob in a commit.
+- `head_branch_name()` — reads `.git/HEAD`, portable across `master`/`main`.
+- `resolve_git_dir` made `pub` for downstream crate access.
+
+### Added — Phase 30 (Pure-Rust Git Bridge)
+- `crates/arc-core/src/git_bridge.rs` (~500 lines) — bespoke Git kernel:
+  ref resolution, loose object decompression (zlib/flate2), pack index v2,
+  `OFS_DELTA` + `REF_DELTA` reconstruction, commit parsing, BFS DAG walk.
+  Only new dependency: `flate2 = "1"`.
+- `analyze_git_repo(path) → GitAnalysis` public API; returns commits
+  oldest-first with full author, timestamp, and parent metadata.
+
+### Added — Phase 29 (Remote Suite Completion)
+- `arc remote remove <name>` with actionable error pointing to `arc remote list`.
+
+### Added — Phase 28 (Empathy & Context Layer)
+- `On view: <name>` cyan-bold header in `arc status` and `arc diff`.
+- `arc identity` now accepts `--name` / `--email` long flags.
+- `arc snap` bails with a configuration hint when no identity exists.
+- Empty `arc log` message: `"Use 'arc snap' to create your first change."`.
+
+### Added — Phase 27 (DX Polish)
+- `arc identity --name <n> --email <e>` first-run wizard.
+- `arc diff` with coloured ANSI output and `atom_diff_line()` helper.
+- Proactive `arc push` hint appended after every successful `arc snap`.
+
+### Added — Phase 26 (Power-User Parity)
+- `arc amend` — rewrites the latest change (re-signs, re-hashes).
+- `resolve_rev` — resolves short hashes, `HEAD`, `HEAD~N`, named tags.
+- fs2 re-entrancy guard on `.arc/lock` to prevent deadlocks in nested calls.
+- Fixed `&hash[..8]` panic for CherryPick / Tag / Revert operations.
+
+---
+
 ## [1.0.0] — 2026-03-07
 
 The Genesis Release. All 25 development phases complete. arc is production-ready.

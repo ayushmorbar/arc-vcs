@@ -23,4 +23,6 @@ pub mod ai;
 pub mod algebra;
 /// Pure‑Rust Git interoperability bridge for reading legacy repositories.
 pub mod git_bridge;
+/// Async CRDT network transport (push/pull via HTTP + rustls TLS).
+pub mod network;
 pub mod store;
