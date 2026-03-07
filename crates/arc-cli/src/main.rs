@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
@@ -26,9 +27,14 @@ enum Command {
     },
     /// Snapshot the working directory into a semantic change.
     Snap {
-        /// Description of the change.
-        #[arg(short, long)]
-        message: String,
+        /// Description of the change.  Required unless `--auto-msg` is given.
+        #[arg(short, long, required_unless_present = "auto_msg")]
+        message: Option<String>,
+        /// Analyze the pending AST atoms and generate the commit message automatically
+        /// using any OpenAI-schema LLM (set ARC_AI_KEY, and optionally ARC_AI_URL /
+        /// ARC_AI_MODEL to target Ollama, Groq, or any local inference server).
+        #[arg(long)]
+        auto_msg: bool,
         /// Interactively select which AST atoms to stage.
         #[arg(short = 'i', long, default_value_t = false)]
         interactive: bool,
@@ -396,12 +402,63 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Snap {
             message,
+            auto_msg,
             interactive,
         } => {
+            use std::io::Write;
+
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
-            match repo.snap(&message, interactive)? {
+
+            let final_message: String = if auto_msg {
+                // Derive the diff summary from the pending AST atoms so the LLM
+                // gets precise semantic context rather than raw file bytes.
+                let atoms = repo.status()?;
+                if atoms.is_empty() {
+                    println!("Nothing to snap — working directory is clean.");
+                    return Ok(());
+                }
+                let mut diff_summary = String::new();
+                for atom in &atoms {
+                    diff_summary.push_str(&format!("{atom:?}\n"));
+                }
+                // Keep the prompt within a safe context-window budget.
+                diff_summary.truncate(2000);
+
+                eprint!("{} Analyzing changes", "🧠".cyan());
+                let _ = std::io::stderr().flush();
+
+                let rt = tokio::runtime::Runtime::new()
+                    .context("failed to start async runtime")?;
+                match rt.block_on(arc_core::ai::generate_message(&diff_summary)) {
+                    Ok(msg) => {
+                        eprintln!(); // newline after the spinner text
+                        println!("{} {msg}", "Generated:".green().bold());
+                        msg
+                    }
+                    Err(e) => {
+                        // Transient failure: print the reason and fall back to an
+                        // interactive prompt so the user never loses the snap.
+                        eprintln!("\n{} AI generation failed: {e}", "⚠".yellow().bold());
+                        eprint!("Enter commit message manually: ");
+                        std::io::stderr().flush().ok();
+                        let mut fallback = String::new();
+                        std::io::stdin().read_line(&mut fallback)?;
+                        let trimmed = fallback.trim().to_owned();
+                        if trimmed.is_empty() {
+                            anyhow::bail!("Aborted: empty commit message.");
+                        }
+                        trimmed
+                    }
+                }
+            } else {
+                // --message is enforced by clap (required_unless_present = "auto_msg")
+                // so unwrap_or is a pure safety net here.
+                message.unwrap_or_else(|| "WIP".to_owned())
+            };
+
+            match repo.snap(&final_message, interactive)? {
                 Some(id) => {
                     let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                     println!("snap {hex}");

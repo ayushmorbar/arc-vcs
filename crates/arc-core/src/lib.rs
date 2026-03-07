@@ -13,7 +13,7 @@
 //! | Module | Responsibility |
 //! |---|---|
 //! | [`algebra`] | Core types: [`algebra::Atom`], [`algebra::Blake3Hash`], commutativity, change application |
-//! | [`ai`] | [`ai::AiResolver`] trait and [`ai::MockResolver`] for conflict resolution |
+//! | [`ai`] | [`ai::AiResolver`] trait, [`ai::MockResolver`], and [`ai::generate_message`] for AST-aware commit generation |
 //! | [`store`] | CAS, [`store::change::Change`], [`store::graph::ChangeGraph`], [`store::view::View`], author identity |
 
 #![warn(missing_docs)]
