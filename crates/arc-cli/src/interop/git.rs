@@ -137,7 +137,7 @@ pub fn import_repo(
             && let Some(&arc_id) = oid_map.get(&target_oid)
         {
             let view = View::new(branch_name, HashSet::from([arc_id]));
-            view.save(&arc_repo.root)
+            view.save(&arc_repo.shared_root)
                 .map_err(|e| anyhow::anyhow!("failed to save view '{branch_name}': {e}"))?;
         }
     }

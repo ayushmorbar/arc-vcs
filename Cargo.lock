@@ -79,6 +79,7 @@ dependencies = [
  "blake3",
  "clap",
  "comfy-table",
+ "directories",
  "ed25519-dalek",
  "git2",
  "ignore",
@@ -88,6 +89,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "shlex",
  "tempfile",
  "tokio",
 ]

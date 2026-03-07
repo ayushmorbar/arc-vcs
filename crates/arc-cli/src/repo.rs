@@ -18,13 +18,33 @@ use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
+/// Workspace manifest persisted at `<workspace>/.arc-workspace`.
+///
+/// A workspace is a lightweight working directory linked to a shared CAS root.
+/// Sparse cone patterns for the workspace are embedded here so the full state
+/// of a linked workspace is always visible in one JSON file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceManifest {
+    /// Absolute path to the primary repository root (where `.arc/` lives).
+    pub shared_root: PathBuf,
+    /// Name of the view currently checked out in this workspace.
+    pub view: String,
+    /// Optional sparse cone patterns active in this workspace.
+    #[serde(default)]
+    pub sparse_patterns: Vec<String>,
+}
+
 /// Repository-level configuration persisted in `.arc/config.json`.
 ///
 /// Settings are isolated per-repository and never touch the OS keyring.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct RepoConfig {
     /// Named remote aliases mapping a short name to a URL or filesystem path.
+    #[serde(default)]
     pub remotes: HashMap<String, String>,
+    /// User-defined command aliases (e.g. `"st"` → `"status"`).
+    #[serde(default)]
+    pub aliases: HashMap<String, String>,
 }
 
 /// Persisted conflict state written to `.arc/conflict` when a merge fails.
@@ -53,11 +73,32 @@ pub struct OpLogEntry {
     pub previous_heads: HashSet<Blake3Hash>,
 }
 
+/// Summary returned by [`Repository::gc`].
+#[derive(Debug, Default)]
+pub struct GcResult {
+    /// Number of [`Change`] objects deleted from the CAS.
+    pub changes_deleted: usize,
+    /// Number of blob files deleted from `.arc/blobs/`.
+    pub blobs_deleted: usize,
+}
+
 /// Top-level repository handle, tying together the CAS, the change graph,
 /// and the on-disk `.arc` layout.
+///
+/// ### Split-Root Architecture
+///
+/// A repository has two roots:
+/// - `shared_root` — where the `.arc/` CAS lives (`store/`, `views/`, `blobs/`, etc.).
+/// - `work_root`   — where the working-directory files live (may differ when using workspaces).
+///
+/// For a normal (non-workspace) repository both roots point to the same directory.
+/// For a linked workspace `work_root` points to the workspace directory and
+/// `shared_root` points to the primary repository that owns the CAS.
 pub struct Repository {
-    /// Absolute path to the repository root.
-    pub root: PathBuf,
+    /// Path to the shared CAS root — where `.arc/` lives.
+    pub shared_root: PathBuf,
+    /// Path to the working directory root (same as `shared_root` for primary repos).
+    pub work_root: PathBuf,
     /// Content-addressable object store.
     pub store: ObjectStore,
     /// In-memory change DAG.
@@ -105,24 +146,55 @@ impl Repository {
         Ok(Self {
             store: ObjectStore::new(&root),
             graph: ChangeGraph::new(),
-            root,
+            shared_root: root.clone(),
+            work_root: root,
             identity: None,
         })
     }
 
     /// Open an existing repository by locating the `.arc` directory at `path`.
+    ///
+    /// If `path` contains a `.arc-workspace` manifest *and* no `.arc` directory,
+    /// the repository is opened in **workspace mode**: `shared_root` is taken
+    /// from the manifest and `work_root` is `path`. If both exist, `.arc` wins
+    /// (primary repository mode).
     pub fn open(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
-        let root = path.as_ref().to_path_buf();
-        let arc_dir = root.join(".arc");
+        let work_root = path.as_ref().to_path_buf();
+        let arc_dir = work_root.join(".arc");
+        let ws_file = work_root.join(".arc-workspace");
 
+        // Workspace mode: .arc-workspace present and no primary .arc/ in same dir.
+        if ws_file.exists() && !arc_dir.exists() {
+            let json = fs::read_to_string(&ws_file)
+                .map_err(|e| anyhow::anyhow!("failed to read .arc-workspace: {e}"))?;
+            let manifest: WorkspaceManifest = serde_json::from_str(&json)
+                .map_err(|e| anyhow::anyhow!("invalid .arc-workspace: {e}"))?;
+            let shared_root = manifest.shared_root.clone();
+            if !shared_root.join(".arc").exists() {
+                anyhow::bail!(
+                    "workspace shared root '{}' has no .arc directory",
+                    shared_root.display()
+                );
+            }
+            return Ok(Self {
+                store: ObjectStore::new(&shared_root),
+                graph: ChangeGraph::new(),
+                shared_root,
+                work_root,
+                identity: None,
+            });
+        }
+
+        // Primary mode: .arc must exist here.
         if !arc_dir.exists() {
             anyhow::bail!("no arc repository found at {}", arc_dir.display());
         }
 
         Ok(Self {
-            store: ObjectStore::new(&root),
+            store: ObjectStore::new(&work_root),
             graph: ChangeGraph::new(),
-            root,
+            shared_root: work_root.clone(),
+            work_root,
             identity: None,
         })
     }
@@ -143,12 +215,47 @@ impl Repository {
             .ok_or_else(|| anyhow::anyhow!("no signing identity set — call set_identity() first"))
     }
 
-    /// Read the name of the currently active view from `.arc/HEAD`.
+    /// Read the name of the currently active view.
+    ///
+    /// For workspace repos, reads the view from `.arc-workspace`.
+    /// For primary repos, reads `shared_root/.arc/HEAD`.
     pub fn current_view_name(&self) -> anyhow::Result<String> {
-        let head_path = self.root.join(".arc").join("HEAD");
+        let ws_file = self.work_root.join(".arc-workspace");
+        if ws_file.exists() && self.shared_root != self.work_root {
+            let json = fs::read_to_string(&ws_file)
+                .map_err(|e| anyhow::anyhow!("failed to read .arc-workspace: {e}"))?;
+            let manifest: WorkspaceManifest = serde_json::from_str(&json)
+                .map_err(|e| anyhow::anyhow!("invalid .arc-workspace: {e}"))?;
+            return Ok(manifest.view);
+        }
+        let head_path = self.shared_root.join(".arc").join("HEAD");
         let name = fs::read_to_string(&head_path)
             .map_err(|e| anyhow::anyhow!("failed to read .arc/HEAD: {e}"))?;
         Ok(name.trim().to_string())
+    }
+
+    /// Write the name of the currently active view.
+    ///
+    /// For workspace repos, updates the `view` field in `.arc-workspace`.
+    /// For primary repos, writes `shared_root/.arc/HEAD`.
+    fn set_current_view_name(&self, name: &str) -> anyhow::Result<()> {
+        let ws_file = self.work_root.join(".arc-workspace");
+        if ws_file.exists() && self.shared_root != self.work_root {
+            let json = fs::read_to_string(&ws_file)
+                .map_err(|e| anyhow::anyhow!("failed to read .arc-workspace: {e}"))?;
+            let mut manifest: WorkspaceManifest = serde_json::from_str(&json)
+                .map_err(|e| anyhow::anyhow!("invalid .arc-workspace: {e}"))?;
+            manifest.view = name.to_string();
+            fs::write(
+                &ws_file,
+                serde_json::to_string_pretty(&manifest)
+                    .map_err(|e| anyhow::anyhow!("failed to serialise .arc-workspace: {e}"))?,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to write .arc-workspace: {e}"))?;
+            return Ok(());
+        }
+        fs::write(self.shared_root.join(".arc").join("HEAD"), name)
+            .map_err(|e| anyhow::anyhow!("failed to write .arc/HEAD: {e}"))
     }
 
     /// Populate the in-memory [`ChangeGraph`] by walking backward from an
@@ -180,7 +287,7 @@ impl Repository {
     /// Populate the in-memory [`ChangeGraph`] by walking backward from a
     /// view's heads through the CAS.
     pub fn hydrate(&mut self, view_name: &str) -> anyhow::Result<()> {
-        let view = View::load(&self.root, view_name)
+        let view = View::load(&self.shared_root, view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         self.hydrate_heads(&view.heads)
     }
@@ -191,7 +298,7 @@ impl Repository {
         &self,
         heads: &HashSet<Blake3Hash>,
     ) -> anyhow::Result<MaterializedState> {
-        let agent_ignore = load_agentignore(&self.root);
+        let agent_ignore = load_agentignore(&self.shared_root);
         let order = self.graph.topological_sort(heads);
         let mut state = MaterializedState::new();
 
@@ -223,7 +330,7 @@ impl Repository {
 
     /// Replay the DAG in topological order to produce a materialized state.
     pub fn materialize(&self, view_name: &str) -> anyhow::Result<MaterializedState> {
-        let view = View::load(&self.root, view_name)
+        let view = View::load(&self.shared_root, view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         self.materialize_heads(&view.heads)
     }
@@ -239,10 +346,10 @@ impl Repository {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
 
-        let view = View::load(&self.root, &view_name)
+        let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
-        let agent_ignore = load_agentignore(&self.root);
+        let agent_ignore = load_agentignore(&self.shared_root);
         let order = self.graph.topological_sort(&view.heads);
         let mut state = MaterializedState::new();
         let mut blame = BlameState::new();
@@ -349,7 +456,7 @@ impl Repository {
             return Ok(None);
         }
 
-        let mut view = View::load(&self.root, &view_name)
+        let mut view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
         let (author, signing_key) = self.signing_identity()?;
@@ -374,7 +481,7 @@ impl Repository {
 
         // Advance the frontier: new change becomes the sole head.
         view.heads = HashSet::from([change.id]);
-        view.save(&self.root)
+        view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
         Ok(Some(change.id))
@@ -390,12 +497,12 @@ impl Repository {
         state: &MaterializedState,
     ) -> anyhow::Result<Vec<Atom>> {
         let plugin = RustPlugin::new();
-        let arcignore = load_arcignore(&self.root);
-        let rs_files = collect_rs_files(&self.root, &arcignore)?;
+        let arcignore = load_arcignore(&self.work_root);
+        let rs_files = collect_rs_files(&self.work_root, &arcignore)?;
         let mut atoms: Vec<Atom> = Vec::new();
 
         for filepath in &rs_files {
-            let new_src = fs::read_to_string(self.root.join(filepath))?;
+            let new_src = fs::read_to_string(self.work_root.join(filepath))?;
             let old_src = plugin.unparse(state, filepath).unwrap_or_default();
             if old_src == new_src {
                 continue;
@@ -412,9 +519,9 @@ impl Repository {
         }
 
         // ── Pass 2: Non-Rust files — O(1) BLAKE3 blob diff ───────────────────
-        let all_files = collect_all_files(&self.root, &arcignore)?;
+        let all_files = collect_all_files(&self.work_root, &arcignore)?;
         for filepath in all_files.iter().filter(|f| !f.ends_with(".rs")) {
-            let bytes = fs::read(self.root.join(filepath))
+            let bytes = fs::read(self.work_root.join(filepath))
                 .map_err(|e| anyhow::anyhow!("failed to read '{filepath}': {e}"))?;
             let new_hash: Blake3Hash = *blake3::hash(&bytes).as_bytes();
             let path_key = vec!["file".to_string(), filepath.clone()];
@@ -436,14 +543,14 @@ impl Repository {
 
         // Deleted files.
         let state_filepaths = extract_filepaths_from_state(state);
-        let sparse_patterns = load_sparse_patterns(&self.root);
+        let sparse_patterns = load_sparse_patterns(&self.work_root);
         let is_sparse = !sparse_patterns.is_empty();
         for filepath in &state_filepaths {
             // Sparse Safety Law: do not emit Delete for files hidden by sparse cone.
             if is_sparse && !sparse_patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
                 continue;
             }
-            if !self.root.join(filepath).exists() {
+            if !self.work_root.join(filepath).exists() {
                 let prefix = ["file".to_string(), filepath.clone()];
                 for key in state.keys() {
                     // >= covers blob keys (len==2) as well as AST sub-keys (len>2).
@@ -461,7 +568,7 @@ impl Repository {
             .filter(|k| k.len() == 2 && k[0] == "dir")
             .map(|k| k[1].clone())
             .collect();
-        for rel_dir in collect_empty_dirs(&self.root, &arcignore)? {
+        for rel_dir in collect_empty_dirs(&self.work_root, &arcignore)? {
             if !existing_dirs.contains(&rel_dir) {
                 atoms.push(Atom::Directory {
                     path: dir_key(&rel_dir),
@@ -469,7 +576,7 @@ impl Repository {
             }
         }
         for rel_dir in &existing_dirs {
-            if !self.root.join(rel_dir).exists() {
+            if !self.work_root.join(rel_dir).exists() {
                 atoms.push(Atom::Delete {
                     at: dir_key(rel_dir),
                 });
@@ -482,17 +589,17 @@ impl Repository {
     /// Create a new view forked from the current view's heads.
     pub fn create_view(&self, name: &str) -> anyhow::Result<()> {
         let current_name = self.current_view_name()?;
-        let current_view = View::load(&self.root, &current_name)
+        let current_view = View::load(&self.shared_root, &current_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{current_name}': {e}"))?;
 
-        let view_path = self.root.join(".arc").join("views").join(name);
+        let view_path = self.shared_root.join(".arc").join("views").join(name);
         if view_path.exists() {
             anyhow::bail!("view '{name}' already exists");
         }
 
         let new_view = View::new(name, current_view.heads);
         new_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view '{name}': {e}"))?;
 
         Ok(())
@@ -503,7 +610,7 @@ impl Repository {
     /// Fails if the working directory has un-snapped changes.
     pub fn switch_view(&mut self, target: &str) -> anyhow::Result<()> {
         // Verify the target view exists.
-        let target_view = View::load(&self.root, target)
+        let target_view = View::load(&self.shared_root, target)
             .map_err(|e| anyhow::anyhow!("view '{target}' not found: {e}"))?;
 
         let current_name = self.current_view_name()?;
@@ -513,7 +620,7 @@ impl Repository {
         let current_state = self.materialize(&current_name)?;
 
         // Check for un-snapped changes.
-        check_working_dir_clean(&self.root, &current_state, "switching views")?;
+        check_working_dir_clean(&self.work_root, &current_state, "switching views")?;
 
         // Hydrate the target view.
         self.hydrate(target)?;
@@ -526,10 +633,10 @@ impl Repository {
         };
 
         // Replace working directory with target state.
-        write_state_to_working_dir(&self.root, &target_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &target_state)?;
 
         // Update HEAD.
-        fs::write(self.root.join(".arc").join("HEAD"), target)?;
+        self.set_current_view_name(target)?;
 
         Ok(())
     }
@@ -541,7 +648,7 @@ impl Repository {
     /// with no merge commit. If any pair conflicts, aborts with an error.
     pub fn merge_view(&mut self, target_name: &str) -> anyhow::Result<()> {
         self.hydrate(target_name)?;
-        let target_view = View::load(&self.root, target_name)
+        let target_view = View::load(&self.shared_root, target_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{target_name}': {e}"))?;
         self.merge_heads(&target_view.heads)
     }
@@ -558,12 +665,13 @@ impl Repository {
         self.hydrate(&current_name)?;
         self.hydrate_heads(target_heads)?;
 
-        let current_view = View::load(&self.root, &current_name)
+        let current_view = View::load(&self.shared_root, &current_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{current_name}': {e}"))?;
 
         // --- Dirty working-directory check ---
         let current_state = self.materialize_heads(&current_view.heads)?;
-        check_working_dir_clean(&self.root, &current_state, "merging")?;
+        check_working_dir_clean(&self.work_root, &current_state, "merging")?;
+
 
         // Find LCA.
         let lca_heads = self.graph.merge_base(&current_view.heads, target_heads);
@@ -613,7 +721,7 @@ impl Repository {
                 target_heads: target_heads.clone(),
                 conflicting_pairs: conflicting_pairs.clone(),
             };
-            let conflict_path = self.root.join(".arc").join("conflict");
+            let conflict_path = self.shared_root.join(".arc").join("conflict");
             let bytes = bincode::serialize(&conflict)
                 .map_err(|e| anyhow::anyhow!("failed to serialize conflict: {e}"))?;
             fs::write(&conflict_path, bytes)?;
@@ -641,12 +749,12 @@ impl Repository {
         self.log_operation("merge", &current_name, prev_heads)?;
         let updated_view = View::new(&current_name, merged_heads.clone());
         updated_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
 
         // Re-materialize and write to working directory.
         let merged_state = self.materialize_heads(&merged_heads)?;
-        write_state_to_working_dir(&self.root, &merged_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &merged_state)?;
 
         Ok(())
     }
@@ -658,7 +766,7 @@ impl Repository {
     /// both sides' content at the overlapping path, and their intents.
     /// The resolved content is committed as a new merge change.
     pub fn resolve_conflict(&mut self, resolver: &dyn AiResolver) -> anyhow::Result<Blake3Hash> {
-        let conflict_path = self.root.join(".arc").join("conflict");
+        let conflict_path = self.shared_root.join(".arc").join("conflict");
         if !conflict_path.exists() {
             anyhow::bail!("no pending conflict — nothing to resolve");
         }
@@ -671,7 +779,7 @@ impl Repository {
         self.hydrate(&conflict.current_view)?;
         self.hydrate_heads(&conflict.target_heads)?;
 
-        let current_view = View::load(&self.root, &conflict.current_view)
+        let current_view = View::load(&self.shared_root, &conflict.current_view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
 
         // Materialize LCA state directly from heads — no temp view needed.
@@ -751,12 +859,12 @@ impl Repository {
         // Update the current view to point to the merge change.
         let updated = View::new(&conflict.current_view, HashSet::from([merge_change.id]));
         updated
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save resolved view: {e}"))?;
 
         // Re-materialize and write to working directory.
         let resolved_state = self.materialize_heads(&HashSet::from([merge_change.id]))?;
-        write_state_to_working_dir(&self.root, &resolved_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &resolved_state)?;
 
         // Remove the conflict file.
         fs::remove_file(&conflict_path)?;
@@ -780,11 +888,11 @@ impl Repository {
         // Collect dirty atoms (same diff logic as snap, no identity call needed).
         let plugin = RustPlugin::new();
         let mut stash_atoms: Vec<Atom> = Vec::new();
-        let arcignore = load_arcignore(&self.root);
-        let rs_files = collect_rs_files(&self.root, &arcignore)?;
+        let arcignore = load_arcignore(&self.work_root);
+        let rs_files = collect_rs_files(&self.work_root, &arcignore)?;
 
         for filepath in &rs_files {
-            let new_src = fs::read_to_string(self.root.join(filepath))?;
+            let new_src = fs::read_to_string(self.work_root.join(filepath))?;
             let old_src = plugin.unparse(&base_state, filepath).unwrap_or_default();
             if old_src == new_src {
                 continue;
@@ -800,7 +908,7 @@ impl Repository {
         // Detect deleted files.
         let state_filepaths = extract_filepaths_from_state(&base_state);
         for filepath in &state_filepaths {
-            if !self.root.join(filepath).exists() {
+            if !self.work_root.join(filepath).exists() {
                 let prefix = ["file".to_string(), filepath.clone()];
                 for key in base_state.keys() {
                     if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
@@ -815,7 +923,7 @@ impl Repository {
         }
 
         // Determine next stash index.
-        let views_dir = self.root.join(".arc").join("views");
+        let views_dir = self.shared_root.join(".arc").join("views");
         let stash_idx = fs::read_dir(&views_dir)?
             .filter_map(|e| e.ok())
             .filter_map(|e| {
@@ -829,7 +937,7 @@ impl Repository {
         let stash_name = format!(".stash_{stash_idx}");
 
         // Load current view to get its heads (the stash's deps).
-        let current_view = View::load(&self.root, &view_name)
+        let current_view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
         // We need a signing identity to author the stash change.
@@ -849,11 +957,11 @@ impl Repository {
         // Create & save the stash view (forked from current heads, then advanced).
         let stash_view = View::new(&stash_name, HashSet::from([stash_change.id]));
         stash_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save stash view: {e}"))?;
 
         // Reset working directory to the clean base state.
-        write_state_to_working_dir(&self.root, &base_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &base_state)?;
 
         Ok(stash_name)
     }
@@ -869,10 +977,10 @@ impl Repository {
             .last()
             .ok_or_else(|| anyhow::anyhow!("no stash found — nothing to pop"))?;
 
-        let views_dir = self.root.join(".arc").join("views");
+        let views_dir = self.shared_root.join(".arc").join("views");
         let stash_file = views_dir.join(&stash_name);
 
-        let stash_view = View::load(&self.root, &stash_name)
+        let stash_view = View::load(&self.shared_root, &stash_name)
             .map_err(|e| anyhow::anyhow!("failed to load stash '{stash_name}': {e}"))?;
         self.hydrate_heads(&stash_view.heads)?;
 
@@ -891,7 +999,7 @@ impl Repository {
 
     /// List all stashed views in chronological order (`.stash_1`, `.stash_2`, …).
     pub fn stash_list(&self) -> anyhow::Result<Vec<String>> {
-        let views_dir = self.root.join(".arc").join("views");
+        let views_dir = self.shared_root.join(".arc").join("views");
         let mut names: Vec<String> = fs::read_dir(&views_dir)?
             .filter_map(|e| e.ok())
             .filter_map(|e| {
@@ -931,7 +1039,7 @@ impl Repository {
     pub fn log(&mut self) -> anyhow::Result<Vec<Change>> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
-        let view = View::load(&self.root, &view_name)
+        let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         let mut order = self.graph.topological_sort(&view.heads);
         order.reverse(); // oldest-first → newest-first
@@ -970,7 +1078,7 @@ impl Repository {
             .read_change(hash)
             .map_err(|_| anyhow::anyhow!("cherry-pick target {} not found in CAS", _hex(hash)))?;
 
-        let current_view = View::load(&self.root, &view_name)
+        let current_view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
         let ancestors_v = self.graph.ancestors(&current_view.heads);
@@ -1014,10 +1122,10 @@ impl Repository {
         new_heads.insert(*hash);
         let updated_view = View::new(&view_name, new_heads.clone());
         updated_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view after cherry-pick: {e}"))?;
         let new_state = self.materialize_heads(&new_heads)?;
-        write_state_to_working_dir(&self.root, &new_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
         Ok(())
     }
 
@@ -1026,7 +1134,7 @@ impl Repository {
     // ------------------------------------------------------------------
 
     fn config_path(&self) -> PathBuf {
-        self.root.join(".arc").join("config.json")
+        self.shared_root.join(".arc").join("config.json")
     }
 
     /// Read the repository configuration from `.arc/config.json`.
@@ -1083,7 +1191,7 @@ impl Repository {
         let (author, signing_key) = self.signing_identity()?;
         let tag = Tag::new(name, *target, author.clone(), signing_key);
 
-        let tag_dir = self.root.join(".arc").join("tags");
+        let tag_dir = self.shared_root.join(".arc").join("tags");
         fs::create_dir_all(&tag_dir)?;
 
         let safe_name = name.replace('/', "-");
@@ -1097,7 +1205,7 @@ impl Repository {
 
     /// Return all tags stored in `.arc/tags/`, sorted alphabetically by name.
     pub fn list_tags(&self) -> anyhow::Result<Vec<Tag>> {
-        let tag_dir = self.root.join(".arc").join("tags");
+        let tag_dir = self.shared_root.join(".arc").join("tags");
         if !tag_dir.exists() {
             return Ok(vec![]);
         }
@@ -1215,7 +1323,7 @@ impl Repository {
         }
 
         let intent = format!("revert {}", &_hex(hash)[..8]);
-        let current_view = View::load(&self.root, &view_name)
+        let current_view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load current view: {e}"))?;
 
         let (author, signing_key) = self.signing_identity()?;
@@ -1237,12 +1345,12 @@ impl Repository {
         // Advance the current view to point at the revert change.
         let updated_view = View::new(&view_name, HashSet::from([revert_change.id]));
         updated_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view after revert: {e}"))?;
 
         // Re-materialise and write to the working directory.
         let new_state = self.materialize_heads(&HashSet::from([revert_change.id]))?;
-        write_state_to_working_dir(&self.root, &new_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
 
         Ok(revert_change.id)
     }
@@ -1273,12 +1381,12 @@ impl Repository {
         }
 
         // Log before writing so undo() can re-materialize the view state.
-        let view_heads = View::load(&self.root, &view_name)
+        let view_heads = View::load(&self.shared_root, &view_name)
             .map(|v| v.heads)
             .unwrap_or_default();
         self.log_operation("restore", &view_name, view_heads)?;
 
-        let full = self.root.join(filepath);
+        let full = self.work_root.join(filepath);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -1294,7 +1402,7 @@ impl Repository {
             if let Some(content) = state.get(&path_key) {
                 if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
                     let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
-                    let blob_path = self.root.join(".arc").join("blobs").join(_hex(&hash));
+                    let blob_path = self.shared_root.join(".arc").join("blobs").join(_hex(&hash));
                     let blob_file = std::fs::File::open(&blob_path)
                         .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
                     // SAFETY: The CAS blob store is an append-only, content-addressed system.
@@ -1323,7 +1431,7 @@ impl Repository {
     /// Hidden views (names beginning with `.`) are excluded, which filters
     /// out the internal stash views created by [`stash`](Self::stash).
     pub fn list_views(&self) -> anyhow::Result<Vec<String>> {
-        let views_dir = self.root.join(".arc").join("views");
+        let views_dir = self.shared_root.join(".arc").join("views");
         let mut names: Vec<String> = fs::read_dir(&views_dir)?
             .filter_map(|e| e.ok())
             .filter_map(|e| {
@@ -1352,7 +1460,7 @@ impl Repository {
         use comfy_table::{Attribute, Cell, Color, Table, presets};
 
         let current = self.current_view_name()?;
-        let changes = count_files_recursive(&self.root.join(".arc").join("store"));
+        let changes = count_files_recursive(&self.shared_root.join(".arc").join("store"));
         let views = self.list_views()?.len();
         let identity = match load_identity() {
             Ok((Author::Human { name, email, .. }, _)) => format!("{name} <{email}>"),
@@ -1363,7 +1471,7 @@ impl Repository {
         let mut table = Table::new();
         table.load_preset(presets::NOTHING);
         let rows: &[(&str, String)] = &[
-            ("Repository Path", self.root.display().to_string()),
+            ("Repository Path", self.shared_root.display().to_string()),
             ("Current View",    current),
             ("CAS Objects",     format!("{changes}")),
             ("Views",           format!("{views}")),
@@ -1395,9 +1503,9 @@ impl Repository {
                 let filepath = path
                     .get(1)
                     .ok_or_else(|| anyhow::anyhow!("invalid blob path: {path:?}"))?;
-                let bytes = fs::read(self.root.join(filepath))
+                let bytes = fs::read(self.work_root.join(filepath))
                     .map_err(|e| anyhow::anyhow!("failed to read blob source '{filepath}': {e}"))?;
-                let blobs_dir = self.root.join(".arc").join("blobs");
+                let blobs_dir = self.shared_root.join(".arc").join("blobs");
                 fs::create_dir_all(&blobs_dir)?;
                 let blob_file = blobs_dir.join(_hex(hash));
                 if !blob_file.exists() {
@@ -1420,7 +1528,7 @@ impl Repository {
         view: &str,
         previous_heads: HashSet<Blake3Hash>,
     ) -> anyhow::Result<()> {
-        let oplog_path = self.root.join(".arc").join("oplog.json");
+        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
         let mut entries: Vec<OpLogEntry> = if oplog_path.exists() {
             let json = fs::read_to_string(&oplog_path)
                 .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
@@ -1451,7 +1559,7 @@ impl Repository {
     ///
     /// Returns an error if the operation log is empty.
     pub fn undo(&mut self) -> anyhow::Result<()> {
-        let oplog_path = self.root.join(".arc").join("oplog.json");
+        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
         if !oplog_path.exists() {
             anyhow::bail!("nothing to undo — operation log is empty");
         }
@@ -1464,7 +1572,7 @@ impl Repository {
 
         // Load the current view and materialise it so we know which blob files
         // exist right now (and may need to be removed after the undo).
-        let current_view = View::load(&self.root, &entry.view)
+        let current_view = View::load(&self.shared_root, &entry.view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", entry.view))?;
         self.hydrate_heads(&current_view.heads)?;
         let current_state = if current_view.heads.is_empty() {
@@ -1476,8 +1584,9 @@ impl Repository {
         // Restore the view to its pre-operation heads.
         let restored_view = View::new(&entry.view, entry.previous_heads.clone());
         restored_view
-            .save(&self.root)
+            .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", entry.view))?;
+
 
         // Materialise the restored state.
         self.hydrate_heads(&entry.previous_heads)?;
@@ -1497,12 +1606,12 @@ impl Repository {
             .filter(|f| !f.ends_with(".rs"))
         {
             if !blobs_after.contains(&filepath) {
-                let _ = fs::remove_file(self.root.join(&filepath));
+                let _ = fs::remove_file(self.work_root.join(&filepath));
             }
         }
 
         // Write the restored state to the working directory.
-        write_state_to_working_dir(&self.root, &restored_state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)?;
 
         // Persist the updated oplog (without the popped entry).
         fs::write(&oplog_path, serde_json::to_string_pretty(&entries)?)
@@ -1522,7 +1631,7 @@ impl Repository {
     /// Return the active sparse cone patterns, or an empty `Vec` when the
     /// repository is in full-checkout mode.
     pub fn read_sparse_patterns(&self) -> Vec<String> {
-        load_sparse_patterns(&self.root)
+        load_sparse_patterns(&self.work_root)
     }
 
     /// Update the sparse cone and rematerialize the working directory.
@@ -1533,7 +1642,7 @@ impl Repository {
     ///   Files that fall *outside* the new cone are physically removed so IDEs
     ///   do not encounter stale, unmanaged files.
     pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
-        let sparse_path = self.root.join(".arc").join("sparse.json");
+        let sparse_path = self.work_root.join(".arc").join("sparse.json");
 
         // Step 1: remove stale files that are outside the new cone.
         let view_name = self.current_view_name()?;
@@ -1542,7 +1651,7 @@ impl Repository {
         if !patterns.is_empty() {
             for filepath in extract_filepaths_from_state(&state) {
                 if !patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
-                    let full = self.root.join(&filepath);
+                    let full = self.work_root.join(&filepath);
                     if full.exists() {
                         let _ = fs::remove_file(&full);
                     }
@@ -1566,7 +1675,7 @@ impl Repository {
         }
 
         // Step 3: re-project the working directory through the new filter.
-        write_state_to_working_dir(&self.root, &state)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &state)?;
         Ok(())
     }
 
@@ -1587,7 +1696,7 @@ impl Repository {
     ) -> anyhow::Result<Blake3Hash> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
-        let mut view = View::load(&self.root, &view_name)
+        let mut view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         let (author, signing_key) = self.signing_identity()?;
         let atom = Atom::Mount {
@@ -1609,7 +1718,7 @@ impl Repository {
         // Log before mutating view frontier so arc undo can rewind this operation.
         self.log_operation("mount add", &view_name, view.heads.clone())?;
         view.heads = HashSet::from([change.id]);
-        view.save(&self.root)
+        view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
         Ok(change.id)
     }
@@ -1655,7 +1764,7 @@ impl Repository {
 
         for (path, url, target) in &mounts {
             pb.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
-            let mount_dir = self.root.join(path);
+            let mount_dir = self.work_root.join(path);
             let arc_sub = mount_dir.join(".arc");
             let mut sub_repo = if arc_sub.exists() {
                 Repository::open(&mount_dir)
@@ -1675,6 +1784,216 @@ impl Repository {
 
         pb.finish_with_message(format!("Synced {} mount(s).", mounts.len()));
         Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Workspaces
+    // ------------------------------------------------------------------
+
+    /// Create a linked workspace at `work_root` that shares this repository's CAS.
+    ///
+    /// Writes a `.arc-workspace` manifest into `work_root`, switches it to the
+    /// given `view` (defaulting to the current view when `None`), and checks out
+    /// that view's working directory.
+    pub fn workspace_add(&mut self, work_root: &Path, view: Option<&str>) -> anyhow::Result<()> {
+        let view_name = match view {
+            Some(v) => v.to_string(),
+            None => self.current_view_name()?,
+        };
+        // Ensure the target view exists.
+        let views_dir = self.shared_root.join(".arc").join("views");
+        if !views_dir.join(&view_name).exists() {
+            anyhow::bail!("view '{view_name}' does not exist");
+        }
+        fs::create_dir_all(work_root)
+            .map_err(|e| anyhow::anyhow!("failed to create workspace dir: {e}"))?;
+        let manifest = WorkspaceManifest {
+            shared_root: self.shared_root.clone(),
+            view: view_name.clone(),
+            sparse_patterns: vec![],
+        };
+        let manifest_path = work_root.join(".arc-workspace");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest)
+                .map_err(|e| anyhow::anyhow!("failed to serialise workspace manifest: {e}"))?,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to write .arc-workspace: {e}"))?;
+
+        // Open the new workspace and materialise it.
+        let mut ws = Repository::open(work_root)
+            .map_err(|e| anyhow::anyhow!("failed to open new workspace: {e}"))?;
+        ws.hydrate(&view_name)?;
+        let state = ws.materialize(&view_name)?;
+        write_state_to_working_dir(work_root, &self.shared_root, &state)?;
+        Ok(())
+    }
+
+    /// List all workspace directories registered via `.arc-workspace` manifests
+    /// that point at this shared CAS root.
+    ///
+    /// Scans the parent of `shared_root` one level deep for `.arc-workspace` files.
+    pub fn workspace_list(&self) -> anyhow::Result<Vec<PathBuf>> {
+        let parent = self
+            .shared_root
+            .parent()
+            .unwrap_or(&self.shared_root);
+        let mut workspaces = Vec::new();
+        if let Ok(rd) = fs::read_dir(parent) {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_dir() {
+                    let ws_file = p.join(".arc-workspace");
+                    if ws_file.exists()
+                        && let Ok(json) = fs::read_to_string(&ws_file)
+                        && let Ok(mf) = serde_json::from_str::<WorkspaceManifest>(&json)
+                        && mf.shared_root == self.shared_root
+                    {
+                        workspaces.push(p);
+                    }
+                }
+            }
+        }
+        workspaces.sort();
+        Ok(workspaces)
+    }
+
+    // ------------------------------------------------------------------
+    // Garbage collection
+    // ------------------------------------------------------------------
+
+    /// Collect unreachable CAS objects and return a [`GcResult`] summary.
+    ///
+    /// **Reachability root set** (causal-stability-aware):
+    /// 1. Every head of every non-stash view.
+    /// 2. Every `previous_heads` set recorded in `oplog.json` (OpLog protection).
+    ///
+    /// A [`Change`] is *stable* (safe to delete) only when it is unreachable
+    /// from that combined root set AND it appears in the causal-stability
+    /// intersection across **all** views (meaning every peer has already
+    /// integrated it).  Objects that are not yet causally stable are kept even
+    /// if they are currently unreachable from any single view.
+    pub fn gc(&mut self) -> anyhow::Result<GcResult> {
+        // --- Step 1: build the root set ------------------------------------
+        let views_dir = self.shared_root.join(".arc").join("views");
+        let mut root_set: HashSet<Blake3Hash> = HashSet::new();
+
+        // All view heads.
+        if let Ok(rd) = fs::read_dir(&views_dir) {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if let Ok(view) = View::load(&self.shared_root, &name) {
+                    root_set.extend(view.heads.iter().copied());
+                }
+            }
+        }
+
+        // OpLog protection: every previous_heads set.
+        let oplog_path = self.shared_root.join(".arc").join("oplog.json");
+        if oplog_path.exists()
+            && let Ok(json) = fs::read_to_string(&oplog_path)
+            && let Ok(entries) = serde_json::from_str::<Vec<OpLogEntry>>(&json)
+        {
+            for entry in &entries {
+                root_set.extend(entry.previous_heads.iter().copied());
+            }
+        }
+
+        // --- Step 2: BFS to find all reachable changes ---------------------
+        let reachable = self.graph.ancestors(&root_set);
+
+        // --- Step 3: causal stability — intersection of all view histories --
+        // A change is causally stable if it appears in EVERY view's ancestry.
+        let mut per_view_ancestors: Vec<HashSet<Blake3Hash>> = Vec::new();
+        if let Ok(rd) = fs::read_dir(&views_dir) {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if let Ok(view) = View::load(&self.shared_root, &name) {
+                    per_view_ancestors.push(self.graph.ancestors(&view.heads));
+                }
+            }
+        }
+        let causally_stable: HashSet<Blake3Hash> = if per_view_ancestors.is_empty() {
+            HashSet::new()
+        } else {
+            let mut intersection = per_view_ancestors[0].clone();
+            for set in &per_view_ancestors[1..] {
+                intersection.retain(|id| set.contains(id));
+            }
+            intersection
+        };
+
+        // --- Step 4: delete unreachable AND causally stable changes --------
+        let store_dir = self.shared_root.join(".arc").join("store");
+        let mut result = GcResult::default();
+
+        // Collect change IDs present on disk.
+        let mut on_disk: Vec<Blake3Hash> = Vec::new();
+        if let Ok(rd) = fs::read_dir(&store_dir) {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let fname = entry.file_name().to_string_lossy().into_owned();
+                // CAS files are 64-char lowercase hex names.
+                if fname.len() == 64 && fname.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    let mut id = [0u8; 32];
+                    let mut valid = true;
+                    for (i, chunk) in fname.as_bytes().chunks(2).enumerate() {
+                        let hi = match chunk[0] {
+                            b'0'..=b'9' => chunk[0] - b'0',
+                            b'a'..=b'f' => chunk[0] - b'a' + 10,
+                            b'A'..=b'F' => chunk[0] - b'A' + 10,
+                            _ => { valid = false; break; }
+                        };
+                        let lo = match chunk[1] {
+                            b'0'..=b'9' => chunk[1] - b'0',
+                            b'a'..=b'f' => chunk[1] - b'a' + 10,
+                            b'A'..=b'F' => chunk[1] - b'A' + 10,
+                            _ => { valid = false; break; }
+                        };
+                        id[i] = (hi << 4) | lo;
+                    }
+                    if valid {
+                        on_disk.push(id);
+                    }
+                }
+            }
+        }
+
+        for id in &on_disk {
+            if !reachable.contains(id) && causally_stable.contains(id) {
+                let path = store_dir.join(_hex(id));
+                if fs::remove_file(&path).is_ok() {
+                    result.changes_deleted += 1;
+                }
+            }
+        }
+
+        // --- Step 5: delete orphaned blob files ----------------------------
+        let blobs_dir = self.shared_root.join(".arc").join("blobs");
+        // Collect all blob hashes referenced in the reachable changes.
+        let mut referenced_blobs: HashSet<String> = HashSet::new();
+        for id in &reachable {
+            if let Some(change) = self.graph.get(id) {
+                for atom in &change.atoms {
+                    if let Atom::Blob { hash, .. } = atom {
+                        referenced_blobs.insert(_hex(hash));
+                    }
+                }
+            }
+        }
+        if blobs_dir.exists()
+            && let Ok(rd) = fs::read_dir(&blobs_dir)
+        {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let fname = entry.file_name().to_string_lossy().into_owned();
+                if !referenced_blobs.contains(&fname)
+                    && fs::remove_file(entry.path()).is_ok()
+                {
+                    result.blobs_deleted += 1;
+                }
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -1843,25 +2162,28 @@ fn check_working_dir_clean(
 
 /// Overwrite the working directory with the given materialized state.
 ///
-/// Instead of blindly wiping all `.rs` files (which can fail on Windows
-/// if an IDE or language server holds a file lock), we iterate the
-/// *known* file set, tolerate `NotFound` errors, and then write the
-/// target state reconstructed via `unparse()`.
-fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
-    let sparse_patterns = load_sparse_patterns(root);
+/// `work_root` is where files are written; `shared_root` is where the CAS
+/// (`.arc/blobs/`) lives. For normal repos both are the same; for workspaces
+/// they differ.
+fn write_state_to_working_dir(
+    work_root: &Path,
+    shared_root: &Path,
+    state: &MaterializedState,
+) -> anyhow::Result<()> {
+    let sparse_patterns = load_sparse_patterns(work_root);
     let is_sparse = !sparse_patterns.is_empty();
     let in_sparse = |fp: &str| -> bool {
         !is_sparse || sparse_patterns.iter().any(|p| fp.starts_with(p.as_str()))
     };
 
     // Remove existing .rs files, tolerating NotFound.
-    let arcignore = load_arcignore(root);
-    let existing = collect_rs_files(root, &arcignore)?;
+    let arcignore = load_arcignore(work_root);
+    let existing = collect_rs_files(work_root, &arcignore)?;
     for filepath in &existing {
         if !in_sparse(filepath) {
             continue; // outside sparse cone — leave as already-absent
         }
-        let full = root.join(filepath);
+        let full = work_root.join(filepath);
         match fs::remove_file(&full) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -1875,7 +2197,7 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
         if !in_sparse(&filepath) {
             continue; // outside sparse cone — skip projection to disk
         }
-        let full = root.join(&filepath);
+        let full = work_root.join(&filepath);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -1900,9 +2222,9 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
                     .unwrap_or("");
                 fs::write(full.join(".arc-mount"), info.as_bytes())?;
             } else if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
-                // Blob files: fetch raw bytes from .arc/blobs/{hex(hash)}.
+                // Blob files: fetch raw bytes from shared_root/.arc/blobs/{hex(hash)}.
                 let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
-                let blob_path = root.join(".arc").join("blobs").join(_hex(&hash));
+                let blob_path = shared_root.join(".arc").join("blobs").join(_hex(&hash));
                 let blob_file = std::fs::File::open(&blob_path)
                     .map_err(|e| anyhow::anyhow!("missing blob for '{filepath}': {e}"))?;
                 // SAFETY: The CAS blob store is an append-only, content-addressed system.
@@ -1918,7 +2240,7 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
     // Re-create tracked empty directories.
     for key in state.keys() {
         if key.len() == 2 && key[0] == "dir" {
-            fs::create_dir_all(root.join(&key[1]))?;
+            fs::create_dir_all(work_root.join(&key[1]))?;
         }
     }
 
@@ -1939,6 +2261,49 @@ fn load_sparse_patterns(root: &Path) -> Vec<String> {
         Err(_) => return vec![],
     };
     serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()
+}
+
+/// Load the merged `RepoConfig` for a shared-root repository.
+///
+/// The global config (stored in the OS config directory for "arc") is loaded
+/// first, then the local `.arc/config.json` is overlaid on top so that
+/// local settings take precedence.  The `aliases` map is merged with local
+/// entries overriding global ones of the same name.
+pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<RepoConfig> {
+    // Global config: ~/.config/arc/config.json (or platform equivalent).
+    let mut merged = RepoConfig::default();
+    if let Some(proj) = directories::ProjectDirs::from("", "arc-vcs", "arc") {
+        let global_path = proj.config_dir().join("config.json");
+        if global_path.exists()
+            && let Ok(json) = fs::read_to_string(&global_path)
+            && let Ok(global) = serde_json::from_str::<RepoConfig>(&json)
+        {
+            merged.remotes.extend(global.remotes);
+            merged.aliases.extend(global.aliases);
+        }
+    }
+    // Local config: <shared_root>/.arc/config.json (overrides global).
+    let local_path = shared_root.join(".arc").join("config.json");
+    if local_path.exists()
+        && let Ok(json) = fs::read_to_string(&local_path)
+        && let Ok(local) = serde_json::from_str::<RepoConfig>(&json)
+    {
+        merged.remotes.extend(local.remotes);
+        merged.aliases.extend(local.aliases);
+    }
+    Ok(merged)
+}
+
+/// Persist `config` to the OS-level global arc config file.
+pub fn save_global_config(config: &RepoConfig) -> anyhow::Result<()> {
+    let proj = directories::ProjectDirs::from("", "arc-vcs", "arc")
+        .ok_or_else(|| anyhow::anyhow!("cannot determine global config directory"))?;
+    let dir = proj.config_dir();
+    fs::create_dir_all(dir)
+        .map_err(|e| anyhow::anyhow!("failed to create config dir: {e}"))?;
+    let path = dir.join("config.json");
+    fs::write(&path, serde_json::to_string_pretty(config)?)
+        .map_err(|e| anyhow::anyhow!("failed to write global config: {e}"))
 }
 
 fn load_agentignore(root: &Path) -> Gitignore {
@@ -2166,7 +2531,8 @@ mod tests {
 
         // Verify open works on an initialized repo.
         let reopened = Repository::open(&repo_path).unwrap();
-        assert_eq!(reopened.root, repo.root);
+        assert_eq!(reopened.shared_root, repo.shared_root);
+        assert_eq!(reopened.work_root, repo.work_root);
     }
 
     #[test]
@@ -2801,5 +3167,59 @@ mod tests {
             atoms.is_empty(),
             "status must return no false Delete atoms for files hidden by sparse cone; got: {atoms:?}"
         );
+    }
+
+    #[test]
+    fn test_workspace_add() {
+        let dir = tempfile::tempdir().unwrap();
+        let primary_path = dir.path().join("primary");
+        let ws_path = dir.path().join("workspace");
+
+        // Initialise primary and snap a file.
+        let mut primary = Repository::init(&primary_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        primary.set_identity(author.clone(), signing_key.clone());
+        fs::write(primary_path.join("lib.rs"), "fn lib() {}").unwrap();
+        primary.snap("add lib.rs", false).unwrap().expect("snap");
+
+        // Create a linked workspace.
+        primary.workspace_add(&ws_path, None).unwrap();
+
+        // The manifest must exist in the workspace directory.
+        assert!(ws_path.join(".arc-workspace").exists(), ".arc-workspace must be written");
+
+        // The workspace manifest must point at the primary shared_root.
+        let json = fs::read_to_string(ws_path.join(".arc-workspace")).unwrap();
+        let mf: WorkspaceManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(mf.shared_root, primary.shared_root);
+        assert_eq!(mf.view, "main");
+
+        // Opening the workspace must yield a linked repo, not primary mode.
+        let ws = Repository::open(&ws_path).unwrap();
+        assert_eq!(ws.work_root, ws_path);
+        assert_eq!(ws.shared_root, primary.shared_root);
+
+        // workspace_list() from the primary must include the workspace dir.
+        let list = primary.workspace_list().unwrap();
+        assert!(list.contains(&ws_path), "workspace_list must return ws_path");
+    }
+
+    #[test]
+    fn test_gc() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("gc_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        // Snap something so there is at least one reachable change.
+        fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+        repo.snap("first", false).unwrap().expect("snap");
+
+        // GC on a clean repo must delete zero objects (everything is reachable).
+        let result = repo.gc().unwrap();
+        assert_eq!(result.changes_deleted, 0, "no unreachable changes expected");
+        assert_eq!(result.blobs_deleted, 0, "no unreachable blobs expected");
     }
 }

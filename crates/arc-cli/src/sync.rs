@@ -62,7 +62,7 @@ fn fetch_local(
     view_name: &str,
 ) -> anyhow::Result<HashSet<Blake3Hash>> {
     let remote = Repository::open(remote_path)?;
-    let remote_view = View::load(&remote.root, view_name)
+    let remote_view = View::load(&remote.shared_root, view_name)
         .map_err(|e| anyhow::anyhow!("failed to load remote view '{view_name}': {e}"))?;
 
     let mut queue: VecDeque<Blake3Hash> = remote_view.heads.iter().copied().collect();

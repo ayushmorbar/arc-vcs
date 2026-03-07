@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use arc_cli::interop::git::import_repo;
-use arc_cli::repo::Repository;
+use arc_cli::repo::{Repository, load_merged_config, save_global_config};
 use arc_cli::sync::{fetch, pull};
 use arc_core::ai::MockResolver;
 use arc_core::algebra::Blake3Hash;
@@ -147,6 +147,22 @@ enum Command {
         #[command(subcommand)]
         action: MountAction,
     },
+    /// Manage linked workspaces (split-root, jj-style).
+    Workspace {
+        #[command(subcommand)]
+        action: WorkspaceAction,
+    },
+    /// Run garbage collection to reclaim unreachable CAS objects.
+    Gc {
+        /// Print what would be deleted without removing anything.
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+    /// Get or set arc configuration / global aliases.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -255,8 +271,47 @@ enum MountAction {
     Sync,
 }
 
+#[derive(Subcommand)]
+enum WorkspaceAction {
+    /// Create a linked workspace at the given path.
+    Add {
+        /// Directory to create the workspace in.
+        path: String,
+        /// View to check out (defaults to the current view).
+        #[arg(long)]
+        view: Option<String>,
+    },
+    /// List all workspaces sharing this repository's CAS.
+    List,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Define or overwrite a command alias (stored in global config).
+    Alias {
+        /// Short alias name (e.g. "st").
+        name: String,
+        /// Expansion string (e.g. "status").
+        expansion: String,
+    },
+    /// List all configured aliases (global + local).
+    Aliases,
+}
+
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    // --- Single-pass alias interception (no recursion) -------------------
+    let mut raw_args: Vec<String> = std::env::args().collect();
+    if raw_args.len() >= 2
+        && let Ok(config) = load_merged_config(std::path::Path::new("."))
+        && let Some(expansion) = config.aliases.get(&raw_args[1]).cloned()
+        && let Some(expanded) = shlex::split(&expansion)
+    {
+        let rest = raw_args.split_off(2);
+        raw_args.truncate(1); // keep argv[0] (program name)
+        raw_args.extend(expanded);
+        raw_args.extend(rest);
+    }
+    let cli = Cli::parse_from(&raw_args);
 
     match cli.command {
         Command::Init { path } => {
@@ -624,6 +679,56 @@ fn main() -> anyhow::Result<()> {
             MountAction::Sync => {
                 let mut repo = Repository::open(".")?;
                 repo.mount_sync()?;
+            }
+        },
+        Command::Workspace { action } => match action {
+            WorkspaceAction::Add { path, view } => {
+                let mut repo = Repository::open(".")?;
+                repo.workspace_add(std::path::Path::new(&path), view.as_deref())?;
+                println!("Created workspace at '{path}'");
+            }
+            WorkspaceAction::List => {
+                let repo = Repository::open(".")?;
+                let workspaces = repo.workspace_list()?;
+                if workspaces.is_empty() {
+                    println!("No linked workspaces.");
+                } else {
+                    for ws in &workspaces {
+                        println!("{}", ws.display());
+                    }
+                }
+            }
+        },
+        Command::Gc { dry_run } => {
+            if dry_run {
+                println!("(dry-run) GC would analyse the CAS — run without --dry-run to delete.");
+            } else {
+                let mut repo = Repository::open(".")?;
+                let result = repo.gc()?;
+                println!(
+                    "GC complete: {} change(s) deleted, {} blob(s) deleted.",
+                    result.changes_deleted, result.blobs_deleted
+                );
+            }
+        }
+        Command::Config { action } => match action {
+            ConfigAction::Alias { name, expansion } => {
+                let mut config = load_merged_config(std::path::Path::new("."))?;
+                config.aliases.insert(name.clone(), expansion.clone());
+                save_global_config(&config)?;
+                println!("Alias '{name}' = '{expansion}' saved.");
+            }
+            ConfigAction::Aliases => {
+                let config = load_merged_config(std::path::Path::new("."))?;
+                if config.aliases.is_empty() {
+                    println!("No aliases configured.");
+                } else {
+                    let mut pairs: Vec<_> = config.aliases.iter().collect();
+                    pairs.sort_by_key(|(k, _)| k.as_str());
+                    for (alias, expansion) in pairs {
+                        println!("{alias} = {expansion}");
+                    }
+                }
             }
         },
     }
