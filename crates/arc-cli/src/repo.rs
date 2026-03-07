@@ -1326,6 +1326,20 @@ impl Repository {
         Ok(self.read_config()?.remotes)
     }
 
+    /// Remove a named remote alias from `.arc/config.json`.
+    ///
+    /// Returns an actionable error if the remote does not exist.
+    pub fn remove_remote(&self, name: &str) -> anyhow::Result<()> {
+        let mut config = self.read_config()?;
+        if config.remotes.remove(name).is_none() {
+            anyhow::bail!(
+                "Remote '{}' does not exist. Use 'arc remote list' to see available remotes.",
+                name
+            );
+        }
+        self.write_config(&config)
+    }
+
     // ------------------------------------------------------------------
     // Tags
     // ------------------------------------------------------------------

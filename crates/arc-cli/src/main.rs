@@ -282,6 +282,11 @@ enum RemoteAction {
     },
     /// List all configured remote aliases.
     List,
+    /// Remove an existing remote alias.
+    Remove {
+        /// Short name of the remote to delete (e.g. "origin").
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -639,6 +644,11 @@ fn main() -> anyhow::Result<()> {
                         println!("{name}\t{url}");
                     }
                 }
+            }
+            RemoteAction::Remove { name } => {
+                let repo = Repository::open(".")?;
+                repo.remove_remote(&name)?;
+                println!("Remote '{}' removed.", name.cyan().bold());
             }
         },
         Command::Tag { name, hash } => {
