@@ -100,17 +100,19 @@ enum Command {
         action: RemoteAction,
     },
     /// Create a cryptographically signed, immutable tag pointing to a change.
+    ///
+    /// Argument order: `arc tag <name> <hash-or-ref>`  (name first, target second).
     Tag {
         /// Tag name (e.g. "v1.0.0").
         name: String,
-        /// Full 64-character hex hash of the change to tag.
+        /// Commit reference: 64-char hex, short prefix, view name, or `HEAD`.
         hash: String,
     },
     /// List all tags in the repository.
     Tags,
     /// Semantically revert a change by rolling back its AST atoms.
     Revert {
-        /// Full 64-character hex hash of the change to revert.
+        /// Commit reference: 64-char hex, short prefix, view name, or HEAD/HEAD~N.
         hash: String,
     },
     /// Restore a file to its snapped state in the current view.
@@ -166,7 +168,8 @@ enum Command {
     /// CRDT tombstones and reducing repository size.  An Epoch Map is
     /// written to `.arc/epochs` so future `hydrate` calls transparently
     /// redirect compacted IDs; no live Change object is ever rewritten.
-    Compact,    /// Amend the most recent snap, optionally replacing its message.
+    Compact,
+    /// Amend the most recent snap, optionally replacing its message.
     ///
     /// Rewrites the last change in-place: the amended commit gets a new hash
     /// and the old hash is added to the Epoch Map so peers transparently graft
@@ -175,7 +178,32 @@ enum Command {
         /// New commit message.  If omitted, the original message is kept.
         #[arg(short, long)]
         message: Option<String>,
-    },    /// Get or set arc configuration / global aliases.
+    },
+    /// Configure your name, email, and Ed25519 signing identity in one step.
+    ///
+    /// Equivalent to `arc auth login` but with a simpler interface.
+    /// Generates a fresh Ed25519 keypair and persists it alongside the identity.
+    Identity {
+        /// Your full name.
+        name: String,
+        /// Your email address.
+        email: String,
+    },
+    /// Show uncommitted working-directory changes as a coloured semantic diff.
+    ///
+    /// Displays pending AST atoms colour-coded: green for additions, red for
+    /// deletions, yellow for moves and reformats.  Prints a clean message when
+    /// the working directory is up-to-date.
+    Diff,
+    /// Hint command for users familiar with Git’s `git push`.
+    ///
+    /// arc is a P2P CRDT: there is no single “central” server to push to.
+    /// Use `arc sync` or `arc pull <url>` to exchange state with remotes.
+    Push {
+        /// Optional remote name (only used in the hint message).
+        remote: Option<String>,
+    },
+    /// Get or set arc configuration / global aliases.
     Config {
         #[command(subcommand)]
         action: ConfigAction,
@@ -767,6 +795,33 @@ fn main() -> anyhow::Result<()> {
             let new_id = repo.amend(message.as_deref())?;
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Amended → {}", &hex[..8]);
+        }        Command::Identity { name, email } => {
+            save_identity(&name, &email)?;
+            println!(
+                "Identity configured: {name} <{email}> (Ed25519 keypair active)\n\
+                 Run 'arc auth whoami' to inspect your public key."
+            );
+        }
+        Command::Diff => {
+            let mut repo = Repository::open(".")?;
+            let atoms = repo.status()?;
+            if atoms.is_empty() {
+                println!("Working directory clean — nothing to diff.");
+            } else {
+                println!("Pending changes (not yet snapped):");
+                for atom in &atoms {
+                    println!("  {}", atom_diff_line(atom));
+                }
+            }
+        }
+        Command::Push { remote } => {
+            let target = remote.as_deref().unwrap_or("origin");
+            println!(
+                "Hint: arc is a P2P CRDT — there is no central server to push to.\n\
+                 Use 'arc sync' or 'arc pull <url>' to exchange state with remotes.\n\
+                 (Remote '{}' noted — native push payload transmission coming in v0.2.0)",
+                target
+            );
         }
         Command::Config { action } => match action {
             ConfigAction::Alias { name, expansion } => {
@@ -858,6 +913,43 @@ fn atom_display_label(atom: &Atom) -> String {
             format!("~~ Mount:   {}", path.last().unwrap_or(&"?".to_string()))
                 .cyan()
                 .to_string()
+        }
+    }
+}
+
+fn atom_diff_line(atom: &Atom) -> String {
+    match atom {
+        Atom::Insert { at, content } => {
+            let path = at.join("/");
+            let preview = std::str::from_utf8(content)
+                .unwrap_or("<binary>")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let preview_str = if preview.is_empty() {
+                "(empty)".to_string()
+            } else {
+                preview
+            };
+            format!("++ {} │ {}", path, preview_str).green().to_string()
+        }
+        Atom::Delete { at } => format!("-- {}", at.join("/")).red().to_string(),
+        Atom::Move { from, to } => {
+            format!("~~ {} → {}", from.join("/"), to.join("/"))
+                .yellow()
+                .to_string()
+        }
+        Atom::SemanticsPreserving { at, description } => {
+            format!("~~ {} ({})", at.join("/"), description)
+                .yellow()
+                .to_string()
+        }
+        Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
+        Atom::Blob { path, .. } => format!("~~ blob {}", path.join("/")).yellow().to_string(),
+        Atom::Mount { path, url, .. } => {
+            format!("~~ mount {} @ {}", path.join("/"), url).cyan().to_string()
         }
     }
 }
