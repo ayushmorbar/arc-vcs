@@ -159,6 +159,14 @@ enum Command {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
     },
+    /// Compact causally-stable history into a single Genesis base state.
+    ///
+    /// All changes in the causal-stability frontier are collapsed into one
+    /// synthetic "Compacted Base State" change, permanently eliminating
+    /// CRDT tombstones and reducing repository size.  An Epoch Map is
+    /// written to `.arc/epochs` so future `hydrate` calls transparently
+    /// redirect compacted IDs; no live Change object is ever rewritten.
+    Compact,
     /// Get or set arc configuration / global aliases.
     Config {
         #[command(subcommand)]
@@ -734,6 +742,12 @@ fn main() -> anyhow::Result<()> {
                     result.changes_deleted, result.blobs_deleted
                 );
             }
+        }
+        Command::Compact => {
+            let mut repo = Repository::open(".")?;
+            let genesis_id = repo.compact()?;
+            let hex: String = genesis_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Successfully compacted causally stable history into new base state: {hex}");
         }
         Command::Config { action } => match action {
             ConfigAction::Alias { name, expansion } => {

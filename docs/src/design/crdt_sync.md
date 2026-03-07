@@ -84,3 +84,76 @@ There is no pack file negotiation, no delta compression, and no "thin pack" comp
 In a split-root workspace, multiple `work_root` directories share a single `shared_root` containing `.arc/`. The `WorkspaceManifest` at `.<shared_root>/.arc-workspace` records all registered work roots.
 
 Each work root can have its own sparse checkout patterns (via `Atom::Mount` in the view), so different team members can materialize different subsets of the codebase while sharing the same change history and CAS.
+
+---
+
+## PO-Log Compaction & Epoch Maps
+
+A long-lived arc repository will accumulate thousands of `Atom::Delete` tombstones and superseded `Atom::Insert` versions — the inevitable consequence of a purely grow-only CRDT history. Over time this increases hydration cost and repository size without adding semantic value. PO-Log Compaction permanently solves this problem.
+
+### The Genesis Change
+
+`arc compact` performs a **state-collapse**: it materialises the complete AST state at the causal-stability frontier and encodes it as a single synthetic `Change` with **empty deps**:
+
+```
+Genesis Change {
+    id:    blake3(atoms + intent + author),
+    deps:  [],   // <-- the algebraic root; no predecessors
+    atoms: [ Insert(file/main.rs/fn_a), Insert(file/lib.rs/struct_Widget), Blob(assets/logo.png), ... ],
+    intent: "Compacted Base State",
+}
+```
+
+The Genesis Change is written to the CAS exactly like any other change. The old history behind it is then physically deleted from `.arc/store/`.
+
+### The Epoch Map
+
+Because arc uses BLAKE3 content-addressed identities, no `Change` object can be mutated without changing its ID. If a live, unstable `Change` has a dep that points into the now-deleted stable history, direct hydration would fail.
+
+The Epoch Map resolves this by rewriting the **read path** rather than stored objects:
+
+```
+.arc/epochs  (JSON)
+{
+  "<old_stable_id_1>": "<genesis_id>",
+  "<old_stable_id_2>": "<genesis_id>",
+  ...
+}
+```
+
+In `hydrate_heads()`, before each BFS CAS read:
+
+```rust
+if let Some(&genesis_id) = epoch_map.get(&id) {
+    // redirect: load the Genesis Change instead
+    queue.push_back(genesis_id);
+    continue;
+}
+```
+
+This means:
+- Live `Change` objects on peer nodes that still have their `deps` pointing to old IDs continue to work correctly — their hydration is transparently redirected.
+- The Epoch Map is append-only: running `compact()` multiple times composes correctly without invalidating earlier epochs.
+- Peers that have not yet compacted remain fully interoperable with peers that have.
+
+### Invariants
+
+| Invariant | Guaranteed by |
+|---|---|
+| No live `Change` object is mutated | `compact()` only deletes CAS files; never rewrites them |
+| BLAKE3 integrity of all active changes | IDs are computed only from immutable fields; deps pointers in live changes are untouched |
+| CRDT commutativity is preserved | Genesis is a commit with empty deps; it commutes with everything |
+| Epoch Map composes over multiple rounds | Map is append-only; each round adds new entries without removing old ones |
+| Blob files are retained | `.arc/blobs/` is never touched by `compact()`; Genesis `Atom::Blob` atoms reference them |
+
+### Example: 10-Year Repository
+
+```
+Before compact():  5,000,000 changes in .arc/store/  (~40 GB)
+After compact():   1 Genesis Change in .arc/store/   (~2 MB)
+                   .arc/blobs/ unchanged              (~10 GB)
+                   .arc/epochs entries: 5,000,000
+Net saving:        ~30 GB deleted; O(1) hydration cost
+```
+
+The repository remains fully functional. `arc log` on any view walks back to the Genesis Change and stops (it has no parents). `arc merge`, `arc snap`, and all CRDT sync operations continue normally.

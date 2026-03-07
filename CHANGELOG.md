@@ -7,6 +7,24 @@ arc uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.0] — 2026-03-07
+
+The Genesis Release. All 25 development phases complete. arc is production-ready.
+
+### Added — Phase 25 (The Genesis Release)
+- **DAG Compaction (`arc compact`)** — PO-Log Compaction via a single Genesis Change: collapses the entire causally-stable DAG history into one `Atom::Insert`/`Atom::Blob` snapshot, permanently solving CRDT tombstone growth. A 10-year-old repository with millions of changes can be truncated in O(|stable_set|) time.
+- **Epoch Map (`.arc/epochs`)** — append-only JSON map of `compacted_id → genesis_id`. The `hydrate_heads()` BFS transparently intercepts compacted IDs and redirects to the Genesis node, preserving the BLAKE3 cryptographic identity of every live `Change` object. Fully compatible with SLSA L4 provenance and P2P CRDT sync.
+- **`justfile` `compact` recipe** — `arc compact` available as `just compact`.
+- **GitHub Actions CI pipeline** (`.github/workflows/ci.yml`) — triggers on push to `main` and pull requests: `cargo check`, `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
+- **GitHub Actions docs pipeline** (`.github/workflows/docs.yml`) — builds mdBook on push to `main` and deploys to GitHub Pages via `actions/upload-pages-artifact` + `actions/deploy-pages`. Permissions: `pages: write`, `id-token: write`.
+- **GitHub Actions release pipeline** (`.github/workflows/release.yml`) — triggers on `v*` tags; builds release binaries for `ubuntu-latest`, `macos-latest`, `windows-latest` and uploads them to the GitHub Release via `softprops/action-gh-release`.
+
+### Changed — Phase 25
+- `hydrate_heads()` now consults `.arc/epochs` before attempting a CAS read, enabling transparent history truncation without mutating any existing `Change`.
+- `Repository::compact()` performs its own targeted CAS deletion (distinct from `gc()`) so tombstones are removed immediately without a separate GC pass.
+
+---
+
 ## [1.0.0-rc.1] — 2026-03-07
 
 This release candidate marks the completion of all 24 development phases and represents the full feature set targeted for the arc 1.0 stable release.

@@ -262,14 +262,66 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to write .arc/HEAD: {e}"))
     }
 
+    /// Load the Epoch Map from `.arc/epochs`.
+    ///
+    /// The Epoch Map is the heart of PO-Log Compaction.  After `compact()`
+    /// runs, every causally-stable `Change` ID is mapped to the Genesis
+    /// Change ID that replaced it.  `hydrate_heads()` consults this map on
+    /// every BFS step so that it transparently redirects traversal to the
+    /// Genesis node, allowing the CAS objects for the old stable history to
+    /// be physically deleted without touching any live `Change` object.
+    ///
+    /// Returns an empty map when the file does not exist (i.e. before any
+    /// `compact()` call).
+    fn load_epoch_map(&self) -> anyhow::Result<HashMap<Blake3Hash, Blake3Hash>> {
+        let path = self.shared_root.join(".arc").join("epochs");
+        if !path.exists() {
+            return Ok(HashMap::new());
+        }
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("could not read .arc/epochs: {e}"))?;
+        let json: HashMap<String, String> = serde_json::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("corrupt .arc/epochs JSON: {e}"))?;
+        let mut map = HashMap::new();
+        for (k, v) in json {
+            let old_id = _unhex(&k)
+                .ok_or_else(|| anyhow::anyhow!("invalid epoch key: {k}"))?;
+            let new_id = _unhex(&v)
+                .ok_or_else(|| anyhow::anyhow!("invalid epoch value: {v}"))?;
+            map.insert(old_id, new_id);
+        }
+        Ok(map)
+    }
+
     /// Populate the in-memory [`ChangeGraph`] by walking backward from an
     /// arbitrary set of heads through the CAS.
     ///
     /// This is idempotent — already-present nodes are skipped.
+    ///
+    /// ### Epoch Map interception
+    ///
+    /// When `compact()` has been run, some historical `Change` IDs no longer
+    /// exist on disk — they were superseded by a single Genesis Change and
+    /// their CAS objects deleted.  Before attempting a CAS read, this method
+    /// transparently redirects compacted IDs to their Genesis replacement via
+    /// the Epoch Map stored in `.arc/epochs`.  Live `Change` objects are
+    /// **never mutated**; only the read path is intercepted.
     pub fn hydrate_heads(&mut self, heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
+        let epoch_map = self.load_epoch_map()?;
         let mut queue: VecDeque<Blake3Hash> = heads.iter().copied().collect();
 
         while let Some(id) = queue.pop_front() {
+            // Epoch Map interception: if this ID was compacted away, redirect
+            // to the Genesis Change instead of attempting a CAS read.
+            let id = if let Some(&genesis_id) = epoch_map.get(&id) {
+                if self.graph.get(&genesis_id).is_none() {
+                    queue.push_back(genesis_id);
+                }
+                continue;
+            } else {
+                id
+            };
+
             if self.graph.get(&id).is_some() {
                 continue;
             }
@@ -2046,11 +2098,215 @@ impl Repository {
 
         Ok(result)
     }
+
+    /// Compact causally-stable history into a single **Genesis Change**.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Compute the `causally_stable` set across all views (intersection of
+    ///    per-view ancestry, identical to the computation in `gc()`).
+    /// 2. Bail if the stable set is trivially empty.
+    /// 3. Find the **stable tips** — stable changes that no other stable change
+    ///    depends on.  These are the most-recent stable points, forming the
+    ///    exact boundary between "safe to truncate" and "still live".
+    /// 4. Materialise the state at those stable tips — this snapshot becomes
+    ///    the content of the Genesis Change.
+    /// 5. Convert every `MaterializedState` entry into an `Atom`:
+    ///    - `["dir", ...]` path  → `Atom::Directory`
+    ///    - content starting with `b"ARC_BLOB_REF:"` → `Atom::Blob`
+    ///    - everything else → `Atom::Insert`
+    /// 6. Create the Genesis `Change` with **empty deps** and write it to CAS.
+    /// 7. Persist the Epoch Map: every compacted ID → genesis ID.  The map is
+    ///    merged with any existing `.arc/epochs` so multiple compact rounds
+    ///    compose correctly.
+    /// 8. Update any `View` whose current head is in `causally_stable` to
+    ///    point at the Genesis Change instead.
+    /// 9. Physically delete the `.arc/store/` CAS objects for every compacted
+    ///    change (blob files in `.arc/blobs/` are **kept** because the Genesis
+    ///    `Atom::Blob` atoms still reference them).
+    ///
+    /// # Cryptographic Integrity
+    ///
+    /// No live `Change` object is mutated.  The Epoch Map intercepts the
+    /// *read path* in `hydrate_heads()`, so peers that have not yet compacted
+    /// remain fully interoperable.
+    pub fn compact(&mut self) -> anyhow::Result<Blake3Hash> {
+        // --- Step 1: build per-view ancestors (same as gc()) ---------------
+        let views_dir = self.shared_root.join(".arc").join("views");
+        let mut per_view_ancestors: Vec<HashSet<Blake3Hash>> = Vec::new();
+        let mut all_view_names: Vec<String> = Vec::new();
+
+        if let Ok(rd) = fs::read_dir(&views_dir) {
+            for entry in rd.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if let Ok(view) = View::load(&self.shared_root, &name) {
+                    // Ensure the graph is hydrated for this view.
+                    self.hydrate_heads(&view.heads)?;
+                    per_view_ancestors.push(self.graph.ancestors(&view.heads));
+                    all_view_names.push(name);
+                }
+            }
+        }
+
+        // --- Step 2: causal stability = intersection of all view histories -
+        let causally_stable: HashSet<Blake3Hash> = if per_view_ancestors.is_empty() {
+            HashSet::new()
+        } else {
+            let mut intersection = per_view_ancestors[0].clone();
+            for set in &per_view_ancestors[1..] {
+                intersection.retain(|id| set.contains(id));
+            }
+            intersection
+        };
+
+        if causally_stable.is_empty() {
+            anyhow::bail!("No stable history to compact — repository has no causally-stable changes. \
+                           Ensure every view has observed the same base history before compacting.");
+        }
+
+        // --- Step 3: find stable tips (stable nodes whose deps are also     --
+        //     within the stable set, but that no OTHER stable node points to) --
+        let mut depended_on_by_stable: HashSet<Blake3Hash> = HashSet::new();
+        for &id in &causally_stable {
+            if let Some(change) = self.graph.get(&id) {
+                for dep in &change.deps {
+                    if causally_stable.contains(dep) {
+                        depended_on_by_stable.insert(*dep);
+                    }
+                }
+            }
+        }
+        let stable_tips: HashSet<Blake3Hash> = causally_stable
+            .iter()
+            .filter(|id| !depended_on_by_stable.contains(*id))
+            .copied()
+            .collect();
+
+        // --- Step 4: materialise the stable frontier -----------------------
+        // Hydrate the stable tips (should already be in graph, but ensure).
+        self.hydrate_heads(&stable_tips)?;
+        let state = self.materialize_heads(&stable_tips)?;
+
+        // --- Step 5: convert MaterializedState → Vec<Atom> ----------------
+        // Sort keys for deterministic Change ID across runs.
+        let mut paths: Vec<&NodePath> = state.keys().collect();
+        paths.sort();
+
+        let mut atoms: Vec<Atom> = Vec::with_capacity(paths.len());
+        for path in paths {
+            let content = &state[path];
+            if path.first().map(|s| s == "dir").unwrap_or(false) {
+                atoms.push(Atom::Directory { path: path.clone() });
+            } else if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
+                let hash: Blake3Hash = content[13..45]
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("corrupt ARC_BLOB_REF token at {path:?}"))?;
+                atoms.push(Atom::Blob { path: path.clone(), hash });
+            } else {
+                atoms.push(Atom::Insert { at: path.clone(), content: content.clone() });
+            }
+        }
+
+        // --- Step 6: create and persist the Genesis Change -----------------
+        let (author, signing_key) = self.signing_identity()?;
+        let genesis = Change::new(
+            HashSet::new(), // no deps — this IS the root of all history
+            atoms,
+            "Compacted Base State",
+            author.clone(),
+            signing_key,
+        );
+        self.store
+            .write_change(&genesis)
+            .map_err(|e| anyhow::anyhow!("CAS write error for Genesis Change: {e}"))?;
+        self.graph.add_change(genesis.clone());
+        let genesis_id = genesis.id;
+
+        // --- Step 7: build and persist the Epoch Map (append-only) ---------
+        let epochs_path = self.shared_root.join(".arc").join("epochs");
+        let mut epoch_json: HashMap<String, String> = if epochs_path.exists() {
+            let raw = fs::read_to_string(&epochs_path)
+                .unwrap_or_default();
+            serde_json::from_str(&raw).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        for id in &causally_stable {
+            epoch_json.insert(_hex(id), _hex(&genesis_id));
+        }
+        let serialized = serde_json::to_string_pretty(&epoch_json)
+            .map_err(|e| anyhow::anyhow!("epoch map serialisation error: {e}"))?;
+        let tmp = epochs_path.with_extension("tmp");
+        fs::write(&tmp, &serialized)
+            .map_err(|e| anyhow::anyhow!("could not write epoch map: {e}"))?;
+        fs::rename(&tmp, &epochs_path)
+            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
+
+        // --- Step 8: rewrite any View whose head is within stable_set ------
+        for name in &all_view_names {
+            if let Ok(mut view) = View::load(&self.shared_root, name) {
+                let old_heads: HashSet<Blake3Hash> = view.heads.clone();
+                let any_compacted = old_heads.iter().any(|h| causally_stable.contains(h));
+                if any_compacted {
+                    // Replace compacted heads with the genesis ID; preserve any
+                    // non-compacted heads (live, unstable parallel branches).
+                    let mut new_heads: HashSet<Blake3Hash> = old_heads
+                        .into_iter()
+                        .filter(|h| !causally_stable.contains(h))
+                        .collect();
+                    new_heads.insert(genesis_id);
+                    view.heads = new_heads;
+                    view.save(&self.shared_root)
+                        .map_err(|e| anyhow::anyhow!("could not save view '{name}': {e}"))?;
+                }
+            }
+        }
+
+        // --- Step 9: physically delete the compacted CAS objects -----------
+        let store_dir = self.shared_root.join(".arc").join("store");
+        for id in &causally_stable {
+            let path = store_dir.join(_hex(id));
+            // Ignore errors — the file may already be absent if compact() is
+            // run multiple times or gc() ran concurrently.
+            let _ = fs::remove_file(&path);
+        }
+
+        tracing::info!(
+            genesis_id = %_hex(&genesis_id),
+            compacted = causally_stable.len(),
+            "compact complete"
+        );
+
+        Ok(genesis_id)
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
 fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Decode a 64-character lowercase hex string to a [`Blake3Hash`].
+/// Returns `None` for any string that is not exactly 64 valid hex chars.
+fn _unhex(s: &str) -> Option<Blake3Hash> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
+        let hi = match chunk[0] {
+            b'0'..=b'9' => chunk[0] - b'0',
+            b'a'..=b'f' => chunk[0] - b'a' + 10,
+            _ => return None,
+        };
+        let lo = match chunk[1] {
+            b'0'..=b'9' => chunk[1] - b'0',
+            b'a'..=b'f' => chunk[1] - b'a' + 10,
+            _ => return None,
+        };
+        out[i] = (hi << 4) | lo;
+    }
+    Some(out)
 }
 
 /// Return a human-readable label for an atom, used in interactive staging.
@@ -3273,5 +3529,78 @@ mod tests {
         let result = repo.gc().unwrap();
         assert_eq!(result.changes_deleted, 0, "no unreachable changes expected");
         assert_eq!(result.blobs_deleted, 0, "no unreachable blobs expected");
+    }
+
+    /// DAG Compaction: PO-Log Compaction via a single Genesis Change.
+    ///
+    /// Verifies that after snapping three sequential changes (A, B, C) on
+    /// `main`, all of which become causally stable (main is the only view),
+    /// `compact()` correctly:
+    /// 1. Returns a new `genesis_id`.
+    /// 2. Updates the view so its sole head is `genesis_id`.
+    /// 3. The in-memory graph after a fresh hydration has exactly one node
+    ///    (the Genesis Change) — all prior history is gone.
+    /// 4. The materialised state still contains a node whose content includes
+    ///    "fn c" — ie. the semantic snapshot is perfectly preserved.
+    #[test]
+    fn test_dag_compaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("compact_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        // Snap A: introduce fn_a.
+        fs::write(repo_path.join("main.rs"), "fn a() {}").unwrap();
+        repo.snap("add fn a", false).unwrap().expect("snap A");
+
+        // Snap B: add fn_b alongside fn_a.
+        fs::write(repo_path.join("main.rs"), "fn a() {}\nfn b() {}").unwrap();
+        repo.snap("add fn b", false).unwrap().expect("snap B");
+
+        // Snap C: add fn_c.
+        fs::write(repo_path.join("main.rs"), "fn a() {}\nfn b() {}\nfn c() {}").unwrap();
+        repo.snap("add fn c", false).unwrap().expect("snap C");
+
+        // With only `main` view, all three changes are causally stable.
+        let genesis_id = repo.compact().expect("compact must succeed");
+
+        // Re-open the repository to prove hydration goes through the Epoch Map.
+        let mut repo2 = Repository::open(&repo_path).expect("re-open");
+        repo2.hydrate("main").expect("hydrate after compact");
+
+        // The view must now point exclusively to the Genesis Change.
+        let view = View::load(&repo_path, "main").expect("load main view");
+        assert_eq!(view.heads.len(), 1, "view must have exactly one head after compact");
+        assert!(
+            view.heads.contains(&genesis_id),
+            "view head must be the genesis change"
+        );
+
+        // The in-memory graph must contain only the Genesis Change
+        // (no ancestors — it has empty deps).
+        let ancestors = repo2.graph.ancestors(&view.heads);
+        assert_eq!(
+            ancestors.len(),
+            1,
+            "only the Genesis Change must remain in the ancestor set"
+        );
+        assert!(
+            ancestors.contains(&genesis_id),
+            "ancestors must contain genesis_id"
+        );
+
+        // Materialising the view must reproduce all three functions.
+        let state = repo2.materialize("main").expect("materialize after compact");
+        let all_content: String = state
+            .values()
+            .filter_map(|v| std::str::from_utf8(v).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            all_content.contains("fn c"),
+            "materialised state must contain 'fn c'; got: {all_content:?}"
+        );
     }
 }

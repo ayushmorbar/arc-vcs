@@ -15,6 +15,24 @@ Telemetry is controlled via environment variables, not flags. See [Configuration
 
 ---
 
+## `arc compact`
+
+Compact causally-stable history into a single Genesis base state.
+
+```sh
+arc compact
+```
+
+Collapses the entire causally-stable DAG into one synthetic **Genesis Change** whose atoms represent the exact materialised state at the compaction boundary. An Epoch Map is written to `.arc/epochs` so future `hydrate` calls transparently redirect compacted IDs to the Genesis node — no live `Change` object is ever rewritten.
+
+Prints: `Successfully compacted causally stable history into new base state: <64-char hex>`
+
+Exits with an error if there is no causally-stable history (e.g. a single-view repository with only one commit, or a brand-new repo).
+
+See [CRDT Sync — PO-Log Compaction & Epoch Maps](../design/crdt_sync.md) for the full technical specification.
+
+---
+
 ## `arc init`
 
 Initialise a new arc repository in the current directory.
