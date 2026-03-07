@@ -27,6 +27,7 @@
 - [Patch Theory](design/patch_theory.md)
 - [CRDT Network Sync](design/crdt_sync.md)
 - [AST Diffing](design/ast_diffing.md)
+- [Semantic Diff Engine](design/semantic_diff.md)
 
 ---
 

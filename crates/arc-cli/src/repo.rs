@@ -1139,6 +1139,55 @@ impl Repository {
         self.compute_working_directory_delta(&state)
     }
 
+    /// Compute the pending AST-atom diff **and** the per-file historical text
+    /// in a single materialization pass.
+    ///
+    /// This is the efficient alternative to calling [`status`] followed by a
+    /// separate unparse loop: the graph is hydrated and the state materialised
+    /// exactly once regardless of repository size.
+    ///
+    /// Returns `(atoms, old_texts)` where `old_texts` maps each changed
+    /// filepath to its last-snapped source text (empty string when the file
+    /// did not previously exist).
+    pub fn diff_info(
+        &mut self,
+    ) -> anyhow::Result<(Vec<Atom>, HashMap<String, String>)> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+        let atoms = self.compute_working_directory_delta(&state)?;
+
+        let plugin = RustPlugin::new();
+        let mut old_texts: HashMap<String, String> = HashMap::new();
+
+        for atom in &atoms {
+            let filepath: Option<String> = match atom {
+                Atom::Insert { at, .. }
+                | Atom::Delete { at }
+                | Atom::SemanticsPreserving { at, .. }
+                    if at.first().map(|s| s == "file").unwrap_or(false)
+                        && at.len() > 1 =>
+                {
+                    Some(at[1].clone())
+                }
+                Atom::Move { from, .. }
+                    if from.first().map(|s| s == "file").unwrap_or(false)
+                        && from.len() > 1 =>
+                {
+                    Some(from[1].clone())
+                }
+                _ => None,
+            };
+            if let Some(fp) = filepath {
+                old_texts
+                    .entry(fp.clone())
+                    .or_insert_with(|| plugin.unparse(&state, &fp).unwrap_or_default());
+            }
+        }
+
+        Ok((atoms, old_texts))
+    }
+
     /// Return all changes in the current view's history, newest-first.
     pub fn log(&mut self) -> anyhow::Result<Vec<Change>> {
         let view_name = self.current_view_name()?;

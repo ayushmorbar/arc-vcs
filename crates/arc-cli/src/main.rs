@@ -197,12 +197,26 @@ enum Command {
         #[arg(long)]
         email: String,
     },
-    /// Show uncommitted working-directory changes as a coloured semantic diff.
+    /// Show uncommitted working-directory changes as a coloured diff.
     ///
-    /// Displays pending AST atoms colour-coded: green for additions, red for
-    /// deletions, yellow for moves and reformats.  Prints a clean message when
-    /// the working directory is up-to-date.
-    Diff,
+    /// By default, renders a Sesame-aligned text diff with per-token inline
+    /// highlighting (the "Micro" view).  Pass `--semantic` to switch to a
+    /// structural AST view that summarises the high-level *intent* of each
+    /// change — moves, refactors, insertions — without raw text noise
+    /// (the "Macro" view).  The two views are complementary: use `--semantic`
+    /// to understand *what* changed architecturally, then plain `arc diff` to
+    /// verify *how* it was implemented.
+    Diff {
+        /// Show the structural AST (intent) diff instead of the text diff.
+        ///
+        /// Renders each pending atom as a named structural operation:
+        /// `[+] Insert function 'parse'`, `[~] Move 'validate' → 'validator.rs'`,
+        /// `[≈] Refactor variable 'obj': renamed to 'item'`.  Multi-mappings
+        /// (e.g. three deletion sites that all map to one extracted method) are
+        /// shown explicitly, which a text diff cannot express.
+        #[arg(long)]
+        semantic: bool,
+    },
     /// Hint command for users familiar with Git’s `git push`.
     ///
     /// arc is a P2P CRDT: there is no single “central” server to push to.
@@ -873,18 +887,21 @@ fn main() -> anyhow::Result<()> {
                  Run 'arc auth whoami' to inspect your public key."
             );
         }
-        Command::Diff => {
+        Command::Diff { semantic } => {
             let mut repo = Repository::open(".")?;
             let view_name = repo.current_view_name()?;
             println!("On view: {}", view_name.cyan().bold());
-            let atoms = repo.status()?;
+            let (atoms, old_texts) = repo.diff_info()?;
             if atoms.is_empty() {
                 println!("Working directory clean — nothing to diff.");
+            } else if semantic {
+                arc_cli::semantic_diff::group_and_render_semantic(&atoms)?;
             } else {
-                println!("Pending changes (not yet snapped):");
-                for atom in &atoms {
-                    println!("  {}", atom_diff_line(atom));
-                }
+                arc_cli::semantic_diff::group_and_render(
+                    &atoms,
+                    &old_texts,
+                    &repo.work_root,
+                )?;
             }
         }
         Command::Push { remote } => {
@@ -994,43 +1011,6 @@ fn atom_display_label(atom: &Atom) -> String {
             format!("~~ Mount:   {}", path.last().unwrap_or(&"?".to_string()))
                 .cyan()
                 .to_string()
-        }
-    }
-}
-
-fn atom_diff_line(atom: &Atom) -> String {
-    match atom {
-        Atom::Insert { at, content } => {
-            let path = at.join("/");
-            let preview = std::str::from_utf8(content)
-                .unwrap_or("<binary>")
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let preview_str = if preview.is_empty() {
-                "(empty)".to_string()
-            } else {
-                preview
-            };
-            format!("++ {} │ {}", path, preview_str).green().to_string()
-        }
-        Atom::Delete { at } => format!("-- {}", at.join("/")).red().to_string(),
-        Atom::Move { from, to } => {
-            format!("~~ {} → {}", from.join("/"), to.join("/"))
-                .yellow()
-                .to_string()
-        }
-        Atom::SemanticsPreserving { at, description } => {
-            format!("~~ {} ({})", at.join("/"), description)
-                .yellow()
-                .to_string()
-        }
-        Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
-        Atom::Blob { path, .. } => format!("~~ blob {}", path.join("/")).yellow().to_string(),
-        Atom::Mount { path, url, .. } => {
-            format!("~~ mount {} @ {}", path.join("/"), url).cyan().to_string()
         }
     }
 }

@@ -107,11 +107,93 @@ Prints added, modified, and deleted atoms. Respects `.arcignore` and sparse chec
 
 ## `arc diff`
 
-Show a formatted per-atom diff.
+Show uncommitted working-directory changes.  Two complementary views are
+available: the default **text diff** (Micro view) and the `--semantic` **AST
+diff** (Macro view).  Use them together for a complete picture of every change.
 
 ```sh
-arc diff
+arc diff              # text diff — verify execution
+arc diff --semantic   # AST diff  — understand intent
 ```
+
+### Default: Sesame-Aligned Text Diff
+
+The plain `arc diff` view re-projects AST atoms back into text and applies
+four layers of improvement over a raw `git diff`:
+
+1. **Refactoring intent annotation** — [`Move`] and [`SemanticsPreserving`]
+   atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines *before*
+   the text hunks so reviewers grasp intent at a glance.
+
+2. **Sesame syntactic alignment** — structural newlines are injected before
+   `{`, after `}`, and after `;` so the line differ aligns brace pairs
+   correctly instead of staggering them across logical blocks.
+
+3. **Inline sub-expression highlighting** — only the exact sub-token that
+   changed is highlighted with a coloured background; the surrounding
+   unchanged text on the same line is shown in a plain foreground colour.
+
+4. **Boilerplate collapse** — if every changed line is a `use` / `import` /
+   `#include` declaration the entire hunk is replaced by a single summary
+   line: `@@ [Boilerplate] Import / use declarations modified @@`.
+
+Files exceeding 1 MB skip the inline LCS calculation and print
+`∆ [Change] File too large for inline diff — AST atoms shown above.`
+
+**Sample output (text diff)**
+
+```
+On view: main
+diff --arc a/src/widget.rs b/src/widget.rs
+  ≈ [Move] fn_render → fn_paint
+- fn render() { let x = 1;
++ fn paint() { let x = 1;
+  ∑ +1 -1 ~1
+```
+
+### `--semantic`: Structural AST Diff
+
+Passes `--semantic` to render each pending atom as a named structural
+operation (the "Macro" view).  Instead of line-level `+`/`-` noise, the output
+describes architectural intent in plain English:
+
+```sh
+arc diff --semantic
+```
+
+Each atom is labelled by its type and the AST node it targets, using the
+`<kind>_<name>` convention in arc NodePaths:
+
+| Atom | Output |
+|------|--------|
+| `Insert { at: ["file", "lib.rs", "fn_parse"] }` | `[+] Insert function: 'fn_parse'` |
+| `Delete { at: ["file", "lib.rs", "field_id"] }` | `[-] Delete field: 'field_id'` |
+| `Move { from, to }` | `[~] Move 'fn_render' → fn_paint` |
+| `SemanticsPreserving { description }` | `[≈] Refactor variable 'obj': renamed to 'item'` |
+
+Cross-file moves show the destination filename in parentheses.  Multi-mappings
+(three deletion sites → one extracted method) appear as separate `[-]` lines
+linking to the same extracted target.
+
+**Sample output (semantic diff)**
+
+```
+On view: main
+semantic --arc src/engine.rs
+  [+] Insert function: 'fn_validate'
+  [-] Delete function: 'fn_check'
+  [~] Move 'fn_render' → fn_paint
+  [≈] Refactor variable 'obj': renamed to 'item'
+
+  ∑ +1 -1 ~2
+```
+
+### Recommended Review Workflow
+
+1. **Start with** `arc diff --semantic` — understand the architecture changes
+   in seconds, without reading code.
+2. **Then use** `arc diff` — verify the exact syntax and formatting of each
+   change, with per-token highlighting so nothing slips through.
 
 ---
 
