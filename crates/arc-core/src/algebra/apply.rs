@@ -110,6 +110,15 @@ pub fn apply_change(
                     b.insert(path.clone(), change.id);
                 }
             }
+            Atom::Mount { path, url, target } => {
+                // Store a magic mount token; write_state_to_working_dir
+                // detects this prefix and creates the directory placeholder.
+                let token = format!("ARC_MOUNT:{url}|{target}").into_bytes();
+                state.insert(path.clone(), token);
+                if let Some(ref mut b) = blame {
+                    b.insert(path.clone(), change.id);
+                }
+            }
         }
     }
     Ok(())

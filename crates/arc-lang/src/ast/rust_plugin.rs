@@ -85,6 +85,7 @@ impl LanguagePlugin for RustPlugin {
                     Atom::Move { from, .. } => from,
                     Atom::Directory { path } => path,
                     Atom::Blob { path, .. } => path,
+                    Atom::Mount { path, .. } => path,
                 }
             }
             key(a).cmp(key(b))

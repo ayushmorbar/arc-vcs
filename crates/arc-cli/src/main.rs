@@ -137,6 +137,16 @@ enum Command {
     Commit,
     /// Undo the last view-mutating operation using the operation log.
     Undo,
+    /// Manage semantic sparse checkouts (monorepo tamer).
+    Sparse {
+        #[command(subcommand)]
+        action: SparseAction,
+    },
+    /// Manage sub-repository mounts (mathematical submodule replacement).
+    Mount {
+        #[command(subcommand)]
+        action: MountAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -209,6 +219,40 @@ enum RemoteAction {
     },
     /// List all configured remote aliases.
     List,
+}
+
+#[derive(Subcommand)]
+enum SparseAction {
+    /// Set the sparse cone to the given path prefixes (e.g. `frontend/`).
+    ///
+    /// Files outside the cone are removed from disk; the DAG is unaffected.
+    Set {
+        /// One or more path prefixes to include in the sparse cone.
+        #[arg(required = true)]
+        paths: Vec<String>,
+    },
+    /// List the active sparse cone patterns.
+    List,
+    /// Remove the sparse filter and restore the full working directory.
+    Reset,
+}
+
+#[derive(Subcommand)]
+enum MountAction {
+    /// Declare a sub-repository mount in the current view.
+    Add {
+        /// Local path at which to mount the sub-repository.
+        #[arg(long)]
+        path: String,
+        /// URL or filesystem path of the remote `arc` repository.
+        #[arg(long)]
+        url: String,
+        /// View name to check out inside the mounted sub-repository.
+        #[arg(long)]
+        target: String,
+    },
+    /// Clone / update all declared mounts.
+    Sync,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -545,6 +589,43 @@ fn main() -> anyhow::Result<()> {
             let mut repo = Repository::open(".")?;
             repo.undo()?;
         }
+        Command::Sparse { action } => match action {
+            SparseAction::Set { paths } => {
+                let mut repo = Repository::open(".")?;
+                repo.apply_sparse(&paths)?;
+                println!("Sparse cone set to: {}", paths.join(", "));
+            }
+            SparseAction::List => {
+                let repo = Repository::open(".")?;
+                let patterns = repo.read_sparse_patterns();
+                if patterns.is_empty() {
+                    println!("Full checkout — no sparse patterns active.");
+                } else {
+                    for p in &patterns {
+                        println!("{p}");
+                    }
+                }
+            }
+            SparseAction::Reset => {
+                let mut repo = Repository::open(".")?;
+                repo.apply_sparse(&[])?;
+                println!("Sparse filter cleared — working directory fully restored.");
+            }
+        },
+        Command::Mount { action } => match action {
+            MountAction::Add { path, url, target } => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) = load_identity()?;
+                repo.set_identity(author, signing_key);
+                let id = repo.mount_add(&path, &url, &target)?;
+                let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Mounted '{path}' → {url}@{target}  (change {})", &hex[..8]);
+            }
+            MountAction::Sync => {
+                let mut repo = Repository::open(".")?;
+                repo.mount_sync()?;
+            }
+        },
     }
 
     Ok(())
@@ -609,6 +690,11 @@ fn atom_display_label(atom: &Atom) -> String {
         Atom::Blob { path, .. } => {
             format!("~~ Blob:    {}", path.last().unwrap_or(&"?".to_string()))
                 .yellow()
+                .to_string()
+        }
+        Atom::Mount { path, .. } => {
+            format!("~~ Mount:   {}", path.last().unwrap_or(&"?".to_string()))
+                .cyan()
                 .to_string()
         }
     }

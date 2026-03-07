@@ -64,6 +64,21 @@ pub enum Atom {
         /// BLAKE3 hash of the raw file bytes, used to fetch from `.arc/blobs/`.
         hash: Blake3Hash,
     },
+    /// Declare that a sub-repository should be mounted at `path`.
+    ///
+    /// In the DAG the dependency's `url` and `target` view name are
+    /// cryptographically bound into the parent `Change` signature, so they
+    /// can never drift out of sync the way Git submodules do.
+    /// `write_state_to_working_dir` creates a directory placeholder;
+    /// `arc mount sync` fetches and checks out the remote view.
+    Mount {
+        /// Path segments for the mount-point directory (e.g. `["file", "libs/engine"]`).
+        path: NodePath,
+        /// URL or filesystem path of the remote `arc` repository.
+        url: String,
+        /// View name to check out inside the mounted sub-repository.
+        target: String,
+    },
 }
 
 impl Atom {
@@ -77,6 +92,7 @@ impl Atom {
             Atom::SemanticsPreserving { at, .. } => vec![at],
             Atom::Directory { path } => vec![path],
             Atom::Blob { path, .. } => vec![path],
+            Atom::Mount { path, .. } => vec![path],
         }
     }
 }

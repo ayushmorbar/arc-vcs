@@ -436,7 +436,13 @@ impl Repository {
 
         // Deleted files.
         let state_filepaths = extract_filepaths_from_state(state);
+        let sparse_patterns = load_sparse_patterns(&self.root);
+        let is_sparse = !sparse_patterns.is_empty();
         for filepath in &state_filepaths {
+            // Sparse Safety Law: do not emit Delete for files hidden by sparse cone.
+            if is_sparse && !sparse_patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
+                continue;
+            }
             if !self.root.join(filepath).exists() {
                 let prefix = ["file".to_string(), filepath.clone()];
                 for key in state.keys() {
@@ -1508,6 +1514,168 @@ impl Repository {
         );
         Ok(())
     }
+
+    // ------------------------------------------------------------------
+    // Sparse checkout
+    // ------------------------------------------------------------------
+
+    /// Return the active sparse cone patterns, or an empty `Vec` when the
+    /// repository is in full-checkout mode.
+    pub fn read_sparse_patterns(&self) -> Vec<String> {
+        load_sparse_patterns(&self.root)
+    }
+
+    /// Update the sparse cone and rematerialize the working directory.
+    ///
+    /// * When `patterns` is empty the sparse filter is removed (full checkout).
+    /// * Otherwise, `.arc/sparse.json` is written and the working directory is
+    ///   projected so that only files under the given path prefixes exist on disk.
+    ///   Files that fall *outside* the new cone are physically removed so IDEs
+    ///   do not encounter stale, unmanaged files.
+    pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
+        let sparse_path = self.root.join(".arc").join("sparse.json");
+
+        // Step 1: remove stale files that are outside the new cone.
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+        if !patterns.is_empty() {
+            for filepath in extract_filepaths_from_state(&state) {
+                if !patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
+                    let full = self.root.join(&filepath);
+                    if full.exists() {
+                        let _ = fs::remove_file(&full);
+                    }
+                }
+            }
+        }
+
+        // Step 2: persist (or delete) the sparse pattern list.
+        if patterns.is_empty() {
+            if sparse_path.exists() {
+                fs::remove_file(&sparse_path)
+                    .map_err(|e| anyhow::anyhow!("failed to remove sparse.json: {e}"))?;
+            }
+        } else {
+            fs::write(
+                &sparse_path,
+                serde_json::to_vec_pretty(patterns)
+                    .map_err(|e| anyhow::anyhow!("failed to serialise sparse patterns: {e}"))?,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to write sparse.json: {e}"))?;
+        }
+
+        // Step 3: re-project the working directory through the new filter.
+        write_state_to_working_dir(&self.root, &state)?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Mount algebra
+    // ------------------------------------------------------------------
+
+    /// Record an `Atom::Mount` declaration as a new change in the current view.
+    ///
+    /// The change is signed, written to the CAS, and replaces the view's head
+    /// frontier.  The operation is also appended to the operation log so that
+    /// `arc undo` can revert it.
+    pub fn mount_add(
+        &mut self,
+        path: &str,
+        url: &str,
+        target: &str,
+    ) -> anyhow::Result<Blake3Hash> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let mut view = View::load(&self.root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let (author, signing_key) = self.signing_identity()?;
+        let atom = Atom::Mount {
+            path: vec!["file".to_string(), path.to_string()],
+            url: url.to_string(),
+            target: target.to_string(),
+        };
+        let change = Change::new(
+            view.heads.clone(),
+            vec![atom],
+            format!("mount {path} → {url}@{target}"),
+            author.clone(),
+            signing_key,
+        );
+        self.store
+            .write_change(&change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph.add_change(change.clone());
+        // Log before mutating view frontier so arc undo can rewind this operation.
+        self.log_operation("mount add", &view_name, view.heads.clone())?;
+        view.heads = HashSet::from([change.id]);
+        view.save(&self.root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        Ok(change.id)
+    }
+
+    /// Clone or update all mounted sub-repositories declared in the current view.
+    ///
+    /// For each `ARC_MOUNT:` token in the materialized state:
+    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository
+    ///   is initialised and the target view is fetched via the internal sync API.
+    /// * If `.arc/` already exists, the repository is opened and the view is
+    ///   fetched to pick up new changes before switching.
+    ///
+    /// A progress spinner is shown for the full sync pass.
+    pub fn mount_sync(&mut self) -> anyhow::Result<()> {
+        use std::time::Duration;
+
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+
+        // Collect all ARC_MOUNT: entries.
+        let mounts: Vec<(String, String, String)> = state
+            .iter()
+            .filter_map(|(key, value)| {
+                if key.len() == 2 && key[0] == "file" && value.starts_with(b"ARC_MOUNT:") {
+                    let info = std::str::from_utf8(value).ok()?.strip_prefix("ARC_MOUNT:")?;
+                    let (url, tgt) = info.split_once('|')?;
+                    Some((key[1].clone(), url.to_string(), tgt.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if mounts.is_empty() {
+            println!("No mounts declared in current view.");
+            return Ok(());
+        }
+
+        let pb = indicatif::ProgressBar::new_spinner();
+        pb.enable_steady_tick(Duration::from_millis(80));
+        pb.set_message(format!("Syncing {} mount(s)...", mounts.len()));
+
+        for (path, url, target) in &mounts {
+            pb.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
+            let mount_dir = self.root.join(path);
+            let arc_sub = mount_dir.join(".arc");
+            let mut sub_repo = if arc_sub.exists() {
+                Repository::open(&mount_dir)
+                    .map_err(|e| anyhow::anyhow!("failed to open mount '{}': {e}", path))?
+            } else {
+                fs::create_dir_all(&mount_dir)
+                    .map_err(|e| anyhow::anyhow!("failed to create mount dir '{}': {e}", path))?;
+                Repository::init(&mount_dir)
+                    .map_err(|e| anyhow::anyhow!("failed to init mount '{}': {e}", path))?
+            };
+            crate::sync::fetch(&mut sub_repo, url, target)
+                .map_err(|e| anyhow::anyhow!("fetch failed for mount '{}': {e}", path))?;
+            sub_repo
+                .switch_view(target)
+                .map_err(|e| anyhow::anyhow!("switch_view failed for mount '{}': {e}", path))?;
+        }
+
+        pb.finish_with_message(format!("Synced {} mount(s).", mounts.len()));
+        Ok(())
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
@@ -1543,6 +1711,9 @@ fn atom_label(atom: &Atom) -> String {
         }
         Atom::Blob { path, .. } => {
             format!("Blob:     {}", path.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Mount { path, .. } => {
+            format!("Mount:    {}", path.last().unwrap_or(&"?".to_string()))
         }
     }
 }
@@ -1596,6 +1767,11 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
         Atom::Blob { path, hash } => Atom::Blob {
             path: prepend(path),
             hash,
+        },
+        Atom::Mount { path, url, target } => Atom::Mount {
+            path: prepend(path),
+            url,
+            target,
         },
     }
 }
@@ -1672,10 +1848,19 @@ fn check_working_dir_clean(
 /// *known* file set, tolerate `NotFound` errors, and then write the
 /// target state reconstructed via `unparse()`.
 fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow::Result<()> {
+    let sparse_patterns = load_sparse_patterns(root);
+    let is_sparse = !sparse_patterns.is_empty();
+    let in_sparse = |fp: &str| -> bool {
+        !is_sparse || sparse_patterns.iter().any(|p| fp.starts_with(p.as_str()))
+    };
+
     // Remove existing .rs files, tolerating NotFound.
     let arcignore = load_arcignore(root);
     let existing = collect_rs_files(root, &arcignore)?;
     for filepath in &existing {
+        if !in_sparse(filepath) {
+            continue; // outside sparse cone — leave as already-absent
+        }
         let full = root.join(filepath);
         match fs::remove_file(&full) {
             Ok(()) => {}
@@ -1687,10 +1872,15 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
     // Reconstruct all tracked files from the materialized state.
     let plugin = RustPlugin::new();
     for filepath in extract_filepaths_from_state(state) {
+        if !in_sparse(&filepath) {
+            continue; // outside sparse cone — skip projection to disk
+        }
         let full = root.join(&filepath);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
         }
+        let path_key = vec!["file".to_string(), filepath.clone()];
+        let content = state.get(&path_key);
         if filepath.ends_with(".rs") {
             // Rust files: reconstruct source from AST atoms via unparse.
             let source = plugin
@@ -1700,13 +1890,17 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
                 continue;
             }
             fs::write(&full, source.as_bytes())?;
-        } else {
-            // Blob files: fetch raw bytes from .arc/blobs/{hex(hash)}.
-            let path_key = vec!["file".to_string(), filepath.clone()];
-            if let Some(content) = state.get(&path_key)
-                && content.starts_with(b"ARC_BLOB_REF:")
-                && content.len() >= 45
-            {
+        } else if let Some(content) = content {
+            if content.starts_with(b"ARC_MOUNT:") {
+                // Mount point: create directory and write .arc-mount placeholder.
+                fs::create_dir_all(&full)?;
+                let info = std::str::from_utf8(content)
+                    .unwrap_or("")
+                    .strip_prefix("ARC_MOUNT:")
+                    .unwrap_or("");
+                fs::write(full.join(".arc-mount"), info.as_bytes())?;
+            } else if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
+                // Blob files: fetch raw bytes from .arc/blobs/{hex(hash)}.
                 let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
                 let blob_path = root.join(".arc").join("blobs").join(_hex(&hash));
                 let blob_file = std::fs::File::open(&blob_path)
@@ -1729,6 +1923,22 @@ fn write_state_to_working_dir(root: &Path, state: &MaterializedState) -> anyhow:
     }
 
     Ok(())
+}
+
+/// Read active sparse cone patterns from `.arc/sparse.json`.
+///
+/// Returns an empty `Vec` when the file is absent (full checkout mode)
+/// or when it cannot be parsed.
+fn load_sparse_patterns(root: &Path) -> Vec<String> {
+    let path = root.join(".arc").join("sparse.json");
+    if !path.exists() {
+        return vec![];
+    }
+    let json = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()
 }
 
 fn load_agentignore(root: &Path) -> Gitignore {
@@ -2548,6 +2758,48 @@ mod tests {
         assert!(
             oplog.is_empty(),
             "oplog must be empty after undoing the only entry"
+        );
+    }
+
+    /// Sparse Safety Law: files outside the active cone must be absent from
+    /// disk *and* must not produce false `Delete` atoms when diffing.
+    #[test]
+    fn test_sparse_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("sparse_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        // Create two files in different directories.
+        fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
+        fs::create_dir_all(repo_path.join("b")).unwrap();
+        fs::write(repo_path.join("b").join("c.rs"), "fn c() {}").unwrap();
+
+        // Snap both files in one change.
+        repo.snap("add a.rs and b/c.rs", false)
+            .unwrap()
+            .expect("snap must produce a change");
+
+        // Shrink the sparse cone to only `b/`.
+        repo.apply_sparse(&["b/".to_string()]).unwrap();
+
+        // b/c.rs must exist on disk; a.rs must not.
+        assert!(
+            repo_path.join("b").join("c.rs").exists(),
+            "b/c.rs must remain in the sparse cone"
+        );
+        assert!(
+            !repo_path.join("a.rs").exists(),
+            "a.rs must be removed when outside the sparse cone"
+        );
+
+        // status() must produce no atoms — the Sparse Safety Law.
+        let atoms = repo.status().unwrap();
+        assert!(
+            atoms.is_empty(),
+            "status must return no false Delete atoms for files hidden by sparse cone; got: {atoms:?}"
         );
     }
 }
