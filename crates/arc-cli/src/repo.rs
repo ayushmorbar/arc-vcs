@@ -2,13 +2,16 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 
 use arc_core::ai::AiResolver;
+use arc_core::ai::embedding::{EmbeddingProvider, HybridProvider};
+use arc_core::ai::vector_store::VectorStore;
 use arc_core::algebra::apply::{BlameState, MaterializedState, apply_change};
 use arc_core::algebra::commute::commutes;
 use arc_core::algebra::{Atom, Blake3Hash, NodePath};
-use arc_core::store::author::{Author, load_identity};
+use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
@@ -18,6 +21,9 @@ use arc_core::store::view::View;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+
+use crate::ai_pending::{PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai,
+                        load_pending_ai, save_pending_ai};
 
 /// Workspace manifest persisted at `<workspace>/.arc-workspace`.
 ///
@@ -193,6 +199,7 @@ impl Repository {
         fs::create_dir_all(arc_dir.join("views"))?;
         fs::create_dir_all(arc_dir.join("tags"))?;
         fs::create_dir_all(arc_dir.join("blobs"))?;
+        fs::create_dir_all(arc_dir.join("ai"))?;
 
         // Create the default "main" view with an empty head set.
         let main_view = View::new("main", HashSet::new());
@@ -548,6 +555,14 @@ impl Repository {
                  or 'arc diffedit --abort' to cancel."
             );
         }
+        // State Lock: refuse to snap while an AI change is pending approval.
+        if has_pending_ai(&self.shared_root) {
+            anyhow::bail!(
+                "An AI change is pending approval.\n\
+                 Run 'arc ai approve' to sign and commit it, \
+                 or delete '.arc/ai/pending.json' to discard it."
+            );
+        }
         self.run_hook("pre-snap")?;
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;
@@ -635,6 +650,9 @@ impl Repository {
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph.add_change(change.clone());
+
+        // Update the semantic intent index (no-op if index not yet initialised).
+        let _ = self.try_embed_change(&change);
 
         // Capture the current frontier before advancing it.
         let before_heads = view.heads.clone();
@@ -942,11 +960,20 @@ impl Repository {
     ///
     /// For each conflicting pair the resolver is called with the LCA base,
     /// both sides' content at the overlapping path, and their intents.
-    /// The resolved content is committed as a new merge change.
-    pub fn resolve_conflict(&mut self, resolver: &dyn AiResolver) -> anyhow::Result<Blake3Hash> {
+    ///
+    /// **Ghost Node mode**: the resolved content is written to the working
+    /// directory but NOT committed to the CAS.  Call [`approve_pending_ai`]
+    /// to sign and finalise the merge change.
+    pub fn resolve_conflict(&mut self, resolver: &dyn AiResolver) -> anyhow::Result<()> {
         let conflict_path = self.shared_root.join(".arc").join("conflict");
         if !conflict_path.exists() {
             anyhow::bail!("no pending conflict — nothing to resolve");
+        }
+        if has_pending_ai(&self.shared_root) {
+            anyhow::bail!(
+                "An AI change is already pending approval.\n\
+                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+            );
         }
 
         let conflict_bytes = fs::read(&conflict_path)?;
@@ -975,6 +1002,7 @@ impl Repository {
 
         let mut merge_atoms = Vec::new();
         let mut combined_intent = String::from("AI merge: ");
+        let mut affected_files: Vec<PathBuf> = Vec::new();
 
         for (id_a, id_b) in &conflict.conflicting_pairs {
             let change_a = self
@@ -1006,11 +1034,24 @@ impl Repository {
                 )
                 .map_err(|e| anyhow::anyhow!("AI resolver failed: {e}"))?;
 
+            // Write resolved blob to CAS now (content-addressed; safe to do
+            // before the Change record exists — orphans are GC'd).
             let content_hash = self
                 .store
                 .write_blob(&resolved)
                 .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
-            merge_atoms.push(Atom::Insert { at: path, content_hash });
+            merge_atoms.push(Atom::Insert { at: path.clone(), content_hash });
+
+            // Write resolved bytes directly to the working directory.
+            if path.len() >= 2 && path[0] == "file" {
+                let file_path = self.work_root.join(&path[1]);
+                if let Some(parent) = file_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&file_path, &resolved)
+                    .map_err(|e| anyhow::anyhow!("failed to write resolved file: {e}"))?;
+                affected_files.push(PathBuf::from(&path[1]));
+            }
 
             combined_intent.push_str(&change_a.intent);
             combined_intent.push_str(" + ");
@@ -1022,33 +1063,156 @@ impl Repository {
         let mut merge_deps = current_view.heads.clone();
         merge_deps.extend(&conflict.target_heads);
 
-        let (author, signing_key) = self.signing_identity()?;
-        let merge_change = Change::new(
-            merge_deps,
-            merge_atoms,
+        // Determine the model used (if any LlmResolver was involved it set
+        // ARC_AI_MODEL; fall back to "mock" for the sentinel case).
+        let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "mock".to_owned());
+
+        // Save Ghost Node — DO NOT write Change to CAS or update the view yet.
+        let pending = PendingAiChange::new_resolve(
+            model,
             combined_intent,
+            affected_files,
+            merge_atoms,
+            merge_deps.into_iter().collect(),
+        );
+        save_pending_ai(&self.shared_root, &pending)?;
+
+        // Remove the conflict file — the pending.json holds everything needed
+        // to reconstruct the merge on 'arc ai approve'.
+        fs::remove_file(&conflict_path)?;
+
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // AI Provenance — approve_pending_ai / snap_ai
+    // ------------------------------------------------------------------
+
+    /// Finalise a pending AI change: construct `Author::AI`, sign with the
+    /// human's key, write to CAS, advance the view head, and clean up.
+    ///
+    /// This is the cryptographic approval gate that converts a Ghost Node into
+    /// a permanent, content-addressed record in the DAG.
+    pub fn approve_pending_ai(
+        &mut self,
+        human_author: &Author,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> anyhow::Result<Blake3Hash> {
+        let pending = load_pending_ai(&self.shared_root)
+            .ok_or_else(|| anyhow::anyhow!(
+                "no pending AI change — '.arc/ai/pending.json' not found"
+            ))?;
+
+        let human_key: PublicKeyBytes = match human_author {
+            Author::Human { key, .. } => *key,
+            _ => anyhow::bail!(
+                "active identity is not a Human author; cannot sponsor an AI change"
+            ),
+        };
+
+        let ai_author = Author::AI {
+            model: pending.model.clone(),
+            human_sponsor: human_key,
+        };
+
+        let id = match pending.kind {
+            PendingKind::Resolve => {
+                // Atoms and deps were pre-staged by resolve_conflict().
+                let deps: HashSet<Blake3Hash> =
+                    pending.staged_deps.iter().cloned().collect();
+                let change = Change::new(
+                    deps,
+                    pending.staged_atoms.clone(),
+                    &pending.intent,
+                    ai_author,
+                    signing_key,
+                );
+                self.store
+                    .write_change(&change)
+                    .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+                self.graph.add_change(change.clone());
+
+                // Advance the current view to the new merge change.
+                let view_name = self.current_view_name()?;
+                let updated =
+                    View::new(&view_name, HashSet::from([change.id]));
+                updated.save(&self.shared_root)
+                    .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+                let _ = self.try_embed_change(&change);
+                change.id
+            }
+            PendingKind::Generate => {
+                // Diff the working directory and snap with Author::AI.
+                self.snap_ai(&pending.intent, &ai_author, signing_key)?
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "no working-directory changes detected — nothing to commit"
+                    ))?
+            }
+        };
+
+        clear_pending_ai(&self.shared_root);
+        Ok(id)
+    }
+
+    /// Like [`snap`] but uses a pre-constructed `Author::AI` and explicit key.
+    ///
+    /// Called by [`approve_pending_ai`] for the Generate path.
+    fn snap_ai(
+        &mut self,
+        message: &str,
+        author: &Author,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> anyhow::Result<Option<Blake3Hash>> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+        let raw_atoms = self.compute_working_directory_delta(&state)?;
+        if raw_atoms.is_empty() {
+            return Ok(None);
+        }
+        let mut view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        self.write_blob_atoms(&raw_atoms)?;
+        let change = Change::new(
+            view.heads.clone(),
+            raw_atoms,
+            message,
             author.clone(),
             signing_key,
         );
         self.store
-            .write_change(&merge_change)
+            .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(merge_change.clone());
+        self.graph.add_change(change.clone());
+        let before_heads = view.heads.clone();
+        view.heads = HashSet::from([change.id]);
+        view.save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        self.log_operation("snap", &view_name, before_heads, HashSet::from([change.id]))?;
+        let _ = self.try_embed_change(&change);
+        Ok(Some(change.id))
+    }
 
-        // Update the current view to point to the merge change.
-        let updated = View::new(&conflict.current_view, HashSet::from([merge_change.id]));
-        updated
-            .save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save resolved view: {e}"))?;
-
-        // Re-materialize and write to working directory.
-        let resolved_state = self.materialize_heads(&HashSet::from([merge_change.id]))?;
-        write_state_to_working_dir(&self.work_root, &self.shared_root, &resolved_state)?;
-
-        // Remove the conflict file.
-        fs::remove_file(&conflict_path)?;
-
-        Ok(merge_change.id)
+    /// Update the semantic intent index for a single change.
+    ///
+    /// This is a best-effort operation: errors are silently suppressed so
+    /// that embedding failures never block a snap or merge commit.  The index
+    /// is only updated when `.arc/ai/embeddings.db` already exists (meaning
+    /// the user has already run `arc log --intent` to bootstrap the index).
+    fn try_embed_change(&self, change: &Change) -> anyhow::Result<()> {
+        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
+        if !db_path.exists() {
+            // Index not yet bootstrapped; skip silently.
+            return Ok(());
+        }
+        let provider = HybridProvider::new()?;
+        let embedding = provider.embed(&change.intent)?;
+        let hex_id: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
+        let store = VectorStore::open(&db_path)?;
+        store.upsert(&hex_id, &embedding)?;
+        Ok(())
     }
 
     // ------------------------------------------------------------------
@@ -1285,6 +1449,67 @@ impl Repository {
                     .ok_or_else(|| anyhow::anyhow!("change {} missing from graph", _hex(id)))
             })
             .collect()
+    }
+
+    /// Semantic search over the current view's history using embedding similarity.
+    ///
+    /// Embeds `query`, bootstraps (or updates) the vector index at
+    /// `.arc/ai/embeddings.db`, then returns the top `k` changes sorted by
+    /// descending cosine similarity score.
+    ///
+    /// The index is populated eagerly on the first call (embeds every change
+    /// in the current view), then updated incrementally by [`snap`] and
+    /// [`approve_pending_ai`] on each new write.
+    pub fn log_semantic(
+        &mut self,
+        query: &str,
+        k: usize,
+    ) -> anyhow::Result<Vec<(Change, f32)>> {
+        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
+
+        // Initialise the embedding provider (may trigger model download on
+        // first call; subsequent calls load the model from disk cache).
+        eprintln!("[arc] Initializing embedding provider…");
+        let provider = HybridProvider::new()
+            .context("failed to initialize embedding provider")?;
+
+        let query_vec = provider.embed(query)
+            .context("failed to embed search query")?;
+
+        // Open (or create) the vector store.
+        let store = VectorStore::open(&db_path)
+            .context("failed to open vector store")?;
+
+        // Populate / refresh the index for the current view.
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let order = self.graph.topological_sort(&view.heads);
+        for id in &order {
+            let hex_id: String = id.iter().map(|b| format!("{b:02x}")).collect();
+            if let Some(change) = self.graph.get(id) {
+                // Only index if not already present (avoid redundant embeds).
+                let embedding = provider.embed(&change.intent)
+                    .context("failed to embed change intent")?;
+                store.upsert(&hex_id, &embedding)
+                    .context("failed to upsert embedding")?;
+            }
+        }
+
+        // Search.
+        let results = store.search(&query_vec, k)
+            .context("vector store search failed")?;
+
+        let mut out = Vec::new();
+        for (id_hex, score) in results {
+            if let Some(hash) = hex_to_blake3(&id_hex)
+                && let Some(change) = self.graph.get(&hash)
+            {
+                out.push((change.clone(), score));
+            }
+        }
+        Ok(out)
     }
 
     // ------------------------------------------------------------------
@@ -2928,6 +3153,11 @@ fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Decode a 64-character hex string to a [`Blake3Hash`] (used by log_semantic).
+fn hex_to_blake3(hex: &str) -> Option<Blake3Hash> {
+    _unhex(hex)
+}
+
 /// Decode a 64-character lowercase hex string to a [`Blake3Hash`].
 /// Returns `None` for any string that is not exactly 64 valid hex chars.
 fn _unhex(s: &str) -> Option<Blake3Hash> {
@@ -3724,20 +3954,23 @@ mod tests {
         let result = repo.merge_view("feature");
         assert!(result.is_err());
 
-        // Resolve via the mock AI resolver.
+        // Resolve via the mock AI resolver (Ghost Node mode).
         let resolver = MockResolver;
-        let merge_id = repo.resolve_conflict(&resolver).unwrap();
+        repo.resolve_conflict(&resolver).unwrap();
 
-        // The merge change ID should be non-zero.
-        assert_ne!(merge_id, [0u8; 32]);
+        // .arc/ai/pending.json must exist — the Ghost Node.
+        assert!(
+            repo_path.join(".arc").join("ai").join("pending.json").exists(),
+            ".arc/ai/pending.json must exist after resolve_conflict"
+        );
 
-        // .arc/conflict should be cleaned up.
+        // .arc/conflict should be cleaned up immediately.
         assert!(
             !repo_path.join(".arc").join("conflict").exists(),
             ".arc/conflict must be removed after resolution"
         );
 
-        // The working directory should have shared.rs with merged content.
+        // The working directory should already show the merged content.
         let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
         // MockResolver concatenates ours + "\n" + theirs.
         assert!(
@@ -3745,6 +3978,57 @@ mod tests {
                 && content.contains("fn shared() { let a = 1; }"),
             "merged content must contain both sides, got: {content}"
         );
+
+        // Now approve: should write Author::AI change, advance view, clear pending.
+        let (approve_author, approve_key) = arc_core::store::author::test_keypair();
+        let merge_id = repo.approve_pending_ai(&approve_author, &approve_key).unwrap();
+
+        // The merge change ID should be non-zero.
+        assert_ne!(merge_id, [0u8; 32]);
+
+        // pending.json must be gone after approval.
+        assert!(
+            !repo_path.join(".arc").join("ai").join("pending.json").exists(),
+            ".arc/ai/pending.json must be removed after approve"
+        );
+
+        // The committed change should carry Author::AI authorship.
+        let changes = repo.log().unwrap();
+        let ai_changes: Vec<_> = changes
+            .iter()
+            .filter(|c| matches!(&c.author, arc_core::store::author::Author::AI { .. }))
+            .collect();
+        assert!(!ai_changes.is_empty(), "at least one AI-authored change must be in log");
+        assert!(
+            ai_changes[0].verify_signature(),
+            "AI change must have a valid signature"
+        );
+    }
+
+    #[test]
+    fn test_pending_ai_roundtrip() {
+        use crate::ai_pending::{PendingAiChange, clear_pending_ai, has_pending_ai,
+                                load_pending_ai, save_pending_ai};
+        let dir = tempfile::tempdir().unwrap();
+        let repo_root = dir.path();
+
+        assert!(!has_pending_ai(repo_root));
+
+        let pending = PendingAiChange::new_generate(
+            "gpt-4o-mini".to_owned(),
+            "add retry backoff".to_owned(),
+            vec![std::path::PathBuf::from("src/client.rs")],
+        );
+        save_pending_ai(repo_root, &pending).unwrap();
+        assert!(has_pending_ai(repo_root));
+
+        let loaded = load_pending_ai(repo_root).expect("must be loadable");
+        assert_eq!(loaded.intent, "add retry backoff");
+        assert_eq!(loaded.model, "gpt-4o-mini");
+        assert!(matches!(loaded.kind, crate::ai_pending::PendingKind::Generate));
+
+        clear_pending_ai(repo_root);
+        assert!(!has_pending_ai(repo_root));
     }
 
     #[test]

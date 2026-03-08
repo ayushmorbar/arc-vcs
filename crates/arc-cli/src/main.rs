@@ -5,7 +5,7 @@ use tracing_subscriber::EnvFilter;
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{Repository, ArcConfig, load_merged_config, save_global_config, save_local_config};
 use arc_cli::sync::{fetch, pull};
-use arc_core::ai::MockResolver;
+use arc_core::ai::{LlmResolver, MockResolver};
 use arc_core::algebra::Blake3Hash;
 use arc_core::store::author::{Author, load_identity, save_identity};
 use arc_core::store::oplog::OperationAgent;
@@ -98,7 +98,12 @@ enum Command {
         interactive: bool,
     },
     /// Show the change log.
-    Log,
+    Log {
+        /// Semantic search query to filter changes by intent similarity.
+        /// Requires the local embedding model (downloaded on first use).
+        #[arg(long)]
+        intent: Option<String>,
+    },
     /// Show uncommitted changes as semantic AST atoms.
     Status,
     /// Port an existing change into the current view by its hash.
@@ -373,7 +378,28 @@ enum ViewAction {
 #[derive(Subcommand)]
 enum AiAction {
     /// Resolve a pending semantic conflict using the AI resolver.
+    ///
+    /// Uses LLM resolution if ARC_AI_KEY is set; falls back to mock resolver
+    /// for offline / CI scenarios.  The resolved content is written to the
+    /// working directory as a Ghost Node — run 'arc ai approve' to finalise.
     Resolve,
+    /// Approve and cryptographically sign a pending AI change (Ghost Node).
+    ///
+    /// Constructs Author::AI { model, human_sponsor } signed by the active
+    /// human identity key, commits the change to CAS, and advances the view.
+    Approve,
+    /// Generate code using an AI agent and apply it as a Ghost Node.
+    ///
+    /// Queries the local intent vector index for context, calls the LLM, and
+    /// writes the result to --file.  Run 'arc ai approve' to finalise.
+    Generate {
+        /// High-level goal for the AI (e.g. "add retry backoff to client.rs").
+        #[arg(long)]
+        goal: String,
+        /// Path to the file the AI should modify (relative to repo root).
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -691,44 +717,80 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Command::Log => {
+        Command::Log { intent } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
-            let changes = repo.log()?;
-            if changes.is_empty() {
-                println!("No changes yet. Use 'arc snap' to create your first change.");
-            } else {
-                let mut table = Table::new();
-                table.load_preset(presets::NOTHING);
-                for change in changes {
-                    let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
-                    let author_str = match &change.author {
-                        Author::Human { name, email, .. } => {
-                            format!("{name} <{email}>")
-                        }
-                        Author::AI {
-                            model,
-                            human_sponsor,
-                        } => {
-                            let sponsor: String =
-                                human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
-                            format!("{model} | sponsor:{}", &sponsor[..8])
-                        }
-                        Author::Server { canonical_id, .. } => {
-                            format!("{canonical_id} [server]")
-                        }
-                        Author::Transient { session_id, .. } => {
-                            format!("{session_id} [transient]")
-                        }
-                    };
-                    table.add_row(vec![
-                        Cell::new(&hex[..8]).fg(Color::Cyan),
-                        Cell::new(&author_str).fg(Color::Magenta),
-                        Cell::new(&change.intent),
-                    ]);
+            if let Some(query) = intent {
+                let results = repo.log_semantic(&query, 10)?;
+                if results.is_empty() {
+                    println!("No semantically similar changes found.");
+                } else {
+                    let mut table = Table::new();
+                    table.load_preset(presets::NOTHING);
+                    for (change, score) in results {
+                        let hex: String =
+                            change.id.iter().map(|b| format!("{b:02x}")).collect();
+                        let author_str = match &change.author {
+                            Author::Human { name, email, .. } => format!("{name} <{email}>"),
+                            Author::AI { model, human_sponsor } => {
+                                let sponsor: String =
+                                    human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                                format!("{model} | sponsor:{}", &sponsor[..8])
+                            }
+                            Author::Server { canonical_id, .. } => {
+                                format!("{canonical_id} [server]")
+                            }
+                            Author::Transient { session_id, .. } => {
+                                format!("{session_id} [transient]")
+                            }
+                        };
+                        table.add_row(vec![
+                            Cell::new(&hex[..8]).fg(Color::Cyan),
+                            Cell::new(format!("{score:.3}")).fg(Color::Yellow),
+                            Cell::new(&author_str).fg(Color::Magenta),
+                            Cell::new(&change.intent),
+                        ]);
+                    }
+                    println!("{table}");
                 }
-                println!("{table}");
+            } else {
+                let changes = repo.log()?;
+                if changes.is_empty() {
+                    println!("No changes yet. Use 'arc snap' to create your first change.");
+                } else {
+                    let mut table = Table::new();
+                    table.load_preset(presets::NOTHING);
+                    for change in changes {
+                        let hex: String =
+                            change.id.iter().map(|b| format!("{b:02x}")).collect();
+                        let author_str = match &change.author {
+                            Author::Human { name, email, .. } => {
+                                format!("{name} <{email}>")
+                            }
+                            Author::AI {
+                                model,
+                                human_sponsor,
+                            } => {
+                                let sponsor: String =
+                                    human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                                format!("{model} | sponsor:{}", &sponsor[..8])
+                            }
+                            Author::Server { canonical_id, .. } => {
+                                format!("{canonical_id} [server]")
+                            }
+                            Author::Transient { session_id, .. } => {
+                                format!("{session_id} [transient]")
+                            }
+                        };
+                        table.add_row(vec![
+                            Cell::new(&hex[..8]).fg(Color::Cyan),
+                            Cell::new(&author_str).fg(Color::Magenta),
+                            Cell::new(&change.intent),
+                        ]);
+                    }
+                    println!("{table}");
+                }
             }
         }
         Command::Status => {
@@ -854,10 +916,39 @@ fn main() -> anyhow::Result<()> {
                 let mut repo = Repository::open(".")?;
                 let (author, signing_key) = load_identity()?;
                 repo.set_identity(author, signing_key);
-                let resolver = MockResolver;
-                let id = repo.resolve_conflict(&resolver)?;
+                let resolver: Box<dyn arc_core::ai::AiResolver> =
+                    match LlmResolver::from_env() {
+                        Some(llm) => {
+                            eprintln!(
+                                "[arc] Using LLM resolver (model: {}).",
+                                llm.model
+                            );
+                            Box::new(llm)
+                        }
+                        None => {
+                            eprintln!(
+                                "[arc] ARC_AI_KEY not set — using mock resolver. \
+                                 Set ARC_AI_KEY to enable real AI resolution."
+                            );
+                            Box::new(MockResolver)
+                        }
+                    };
+                repo.resolve_conflict(resolver.as_ref())?;
+                println!(
+                    "[arc] Resolution staged as Ghost Node. \
+                     Review changes then run 'arc ai approve'."
+                );
+            }
+            AiAction::Approve => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) = load_identity()?;
+                let id = repo.approve_pending_ai(&author, &signing_key)?;
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
-                println!("Resolved conflict → {hex}");
+                println!("Approved and committed AI change → {hex}");
+            }
+            AiAction::Generate { goal, file } => {
+                let mut repo = Repository::open(".")?;
+                arc_cli::generate::run(&goal, file.as_deref(), &mut repo)?;
             }
         },
         Command::Import { source } => match source {
