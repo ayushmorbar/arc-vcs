@@ -191,6 +191,34 @@ enum Command {
         #[arg(short, long)]
         message: Option<String>,
     },
+    /// Squash a contiguous linear spine of changes into a single change.
+    ///
+    /// All changes from `--into <change>` up to the current HEAD are fused
+    /// into one new change.  The target change's deps are preserved and the
+    /// working directory is rematerialised.
+    Squash {
+        /// Change to squash into (rev, hash prefix, or HEAD~N).
+        #[arg(long)]
+        into: String,
+    },
+    /// Interactively edit the AST content of an existing change.
+    ///
+    /// Two-step workflow:
+    ///  1. `arc diffedit --prepare <change>` — check out the change's state
+    ///     to the working dir.
+    ///  2. Edit files with any editor.
+    ///  3. `arc diffedit --apply` — compute the diff and record the replacement.
+    Diffedit {
+        /// Prepare a diffedit session for the given change.
+        #[arg(long, conflicts_with = "apply")]
+        prepare: Option<String>,
+        /// Apply the active diffedit session (after editing).
+        #[arg(long)]
+        apply: bool,
+        /// Replace the change's commit message.
+        #[arg(short, long)]
+        message: Option<String>,
+    },
     /// Configure your name, email, and Ed25519 signing identity in one step.
     ///
     /// Equivalent to `arc auth login` but with a simpler interface.
@@ -941,7 +969,30 @@ fn main() -> anyhow::Result<()> {
             let new_id = repo.amend(message.as_deref())?;
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Amended → {}", &hex[..8]);
-        }        Command::Identity { name, email } => {
+        }
+        Command::Squash { into } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let new_id = repo.squash_into(&into)?;
+            let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Squashed → {}", &hex[..8]);
+        }
+        Command::Diffedit { prepare, apply, message } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            if let Some(target_rev) = prepare {
+                repo.diffedit_prepare(&target_rev)?;
+            } else if apply {
+                let new_id = repo.diffedit_apply(message.as_deref())?;
+                let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("diffedit applied → {}", &hex[..8]);
+            } else {
+                anyhow::bail!("specify --prepare <change> or --apply");
+            }
+        }
+        Command::Identity { name, email } => {
             save_identity(&name, &email)?;
             println!(
                 "Identity configured: {name} <{email}> (Ed25519 keypair active)\n\
@@ -1039,7 +1090,7 @@ fn atom_display_label(atom: &Atom) -> String {
                 .green()
                 .to_string()
         }
-        Atom::Delete { at } => {
+        Atom::Delete { at, .. } => {
             format!("-- Deleted: {}", at.last().unwrap_or(&"?".to_string()))
                 .red()
                 .to_string()

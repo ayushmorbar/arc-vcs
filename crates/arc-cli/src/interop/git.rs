@@ -85,7 +85,7 @@ pub fn import_repo(
             if old_src == new_src {
                 continue;
             }
-            if let Ok(atoms) = plugin.diff(&old_src, &new_src) {
+            if let Ok(atoms) = plugin.diff(&old_src, &new_src, &arc_repo.store) {
                 for atom in atoms {
                     all_atoms.push(prefix_atom_path(atom, path));
                 }
@@ -98,7 +98,7 @@ pub fn import_repo(
                 continue;
             }
             let old_src = String::from_utf8_lossy(old_bytes).into_owned();
-            if let Ok(atoms) = plugin.diff(&old_src, "") {
+            if let Ok(atoms) = plugin.diff(&old_src, "", &arc_repo.store) {
                 for atom in atoms {
                     all_atoms.push(prefix_atom_path(atom, path));
                 }

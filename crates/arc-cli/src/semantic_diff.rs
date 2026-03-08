@@ -69,7 +69,7 @@ pub fn group_and_render(
     for atom in atoms {
         match atom {
             Atom::Insert { at, .. }
-            | Atom::Delete { at }
+            | Atom::Delete { at, .. }
             | Atom::SemanticsPreserving { at, .. }
                 if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 1 =>
             {
@@ -284,7 +284,7 @@ pub fn group_and_render_semantic(atoms: &[Atom]) -> Result<()> {
     for atom in atoms {
         match atom {
             Atom::Insert { at, .. }
-            | Atom::Delete { at }
+            | Atom::Delete { at, .. }
             | Atom::SemanticsPreserving { at, .. }
                 if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 1 =>
             {
@@ -340,7 +340,7 @@ fn render_semantic_file(file_path: &str, atoms: &[&Atom]) {
                 );
                 insertions += 1;
             }
-            Atom::Delete { at } => {
+            Atom::Delete { at, .. } => {
                 let kind = infer_node_kind(at);
                 let name = at.last().map(String::as_str).unwrap_or("?");
                 println!(

@@ -65,6 +65,39 @@ impl ObjectStore {
         let change: Change = bincode::deserialize(&mmap)?;
         Ok(change)
     }
+
+    /// Derive the on-disk path for a raw blob in `.arc/blobs/{hex(hash)}`.
+    fn blob_path(&self, hash: &Blake3Hash) -> PathBuf {
+        self.root.join("blobs").join(hex_encode(hash))
+    }
+
+    /// Persist raw bytes as a content-addressed blob.
+    ///
+    /// Returns the BLAKE3 hash of the content (the blob's storage key).
+    /// If the blob already exists the write is skipped.
+    pub fn write_blob(&self, bytes: &[u8]) -> Result<Blake3Hash, StoreError> {
+        let hash: Blake3Hash = *blake3::hash(bytes).as_bytes();
+        let path = self.blob_path(&hash);
+        if path.exists() {
+            return Ok(hash);
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, bytes)?;
+        Ok(hash)
+    }
+
+    /// Read raw bytes for a blob by its BLAKE3 hash.
+    pub fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, StoreError> {
+        let path = self.blob_path(hash);
+        Ok(fs::read(path)?)
+    }
+
+    /// Return `true` when the blob exists in `.arc/blobs/`.
+    pub fn contains_blob(&self, hash: &Blake3Hash) -> bool {
+        self.blob_path(hash).exists()
+    }
 }
 
 /// Encode a 32-byte hash as a lowercase hex string (64 chars).
@@ -90,7 +123,7 @@ mod tests {
             HashSet::new(),
             vec![Atom::Insert {
                 at: vec!["root".into(), "child".into()],
-                content: b"hello world".to_vec(),
+                content_hash: [0u8; 32],
             }],
             "test",
             author,

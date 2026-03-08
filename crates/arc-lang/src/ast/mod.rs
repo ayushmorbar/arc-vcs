@@ -4,6 +4,7 @@ pub mod rust_plugin;
 use std::collections::HashMap;
 
 use arc_core::algebra::{Atom, NodePath};
+use arc_core::store::cas::ObjectStore;
 
 /// Trait for language-specific AST parsing and diffing.
 ///
@@ -17,7 +18,16 @@ pub trait LanguagePlugin {
     fn parse(&self, source: &str) -> Result<tree_sitter::Tree, String>;
 
     /// Diff two source files and produce a list of atomic AST operations.
-    fn diff(&self, old_src: &str, new_src: &str) -> Result<Vec<Atom>, String>;
+    ///
+    /// Every `Insert` atom's content is written to `store` as a blob, and the
+    /// returned atom carries the resulting `content_hash`. Every `Delete` atom
+    /// likewise stores the removed node's bytes in `store` as `prior_hash`.
+    fn diff(
+        &self,
+        old_src: &str,
+        new_src: &str,
+        store: &ObjectStore,
+    ) -> Result<Vec<Atom>, String>;
 
     /// Reconstruct source code for `filepath` from the materialized state.
     ///

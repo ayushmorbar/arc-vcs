@@ -2,6 +2,7 @@ use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::repo::Repository;
+use arc_core::algebra::Atom;
 use arc_core::algebra::Blake3Hash;
 use arc_core::store::change::Change;
 use arc_core::store::view::View;
@@ -91,6 +92,28 @@ fn fetch_local(
             .store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("failed to write change to local CAS: {e}"))?;
+
+        // Copy referenced content blobs so apply_change can materialise state.
+        for atom in &change.atoms {
+            match atom {
+                Atom::Insert { content_hash, .. } => {
+                    if !local.store.contains_blob(content_hash)
+                        && let Ok(bytes) = remote.store.read_blob(content_hash)
+                    {
+                        let _ = local.store.write_blob(&bytes);
+                    }
+                }
+                Atom::Delete { prior_hash, .. } => {
+                    if !local.store.contains_blob(prior_hash)
+                        && let Ok(bytes) = remote.store.read_blob(prior_hash)
+                    {
+                        let _ = local.store.write_blob(&bytes);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         for &dep in &change.deps {
             if !visited.contains(&dep) {
                 queue.push_back(dep);

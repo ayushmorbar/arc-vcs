@@ -2,6 +2,8 @@
 pub mod apply;
 /// Commutativity check: determining whether two changes can be reordered.
 pub mod commute;
+/// Inversion algebra: producing the semantic inverse of a [`Change`].
+pub mod inverse;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +13,6 @@ pub type Blake3Hash = [u8; 32];
 /// Path segments addressing a node inside an AST (e.g. `["fn_foo", "body", "0"]`).
 pub type NodePath = Vec<String>;
 
-/// Opaque AST node content stored as serialized bytes.
-pub type ASTNode = Vec<u8>;
-
 /// The typed atom vocabulary for AST-level operations.
 ///
 /// Every change is composed of one or more atoms that describe
@@ -21,16 +20,25 @@ pub type ASTNode = Vec<u8>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atom {
     /// Insert a new AST node at the given path.
+    ///
+    /// The node content is stored as a raw blob in `.arc/blobs/{hex(content_hash)}`.
+    /// Use [`crate::store::cas::ObjectStore::write_blob`] to create the blob and
+    /// obtain the hash before constructing this atom.
     Insert {
         /// AST path of the insertion point (e.g. `["file", "main.rs", "fn_foo"]`).
         at: NodePath,
-        /// Serialized content of the new node.
-        content: ASTNode,
+        /// BLAKE3 hash of the serialized node content, stored in `.arc/blobs/`.
+        content_hash: Blake3Hash,
     },
     /// Delete the AST node (and its subtree) at the given path.
+    ///
+    /// `prior_hash` is the BLAKE3 hash of the node's content *before* deletion,
+    /// enabling lossless inversion via [`crate::algebra::inverse::invert_change`].
     Delete {
         /// AST path of the node to remove.
         at: NodePath,
+        /// BLAKE3 hash of the removed node's content (for inversion).
+        prior_hash: Blake3Hash,
     },
     /// Move (rename / refactor) a node from one path to another.
     Move {
@@ -87,7 +95,7 @@ impl Atom {
     pub fn paths(&self) -> Vec<&NodePath> {
         match self {
             Atom::Insert { at, .. } => vec![at],
-            Atom::Delete { at } => vec![at],
+            Atom::Delete { at, .. } => vec![at],
             Atom::Move { from, to } => vec![from, to],
             Atom::SemanticsPreserving { at, .. } => vec![at],
             Atom::Directory { path } => vec![path],

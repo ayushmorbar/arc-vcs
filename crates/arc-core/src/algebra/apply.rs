@@ -4,6 +4,7 @@ use ignore::gitignore::Gitignore;
 
 use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::store::author::Author;
+use crate::store::cas::ObjectStore;
 use crate::store::change::Change;
 
 /// A materialized state is the result of replaying a sequence of changes
@@ -21,9 +22,10 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 ///
 /// # Replay Law
 ///
-/// - `Insert { at, content }` adds the path/content pair to the state.
-/// - `Delete { at }` removes it (returns an error if the path is absent,
-///   since that violates causal ordering).
+/// - `Insert { at, content_hash }` reads the blob from the CAS and writes it
+///   to the state at `at`.
+/// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is
+///   not consulted during application — it is used for inversion).
 /// - `Directory { path }` records a bare directory existence (empty value).
 /// - `Move` and `SemanticsPreserving` are not yet implemented.
 ///
@@ -37,6 +39,7 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 pub fn apply_change(
     state: &mut MaterializedState,
     change: &Change,
+    store: &ObjectStore,
     agent_ignore: &Gitignore,
     mut blame: Option<&mut BlameState>,
 ) -> Result<(), String> {
@@ -70,13 +73,16 @@ pub fn apply_change(
         }
 
         match atom {
-            Atom::Insert { at, content } => {
-                state.insert(at.clone(), content.clone());
+            Atom::Insert { at, content_hash } => {
+                let bytes = store
+                    .read_blob(content_hash)
+                    .map_err(|e| format!("CAS read error for Insert at {at:?}: {e}"))?;
+                state.insert(at.clone(), bytes);
                 if let Some(ref mut b) = blame {
                     b.insert(at.clone(), change.id);
                 }
             }
-            Atom::Delete { at } => {
+            Atom::Delete { at, .. } => {
                 if state.remove(at).is_none() {
                     return Err(format!(
                         "causality violation: Delete targets non-existent path {at:?}"
@@ -129,9 +135,22 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::store::cas::ObjectStore;
+
+    /// Helper: create a temporary `ObjectStore` and write a blob, returning its hash.
+    fn make_store_and_hash(content: &[u8]) -> (tempfile::TempDir, ObjectStore, Blake3Hash) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let hash = store.write_blob(content).unwrap();
+        (dir, store, hash)
+    }
 
     #[test]
     fn test_apply_change() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let body_hash = store.write_blob(b"let x = 1;").unwrap();
+        let ret_hash = store.write_blob(b"x + 1").unwrap();
+        let del_hash = store.write_blob(b"x + 1").unwrap(); // same content as ret
         let mut state = MaterializedState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
 
@@ -141,11 +160,11 @@ mod tests {
             vec![
                 Atom::Insert {
                     at: vec!["fn_main".into(), "body".into()],
-                    content: b"let x = 1;".to_vec(),
+                    content_hash: body_hash,
                 },
                 Atom::Insert {
                     at: vec!["fn_main".into(), "ret".into()],
-                    content: b"x + 1".to_vec(),
+                    content_hash: ret_hash,
                 },
             ],
             "test",
@@ -153,7 +172,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &insert_change, &Gitignore::empty(), None).unwrap();
+        apply_change(&mut state, &insert_change, &store, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 2);
         assert_eq!(
             state.get(&vec!["fn_main".into(), "body".into()]).unwrap(),
@@ -165,19 +184,22 @@ mod tests {
             HashSet::from([insert_change.id]),
             vec![Atom::Delete {
                 at: vec!["fn_main".into(), "ret".into()],
+                prior_hash: del_hash,
             }],
             "test",
             author.clone(),
             &signing_key,
         );
 
-        apply_change(&mut state, &delete_change, &Gitignore::empty(), None).unwrap();
+        apply_change(&mut state, &delete_change, &store, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 1);
         assert!(!state.contains_key(&vec!["fn_main".into(), "ret".into()]));
+        drop(dir);
     }
 
     #[test]
     fn test_apply_delete_nonexistent_path_errors() {
+        let (dir, store, prior_hash) = make_store_and_hash(b"ghost content");
         let mut state = MaterializedState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
 
@@ -185,15 +207,17 @@ mod tests {
             HashSet::new(),
             vec![Atom::Delete {
                 at: vec!["ghost".into()],
+                prior_hash,
             }],
             "test",
             author,
             &signing_key,
         );
 
-        let result = apply_change(&mut state, &bad_delete, &Gitignore::empty(), None);
+        let result = apply_change(&mut state, &bad_delete, &store, &Gitignore::empty(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("causality violation"));
+        drop(dir);
     }
 
     #[test]
@@ -203,6 +227,9 @@ mod tests {
         builder.add_line(None, "src/crypto.rs").unwrap();
         let agent_ignore = builder.build().unwrap();
 
+        let (dir, store, _) = make_store_and_hash(b"malicious");
+        let malicious_hash = store.write_blob(b"malicious").unwrap();
+        let erase_hash = store.write_blob(b"remove all rules").unwrap();
         let mut state = MaterializedState::new();
         let (_, signing_key) = crate::store::author::test_keypair();
         let key = signing_key.verifying_key().to_bytes();
@@ -216,13 +243,13 @@ mod tests {
             std::collections::HashSet::new(),
             vec![Atom::Insert {
                 at: vec!["file".into(), "src/crypto.rs".into(), "fn_evil".into()],
-                content: b"malicious".to_vec(),
+                content_hash: malicious_hash,
             }],
             "inject evil",
             ai_author.clone(),
             &signing_key,
         );
-        let result = apply_change(&mut state, &change, &agent_ignore, None);
+        let result = apply_change(&mut state, &change, &store, &agent_ignore, None);
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(
@@ -240,22 +267,24 @@ mod tests {
             std::collections::HashSet::new(),
             vec![Atom::Insert {
                 at: vec!["file".into(), ".agentignore".into(), "content".into()],
-                content: b"remove all rules".to_vec(),
+                content_hash: erase_hash,
             }],
             "erase sandboxing",
             ai_author,
             &signing_key,
         );
-        let sentinel_result = apply_change(&mut state, &sentinel_change, &Gitignore::empty(), None);
+        let sentinel_result = apply_change(&mut state, &sentinel_change, &store, &Gitignore::empty(), None);
         assert!(sentinel_result.is_err());
         assert!(
             sentinel_result.unwrap_err().contains("Security Violation"),
             "sentinel rule must hold even with empty agent_ignore"
         );
+        drop(dir);
     }
     /// `Directory` atoms must store an empty value at their path.
     #[test]
     fn test_apply_directory_atom() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
 
@@ -269,7 +298,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &change, &Gitignore::empty(), None).unwrap();
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
         let key = vec!["dir".into(), "src/utils".into()];
         assert!(state.contains_key(&key), "Directory atom must insert an entry at its path");
         assert_eq!(
@@ -277,11 +306,13 @@ mod tests {
             b"",
             "Directory atom must store an empty value"
         );
+        drop(dir);
     }
 
     /// `Blob` atoms must store an `ARC_BLOB_REF:` token with the embedded hash.
     #[test]
     fn test_apply_blob_atom() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
         let hash = [0xab_u8; 32];
@@ -297,7 +328,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &change, &Gitignore::empty(), None).unwrap();
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
         let key = vec!["file".into(), "logo.png".into()];
         let val = state.get(&key).expect("Blob atom must insert an entry");
         assert!(
@@ -305,11 +336,13 @@ mod tests {
             "Blob atom must write ARC_BLOB_REF: prefix, got: {val:?}"
         );
         assert_eq!(&val[13..], &hash, "Blob atom must embed the 32-byte hash after the prefix");
+        drop(dir);
     }
 
     /// `Move` atoms must return an error (unimplemented).
     #[test]
     fn test_apply_move_atom_returns_error() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
 
@@ -324,17 +357,22 @@ mod tests {
             &signing_key,
         );
 
-        let result = apply_change(&mut state, &change, &Gitignore::empty(), None);
+        let result = apply_change(&mut state, &change, &store, &Gitignore::empty(), None);
         assert!(result.is_err(), "Move atom must return an error (not yet implemented)");
         assert!(
             result.unwrap_err().contains("Move"),
             "error message must mention Move"
         );
+        drop(dir);
     }
 
     /// Blame state must be populated for every inserted path.
     #[test]
     fn test_blame_state_population() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let fn_a_hash = store.write_blob(b"fn a() {}").unwrap();
+        let fn_b_hash = store.write_blob(b"fn b() {}").unwrap();
+        let fn_a_prior = store.write_blob(b"fn a() {}").unwrap();
         let mut state = MaterializedState::new();
         let mut blame = BlameState::new();
         let (author, signing_key) = crate::store::author::test_keypair();
@@ -344,11 +382,11 @@ mod tests {
             vec![
                 Atom::Insert {
                     at: vec!["fn_a".into()],
-                    content: b"fn a() {}".to_vec(),
+                    content_hash: fn_a_hash,
                 },
                 Atom::Insert {
                     at: vec!["fn_b".into()],
-                    content: b"fn b() {}".to_vec(),
+                    content_hash: fn_b_hash,
                 },
             ],
             "add a and b",
@@ -356,7 +394,7 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &change, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
 
         assert_eq!(
             blame.get(&vec!["fn_a".into()]),
@@ -373,14 +411,16 @@ mod tests {
         let (author2, signing_key2) = crate::store::author::test_keypair();
         let del = Change::new(
             HashSet::from([change.id]),
-            vec![Atom::Delete { at: vec!["fn_a".into()] }],
+            vec![Atom::Delete { at: vec!["fn_a".into()], prior_hash: fn_a_prior }],
             "remove a",
             author2,
             &signing_key2,
         );
-        apply_change(&mut state, &del, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        apply_change(&mut state, &del, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
         assert!(
             blame.get(&vec!["fn_a".into()]).is_none(),
             "blame must remove fn_a after Delete"
         );
-    }}
+        drop(dir);
+    }
+}

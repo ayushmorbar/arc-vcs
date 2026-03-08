@@ -223,17 +223,18 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::algebra::Atom;
 
     /// Helper: create a Change with the given deps and a unique atom
     /// so that each change hashes to a distinct id.
     fn make_change(deps: HashSet<Blake3Hash>, label: &str) -> Change {
         let (author, signing_key) = crate::store::author::test_keypair();
+        // Use a label-derived hash to give each change a unique content hash.
+        let content_hash: [u8; 32] = *blake3::hash(label.as_bytes()).as_bytes();
         Change::new(
             deps,
-            vec![Atom::Insert {
+            vec![crate::algebra::Atom::Insert {
                 at: vec![label.to_string()],
-                content: label.as_bytes().to_vec(),
+                content_hash,
             }],
             "test",
             author,

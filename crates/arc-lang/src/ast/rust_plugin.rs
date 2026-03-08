@@ -3,7 +3,11 @@ use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
 use crate::ast::LanguagePlugin;
-use arc_core::algebra::{ASTNode, Atom, NodePath};
+use arc_core::algebra::{Atom, NodePath};
+use arc_core::store::cas::ObjectStore;
+
+/// Raw AST node content (serialized bytes) — internal to this module only.
+type ASTNode = Vec<u8>;
 
 /// Rust language plugin backed by `tree-sitter-rust`.
 pub struct RustPlugin;
@@ -36,7 +40,7 @@ impl LanguagePlugin for RustPlugin {
             .ok_or_else(|| "tree-sitter parse returned None".to_string())
     }
 
-    fn diff(&self, old_src: &str, new_src: &str) -> Result<Vec<Atom>, String> {
+    fn diff(&self, old_src: &str, new_src: &str, store: &ObjectStore) -> Result<Vec<Atom>, String> {
         let old_tree = self.parse(old_src)?;
         let new_tree = self.parse(new_src)?;
 
@@ -45,19 +49,25 @@ impl LanguagePlugin for RustPlugin {
 
         let mut atoms = Vec::new();
 
-        // Keys in old but not in new → Delete
-        for path in old_map.keys() {
+        // Keys in old but not in new → Delete (prior_hash = hash of old content)
+        for (path, old_content) in &old_map {
             if !new_map.contains_key(path) {
-                atoms.push(Atom::Delete { at: path.clone() });
+                let prior_hash = store
+                    .write_blob(old_content)
+                    .map_err(|e| format!("CAS write error for Delete at {path:?}: {e}"))?;
+                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
             }
         }
 
-        // Keys in new but not in old → Insert
+        // Keys in new but not in old → Insert (content_hash = hash of new content)
         for (path, content) in &new_map {
             if !old_map.contains_key(path) {
+                let content_hash = store
+                    .write_blob(content)
+                    .map_err(|e| format!("CAS write error for Insert at {path:?}: {e}"))?;
                 atoms.push(Atom::Insert {
                     at: path.clone(),
-                    content: content.clone(),
+                    content_hash,
                 });
             }
         }
@@ -67,10 +77,16 @@ impl LanguagePlugin for RustPlugin {
             if let Some(new_content) = new_map.get(path)
                 && old_content != new_content
             {
-                atoms.push(Atom::Delete { at: path.clone() });
+                let prior_hash = store
+                    .write_blob(old_content)
+                    .map_err(|e| format!("CAS write error for Delete at {path:?}: {e}"))?;
+                let content_hash = store
+                    .write_blob(new_content)
+                    .map_err(|e| format!("CAS write error for Insert at {path:?}: {e}"))?;
+                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
                 atoms.push(Atom::Insert {
                     at: path.clone(),
-                    content: new_content.clone(),
+                    content_hash,
                 });
             }
         }
@@ -80,7 +96,7 @@ impl LanguagePlugin for RustPlugin {
             fn key(atom: &Atom) -> &NodePath {
                 match atom {
                     Atom::Insert { at, .. }
-                    | Atom::Delete { at }
+                    | Atom::Delete { at, .. }
                     | Atom::SemanticsPreserving { at, .. } => at,
                     Atom::Move { from, .. } => from,
                     Atom::Directory { path } => path,
@@ -219,13 +235,20 @@ mod tests {
     use super::*;
     use crate::ast::LanguagePlugin;
 
+    fn make_store() -> (tempfile::TempDir, arc_core::store::cas::ObjectStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = arc_core::store::cas::ObjectStore::new(dir.path());
+        (dir, store)
+    }
+
     #[test]
     fn test_rust_ast_diff() {
         let plugin = RustPlugin::new();
+        let (_dir, store) = make_store();
         let old_src = "fn main() { let x = 1; }";
         let new_src = "fn main() { let x = 1; let y = 2; }";
 
-        let atoms = plugin.diff(old_src, new_src).unwrap();
+        let atoms = plugin.diff(old_src, new_src, &store).unwrap();
 
         let has_insert = atoms.iter().any(|a| matches!(a, Atom::Insert { .. }));
         assert!(
@@ -233,16 +256,18 @@ mod tests {
             "expected at least one Insert atom for `let y = 2;`, got: {atoms:?}"
         );
 
+        // Verify content is stored as a blob and is readable.
         let has_y_insert = atoms.iter().any(|a| {
-            if let Atom::Insert { content, .. } = a {
-                String::from_utf8_lossy(content).contains('y')
+            if let Atom::Insert { content_hash, .. } = a {
+                let bytes = store.read_blob(content_hash).unwrap_or_default();
+                String::from_utf8_lossy(&bytes).contains('y')
             } else {
                 false
             }
         });
         assert!(
             has_y_insert,
-            "expected an Insert containing 'y', got: {atoms:?}"
+            "expected an Insert whose blob content contains 'y', got: {atoms:?}"
         );
     }
 
@@ -269,8 +294,9 @@ mod tests {
     #[test]
     fn test_no_diff_identical_sources() {
         let plugin = RustPlugin::new();
+        let (_dir, store) = make_store();
         let src = r#"fn hello() { println!("hi"); }"#;
-        let atoms = plugin.diff(src, src).unwrap();
+        let atoms = plugin.diff(src, src, &store).unwrap();
         assert!(
             atoms.is_empty(),
             "identical sources must produce no atoms, got: {atoms:?}"
@@ -280,10 +306,11 @@ mod tests {
     #[test]
     fn test_delete_atom_on_removal() {
         let plugin = RustPlugin::new();
+        let (_dir, store) = make_store();
         let old_src = "fn main() { let x = 1; let y = 2; }";
         let new_src = "fn main() { let x = 1; }";
 
-        let atoms = plugin.diff(old_src, new_src).unwrap();
+        let atoms = plugin.diff(old_src, new_src, &store).unwrap();
 
         let has_delete = atoms.iter().any(|a| matches!(a, Atom::Delete { .. }));
         assert!(

@@ -150,7 +150,7 @@ mod tests {
             HashSet::new(),
             vec![Atom::Insert {
                 at: vec!["fn_main".into()],
-                content: b"fn main() {}".to_vec(),
+                content_hash: [0u8; 32],
             }],
             "add main",
             author,
@@ -175,7 +175,7 @@ mod tests {
         let mut tampered_atom = change.clone();
         tampered_atom.atoms[0] = Atom::Insert {
             at: vec!["fn_main".into()],
-            content: b"fn main() { unsafe { backdoor(); } }".to_vec(),
+            content_hash: [0xde; 32],
         };
         assert!(
             !tampered_atom.verify_signature(),
@@ -194,7 +194,7 @@ mod tests {
             HashSet::from([dep_id]),
             vec![Atom::Insert {
                 at: vec!["fn_child".into()],
-                content: b"child".to_vec(),
+                content_hash: [0u8; 32],
             }],
             "child change",
             author.clone(),
@@ -209,7 +209,7 @@ mod tests {
             HashSet::new(),
             vec![Atom::Insert {
                 at: vec!["fn_child".into()],
-                content: b"child".to_vec(),
+                content_hash: [0u8; 32],
             }],
             "child change",
             author,
@@ -232,9 +232,9 @@ mod tests {
             vec![
                 Atom::Insert {
                     at: vec!["fn_a".into()],
-                    content: b"a".to_vec(),
+                    content_hash: [0u8; 32],
                 },
-                Atom::Delete { at: vec!["fn_b".into()] },
+                Atom::Delete { at: vec!["fn_b".into()], prior_hash: [0u8; 32] },
             ],
             "roundtrip",
             author,

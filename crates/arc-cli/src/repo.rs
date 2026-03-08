@@ -356,7 +356,7 @@ impl Repository {
                 .graph
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(&mut state, change, &agent_ignore, None)
+            apply_change(&mut state, change, &self.store, &agent_ignore, None)
                 .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
@@ -408,7 +408,7 @@ impl Repository {
                 .graph
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(&mut state, change, &agent_ignore, Some(&mut blame))
+            apply_change(&mut state, change, &self.store, &agent_ignore, Some(&mut blame))
                 .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
@@ -474,6 +474,14 @@ impl Repository {
         load_identity().map_err(|_| anyhow::anyhow!(
             "Identity not configured. Please run:\n  arc identity --name \"Your Name\" --email \"your@email.com\"\nbefore snapping changes."
         ))?;
+        // Guard: refuse to snap while a diffedit is in progress.
+        let diffedit_lock = self.shared_root.join(".arc").join("diffedit_target");
+        if diffedit_lock.exists() {
+            anyhow::bail!(
+                "A diffedit is in progress. Run 'arc diffedit --apply' to finish, \
+                 or 'arc diffedit --abort' to cancel."
+            );
+        }
         self.run_hook("pre-snap")?;
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;
@@ -499,7 +507,7 @@ impl Repository {
                 // Only AST diff atoms (Insert / Delete file nodes) are interactive.
                 // Directory atoms and whole-file deletions are always staged.
                 let is_file_ast = matches!(&atom,
-                    Atom::Insert { at, .. } | Atom::Delete { at } if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 2
+                    Atom::Insert { at, .. } | Atom::Delete { at, .. } if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 2
                 );
                 if !is_file_ast {
                     accepted.push(atom);
@@ -531,7 +539,7 @@ impl Repository {
         let has_file_change = all_atoms.iter().any(|a| {
             a.paths().first().and_then(|p| p.first()).map(|s| s == "file").unwrap_or(false)
                 || matches!(a, Atom::Directory { .. })
-                || matches!(a, Atom::Delete { at } if at.first().map(|s| s == "dir").unwrap_or(false))
+                || matches!(a, Atom::Delete { at, .. } if at.first().map(|s| s == "dir").unwrap_or(false))
         });
 
         if !has_file_change && all_atoms.is_empty() {
@@ -598,7 +606,7 @@ impl Repository {
                 continue;
             }
             let ast_atoms = plugin
-                .diff(&old_src, &new_src)
+                .diff(&old_src, &new_src, &self.store)
                 .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
             if ast_atoms.is_empty() {
                 continue;
@@ -645,7 +653,12 @@ impl Repository {
                 for key in state.keys() {
                     // >= covers blob keys (len==2) as well as AST sub-keys (len>2).
                     if key.len() >= prefix.len() && key[..prefix.len()] == prefix[..] {
-                        atoms.push(Atom::Delete { at: key.clone() });
+                        let prior_bytes = state.get(key).cloned().unwrap_or_default();
+                        let prior_hash = self
+                            .store
+                            .write_blob(&prior_bytes)
+                            .map_err(|e| anyhow::anyhow!("CAS write error for deleted file: {e}"))?;
+                        atoms.push(Atom::Delete { at: key.clone(), prior_hash });
                     }
                 }
             }
@@ -667,9 +680,13 @@ impl Repository {
         }
         for rel_dir in &existing_dirs {
             if !self.work_root.join(rel_dir).exists() {
-                atoms.push(Atom::Delete {
-                    at: dir_key(rel_dir),
-                });
+                let key = dir_key(rel_dir);
+                let prior_bytes = state.get(&key).cloned().unwrap_or_default();
+                let prior_hash = self
+                    .store
+                    .write_blob(&prior_bytes)
+                    .map_err(|e| anyhow::anyhow!("CAS write error for deleted dir: {e}"))?;
+                atoms.push(Atom::Delete { at: key, prior_hash });
             }
         }
 
@@ -710,7 +727,7 @@ impl Repository {
         let current_state = self.materialize(&current_name)?;
 
         // Check for un-snapped changes.
-        check_working_dir_clean(&self.work_root, &current_state, "switching views")?;
+        check_working_dir_clean(&self.work_root, &current_state, &self.store, "switching views")?;
 
         // Hydrate the target view.
         self.hydrate(target)?;
@@ -762,7 +779,7 @@ impl Repository {
 
         // --- Dirty working-directory check ---
         let current_state = self.materialize_heads(&current_view.heads)?;
-        check_working_dir_clean(&self.work_root, &current_state, "merging")?;
+        check_working_dir_clean(&self.work_root, &current_state, &self.store, "merging")?;
 
 
         // Find LCA.
@@ -923,10 +940,11 @@ impl Repository {
                 )
                 .map_err(|e| anyhow::anyhow!("AI resolver failed: {e}"))?;
 
-            merge_atoms.push(Atom::Insert {
-                at: path,
-                content: resolved,
-            });
+            let content_hash = self
+                .store
+                .write_blob(&resolved)
+                .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
+            merge_atoms.push(Atom::Insert { at: path, content_hash });
 
             combined_intent.push_str(&change_a.intent);
             combined_intent.push_str(" + ");
@@ -993,7 +1011,7 @@ impl Repository {
                 continue;
             }
             let ast_atoms = plugin
-                .diff(&old_src, &new_src)
+                .diff(&old_src, &new_src, &self.store)
                 .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
             for atom in ast_atoms {
                 stash_atoms.push(prefix_atom_path(atom, filepath));
@@ -1007,7 +1025,12 @@ impl Repository {
                 let prefix = ["file".to_string(), filepath.clone()];
                 for key in base_state.keys() {
                     if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
-                        stash_atoms.push(Atom::Delete { at: key.clone() });
+                        let prior_bytes = base_state.get(key).cloned().unwrap_or_default();
+                        let prior_hash = self
+                            .store
+                            .write_blob(&prior_bytes)
+                            .map_err(|e| anyhow::anyhow!("CAS write error for stash delete: {e}"))?;
+                        stash_atoms.push(Atom::Delete { at: key.clone(), prior_hash });
                     }
                 }
             }
@@ -1154,7 +1177,7 @@ impl Repository {
         for atom in &atoms {
             let filepath: Option<String> = match atom {
                 Atom::Insert { at, .. }
-                | Atom::Delete { at }
+                | Atom::Delete { at, .. }
                 | Atom::SemanticsPreserving { at, .. }
                     if at.first().map(|s| s == "file").unwrap_or(false)
                         && at.len() > 1 =>
@@ -1458,7 +1481,7 @@ impl Repository {
                 continue;
             }
             let ast_atoms = plugin
-                .diff(&src_after, &src_before)
+                .diff(&src_after, &src_before, &self.store)
                 .map_err(|e| anyhow::anyhow!("revert diff error for {filepath}: {e}"))?;
             for atom in ast_atoms {
                 atoms.push(prefix_atom_path(atom, filepath));
@@ -1474,7 +1497,7 @@ impl Repository {
                 continue;
             }
             let ast_atoms = plugin
-                .diff("", &src_before)
+                .diff("", &src_before, &self.store)
                 .map_err(|e| anyhow::anyhow!("revert restore error for {filepath}: {e}"))?;
             for atom in ast_atoms {
                 atoms.push(prefix_atom_path(atom, filepath));
@@ -2157,8 +2180,17 @@ impl Repository {
         for id in &reachable {
             if let Some(change) = self.graph.get(id) {
                 for atom in &change.atoms {
-                    if let Atom::Blob { hash, .. } = atom {
-                        referenced_blobs.insert(_hex(hash));
+                    match atom {
+                        Atom::Blob { hash, .. } => {
+                            referenced_blobs.insert(_hex(hash));
+                        }
+                        Atom::Insert { content_hash, .. } => {
+                            referenced_blobs.insert(_hex(content_hash));
+                        }
+                        Atom::Delete { prior_hash, .. } => {
+                            referenced_blobs.insert(_hex(prior_hash));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -2284,7 +2316,11 @@ impl Repository {
                     .map_err(|_| anyhow::anyhow!("corrupt ARC_BLOB_REF token at {path:?}"))?;
                 atoms.push(Atom::Blob { path: path.clone(), hash });
             } else {
-                atoms.push(Atom::Insert { at: path.clone(), content: content.clone() });
+                let content_hash = self
+                    .store
+                    .write_blob(content)
+                    .map_err(|e| anyhow::anyhow!("CAS write error in compact: {e}"))?;
+                atoms.push(Atom::Insert { at: path.clone(), content_hash });
             }
         }
 
@@ -2471,6 +2507,242 @@ impl Repository {
         Ok(new_id)
     }
 
+    /// Squash the contiguous linear spine from `target_id` to the current view
+    /// head into a single new [`Change`].
+    ///
+    /// The squashed change inherits the `deps` of the target change and carries
+    /// all atoms from every change in the spine.  The new change is written to
+    /// the CAS, the view is repointed to it, and the working directory is
+    /// rematerialised.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the current view has more than one head, when the
+    /// spine is non-linear, or when `target_id` is not an ancestor of HEAD.
+    pub fn squash_into(&mut self, target_rev: &str) -> anyhow::Result<Blake3Hash> {
+        use arc_core::engine::spacetime::squash_into as engine_squash;
+
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        if view.heads.len() != 1 {
+            anyhow::bail!(
+                "squash requires exactly one head; current view '{}' has {} heads",
+                view_name,
+                view.heads.len()
+            );
+        }
+
+        let target_id = self.resolve_rev(target_rev)?;
+        let (author, signing_key) = self.signing_identity()?;
+        let signer = (author.clone(), signing_key.clone());
+
+        let squashed = engine_squash(
+            &self.graph,
+            &self.store,
+            &view.heads,
+            target_id,
+            &signer,
+        )
+        .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
+
+        let new_id = squashed.id;
+        self.store
+            .write_change(&squashed)
+            .map_err(|e| anyhow::anyhow!("failed to write squashed change: {e}"))?;
+        self.graph.add_change(squashed);
+
+        // Record epoch map entry: old head → new squashed id.
+        let old_head = *view.heads.iter().next().unwrap();
+        let epochs_path = self.shared_root.join(".arc").join("epochs.json");
+        let mut epoch_map: HashMap<String, String> = if epochs_path.exists() {
+            let raw = fs::read_to_string(&epochs_path)?;
+            serde_json::from_str(&raw).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        epoch_map.insert(_hex(&old_head), _hex(&new_id));
+        let tmp = epochs_path.with_extension("tmp");
+        fs::write(&tmp, serde_json::to_string_pretty(&epoch_map)?)?;
+        fs::rename(&tmp, &epochs_path)
+            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
+
+        self.log_operation("squash", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
+
+        let updated_view = View::new(&view_name, HashSet::from([new_id]));
+        updated_view
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        let new_state = self.materialize(&view_name)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
+
+        tracing::info!(target = %_hex(&target_id), new = %_hex(&new_id), "squash complete");
+        Ok(new_id)
+    }
+
+    /// Prepare a diffedit session for the change identified by `target_rev`.
+    ///
+    /// Writes `.arc/diffedit_target` with the hex of the target change ID,
+    /// then materialises and writes the change's resulting state to the working
+    /// directory so the user can edit it with any external tool.
+    ///
+    /// Use [`Self::diffedit_apply`] to turn the edited working directory into a
+    /// replacement change once the user is satisfied.
+    pub fn diffedit_prepare(&mut self, target_rev: &str) -> anyhow::Result<()> {
+        self.acquire_lock()?;
+        let target_id = self.resolve_rev(target_rev)?;
+
+        // Ensure the change exists in the graph.
+        if self.graph.get(&target_id).is_none() {
+            anyhow::bail!("change {} not found in graph", _hex(&target_id));
+        }
+
+        let lock_path = self.shared_root.join(".arc").join("diffedit_target");
+        fs::write(&lock_path, _hex(&target_id))
+            .map_err(|e| anyhow::anyhow!("could not write diffedit_target: {e}"))?;
+
+        // Materialise the state at the target and write it to the working dir.
+        let state = self.materialize_heads(&HashSet::from([target_id]))?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &state)?;
+
+        tracing::info!(target = %_hex(&target_id), "diffedit prepare complete");
+        println!("diffedit: working directory set to change {}", &_hex(&target_id)[..12]);
+        println!("Edit your files then run `arc diffedit --apply` to record the change.");
+        Ok(())
+    }
+
+    /// Apply the current working directory edits as a replacement for the
+    /// change recorded by [`Self::diffedit_prepare`].
+    ///
+    /// Reads `.arc/diffedit_target`, computes the diff between the stored
+    /// target state and the current working directory, calls
+    /// [`Self::squash_into`]'s underlying engine to fuse the new atoms into the
+    /// target position, then deletes `.arc/diffedit_target`.
+    ///
+    /// An optional `message` overrides the original change's intent.
+    pub fn diffedit_apply(&mut self, message: Option<&str>) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        let lock_path = self.shared_root.join(".arc").join("diffedit_target");
+        if !lock_path.exists() {
+            anyhow::bail!("no active diffedit session — run `arc diffedit --prepare <change>` first");
+        }
+
+        let target_hex = fs::read_to_string(&lock_path)?;
+        let target_hex = target_hex.trim();
+        let target_id: Blake3Hash = _unhex(target_hex)
+            .ok_or_else(|| anyhow::anyhow!("corrupt diffedit_target: '{target_hex}'"))?;
+
+        let target_change = self
+            .graph
+            .get(&target_id)
+            .ok_or_else(|| anyhow::anyhow!("diffedit target change not found in graph"))?
+            .clone();
+
+        // Compute diff: stored state at target → current working dir.
+        let stored_state = self.materialize_heads(&HashSet::from([target_id]))?;
+        let arcignore = load_arcignore(&self.work_root);
+        let plugin = RustPlugin::new();
+        let rs_files_after = collect_rs_files(&self.work_root, &arcignore)?;
+        let files_before = extract_filepaths_from_state(&stored_state);
+
+        let mut new_atoms: Vec<Atom> = Vec::new();
+
+        // Modified or added files.
+        for filepath in &rs_files_after {
+            let new_src = fs::read_to_string(self.work_root.join(filepath))?;
+            let old_src = plugin.unparse(&stored_state, filepath).unwrap_or_default();
+            if new_src == old_src {
+                continue;
+            }
+            let ast_atoms = plugin
+                .diff(&old_src, &new_src, &self.store)
+                .map_err(|e| anyhow::anyhow!("diffedit diff error for {filepath}: {e}"))?;
+            for atom in ast_atoms {
+                new_atoms.push(prefix_atom_path(atom, filepath));
+            }
+        }
+
+        // Deleted files.
+        let files_after_set: HashSet<String> = rs_files_after.iter().cloned().collect();
+        for filepath in files_before.difference(&files_after_set) {
+            let old_src = plugin.unparse(&stored_state, filepath).unwrap_or_default();
+            if old_src.is_empty() {
+                continue;
+            }
+            let prior_bytes = old_src.into_bytes();
+            let prior_hash = self
+                .store
+                .write_blob(&prior_bytes)
+                .map_err(|e| anyhow::anyhow!("diffedit store write error: {e}"))?;
+            for seg in files_before.iter().filter(|p| p == &filepath) {
+                new_atoms.push(Atom::Delete {
+                    at: vec!["file".to_string(), seg.clone()],
+                    prior_hash,
+                });
+            }
+        }
+
+        if new_atoms.is_empty() {
+            anyhow::bail!("no changes detected in working directory — nothing to apply");
+        }
+
+        let intent = message
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| format!("diffedit: {}", target_change.intent));
+
+        let (author, signing_key) = self.signing_identity()?;
+        let new_change = Change::new(
+            target_change.deps.clone(),
+            new_atoms,
+            intent,
+            author.clone(),
+            signing_key,
+        );
+        let new_id = new_change.id;
+
+        self.store
+            .write_change(&new_change)
+            .map_err(|e| anyhow::anyhow!("failed to write diffedit change: {e}"))?;
+        self.graph.add_change(new_change);
+
+        let view_name = self.current_view_name()?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view: {e}"))?;
+
+        // Record epoch map: old target id → new diffedit id.
+        let epochs_path = self.shared_root.join(".arc").join("epochs.json");
+        let mut epoch_map: HashMap<String, String> = if epochs_path.exists() {
+            let raw = fs::read_to_string(&epochs_path)?;
+            serde_json::from_str(&raw).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+        epoch_map.insert(_hex(&target_id), _hex(&new_id));
+        let tmp = epochs_path.with_extension("tmp");
+        fs::write(&tmp, serde_json::to_string_pretty(&epoch_map)?)?;
+        fs::rename(&tmp, &epochs_path)
+            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
+
+        self.log_operation("diffedit", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
+
+        let updated_view = View::new(&view_name, HashSet::from([new_id]));
+        updated_view
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save updated view: {e}"))?;
+
+        let new_state = self.materialize(&view_name)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
+
+        // Remove the diffedit lock file.
+        let _ = fs::remove_file(&lock_path);
+
+        tracing::info!(target = %_hex(&target_id), new = %_hex(&new_id), "diffedit apply complete");
+        Ok(new_id)
+    }
+
     /// Resolve a human-readable revision query to a [`Blake3Hash`].
     ///
     /// Supported query formats:
@@ -2592,7 +2864,7 @@ fn atom_label(atom: &Atom) -> String {
         Atom::Insert { at, .. } => {
             format!("Insert:   {}", at.last().unwrap_or(&"?".to_string()))
         }
-        Atom::Delete { at } => {
+        Atom::Delete { at, .. } => {
             format!("Delete:   {}", at.last().unwrap_or(&"?".to_string()))
         }
         Atom::Move { from, to } => {
@@ -2651,11 +2923,11 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
         prefixed
     };
     match atom {
-        Atom::Insert { at, content } => Atom::Insert {
+        Atom::Insert { at, content_hash } => Atom::Insert {
             at: prepend(at),
-            content,
+            content_hash,
         },
-        Atom::Delete { at } => Atom::Delete { at: prepend(at) },
+        Atom::Delete { at, prior_hash } => Atom::Delete { at: prepend(at), prior_hash },
         Atom::Move { from, to } => Atom::Move {
             from: prepend(from),
             to: prepend(to),
@@ -2707,6 +2979,7 @@ fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8
 fn check_working_dir_clean(
     root: &Path,
     state: &MaterializedState,
+    store: &ObjectStore,
     context: &str,
 ) -> anyhow::Result<()> {
     let arcignore = load_arcignore(root);
@@ -2727,7 +3000,7 @@ fn check_working_dir_clean(
         }
 
         let ast_atoms = plugin
-            .diff(&old_src, &new_src)
+            .diff(&old_src, &new_src, store)
             .map_err(|e| anyhow::anyhow!("diff error: {e}"))?;
         if !ast_atoms.is_empty() {
             anyhow::bail!("working directory is dirty — snap your changes before {context}");
