@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: '/'
+    schedule:
+      interval: monthly
+    commit-message:
+      # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
+      prefix: ''
+    allow:
+      - dependency-type: all
+    groups:
+      cargo:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: monthly
+    commit-message:
+      # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
+      prefix: ''
+    groups:
+      github-actions:
+        patterns: ['*']
+      cooldown:
+        default-days: 7

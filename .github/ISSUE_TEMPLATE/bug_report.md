@@ -7,7 +7,7 @@ assignees: ''
 
 ## arc Version
 
-```
+```bash
 arc --version
 ```
 <!-- Paste the output here -->
@@ -36,6 +36,10 @@ arc --version
 
 <!-- What actually happened? Include the full error message. -->
 
+## Git Behaviour
+
+<!-- What Git does under similar circumstances? -->
+
 ## `ARC_TRACE=1` Output
 
 ```
@@ -46,7 +50,7 @@ arc --version
 
 <!-- If this involves a conflict or merge issue, paste the change IDs from `arc log` -->
 
-```
+```bash
 arc log
 ```
 
