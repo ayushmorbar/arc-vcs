@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+﻿use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
@@ -251,13 +251,12 @@ enum Command {
         #[arg(long)]
         semantic: bool,
     },
-    /// Hint command for users familiar with Git’s `git push`.
-    ///
-    /// arc is a P2P CRDT: there is no single “central” server to push to.
-    /// Use `arc sync` or `arc pull <url>` to exchange state with remotes.
+    /// Push local changes to a remote repository.
     Push {
-        /// Optional remote name (only used in the hint message).
-        remote: Option<String>,
+        /// Remote name or URL to push to.
+        remote: String,
+        /// Name of the view to push.
+        view: String,
     },
     /// Get or set arc configuration / global aliases.
     Config {
@@ -1016,22 +1015,10 @@ fn main() -> anyhow::Result<()> {
                 )?;
             }
         }
-        Command::Push { remote } => {
+        Command::Push { remote, view } => {
             let repo = Repository::open(".")?;
-            let remote_name = remote.as_deref().unwrap_or("origin");
-            let remotes = repo.list_remotes()?;
-            let url = remotes.get(remote_name).cloned().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Remote '{}' not found. Add one with:\n  arc remote add {} <url>",
-                    remote_name,
-                    remote_name
-                )
-            })?;
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
-                let client = arc_core::network::NetworkClient::new()?;
-                client.push(remote_name, &url).await
-            })?;
+            arc_cli::sync::push(&repo, &remote, &view)?;
+            println!("Pushed '{}' \u{2192} {}.", view, remote);
         }
         Command::Config { action } => match action {
             ConfigAction::Alias { name, expansion } => {

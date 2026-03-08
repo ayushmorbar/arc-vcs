@@ -356,6 +356,55 @@ arc push <remote> <view>
 arc push origin main
 ```
 
+`remote` is a named remote alias (registered with `arc remote add`) or a direct URL / local path.
+`view` is the name of the view to push.
+
+arc computes the minimal DAG delta — the set of Changes the remote is missing — then bundles all referenced CAS blobs into a single `DeltaPayload` envelope and delivers it in one shot.  The remote server verifies every Ed25519 signature before writing to its CAS (zero-trust SLSA L4 ingress), then advances its view with a CRDT set-union.
+
+---
+
+## `arc squash`
+
+Fuse a linear sequence of changes into one canonical change.
+
+```sh
+arc squash --into <rev>
+arc squash --into HEAD~3    # collapse the top 3 changes
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--into <rev>` | Target revision; the linear spine from `HEAD` down to `<rev>` (exclusive) is squashed |
+
+Walks the linear spine from `HEAD` toward `<rev>`, verifies it is a straight line (no merges), assembles the full atom sequence, and rewrites history as a single new Change with the combined intent of all squashed changes.
+
+Exits with an error if the topology is non-linear (merge commits in range).
+
+---
+
+## `arc diffedit`
+
+Two-step external-editor history rewrite.
+
+```sh
+# Step 1: materialise a change into a temp file for editing
+arc diffedit --prepare <rev>
+
+# Step 2: apply the edited file back as a new change
+arc diffedit --apply
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--prepare <rev>` | Materialise change `<rev>` to `.arc/diffedit_target` and lock the repo |
+| `--apply` | Read the edited file, build a new Change, and unlock the repo |
+
+The lockfile (`.arc/diffedit_session`) prevents `arc snap` during an active edit session.  If `--apply` fails, run `arc diffedit --apply` again after correcting the file.
+
 ---
 
 ## `arc gc`

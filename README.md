@@ -15,7 +15,7 @@
 | Diff granularity | Lines | Lines | **AST atoms (Rust today; multi-lang roadmap)** |
 | Sparse checkouts | Path globs | Path globs | **Semantic `Atom::Mount` directives** |
 | Large binary I/O | Pack files (copy-on-read) | Pack files | **Zero-copy `memmap2`** |
-| Cryptographic provenance | SHA-1 (legacy) | SHA-256 | **BLAKE3 + Ed25519 per-change signatures** |
+| Cryptographic provenance | SHA-1 (legacy) | SHA-256 | **BLAKE3 + Ed25519 per-change signatures; SLSA L4 zero-trust ingress on push** |
 | Hook configuration | Hidden shell scripts in `.git/hooks/` | Hidden shell scripts | **Declarative JSON in `.arc/config.json`** |
 | Observability | None | None | **Trace2-style `ARC_TRACE` telemetry** |
 | Conflict resolution | Manual | Manual | **AI-assisted (`arc resolve`)** |
@@ -48,6 +48,17 @@ arc snap -m "feat: add widget"
 
 # Show history
 arc log
+
+# Rewrite history: squash a linear sequence into one canonical change
+arc squash --into HEAD~3
+
+# Two-step external-editor history rewrite
+arc diffedit --prepare HEAD~2
+# (edit the materialised file, then:)
+arc diffedit --apply
+
+# Push to a registered remote
+arc push origin main
 
 # Views are not branches — they are named sets of DAG heads
 arc view create feature/my-work
@@ -98,6 +109,8 @@ Hooks are parsed by `shlex` and run with `work_root` as the working directory. A
 | Tutorial (zero to first snap) | [docs/src/getting-started/tutorial.md](docs/src/getting-started/tutorial.md) |
 | CLI Reference | [docs/src/reference/cli-reference.md](docs/src/reference/cli-reference.md) |
 | Patch Theory deep-dive | [docs/src/design/patch_theory.md](docs/src/design/patch_theory.md) |
+| History Rewriting (squash, diffedit, inversion algebra) | [docs/src/design/history_rewriting.md](docs/src/design/history_rewriting.md) |
+| Network Transport (DeltaPayload, zero-trust ingress, CRDT sync) | [docs/src/design/network_transport.md](docs/src/design/network_transport.md) |
 | Custom hooks how-to | [docs/src/howto/custom-hooks.md](docs/src/howto/custom-hooks.md) |
 | Architecture Decision Records | [docs/src/architecture/ADRs/](docs/src/architecture/ADRs/) |
 

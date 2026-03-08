@@ -29,6 +29,8 @@
 - [AST Diffing](design/ast_diffing.md)
 - [Semantic Diff Engine](design/semantic_diff.md)
 - [Spacetime Operation Log](design/oplog.md)
+- [History Rewriting](design/history_rewriting.md)
+- [Network Transport](design/network_transport.md)
 
 ---
 

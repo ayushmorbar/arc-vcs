@@ -7,6 +7,37 @@ arc uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.0-beta.2] — 2026-03-08
+
+### Added — Phase 38 (Coordination-Free Network Transport)
+
+- **`DeltaPayload` wire type** — `{ changes: Vec<Change>, blobs: HashMap<String, Vec<u8>>, view_heads: HashSet<Blake3Hash> }` — carries the full DAG delta plus all CAS blob sidecars in one JSON envelope; eliminates Git's multi-round-trip `Have/Want` negotiation.
+- **`verify_payload()`** — zero-trust ingress boundary in `arc-core::network`; verifies every Ed25519 signature before any CAS write. A tampered blob changes `content_hash` → changes Change id → breaks signature: mathematically guarantees SLSA L4 supply-chain integrity.
+- **`GET /blobs/:hash`** — new arc-net server endpoint serving raw blob bytes with path-traversal guard (64 hex char validation).
+- **`POST /sync/:view_name`** — new arc-net server endpoint: receives `DeltaPayload`, verifies Ed25519 signatures, writes changes + blobs to CAS (idempotent), advances view with CRDT set-union `new_heads = remote ∪ payload.view_heads`.
+- **`NetworkClient::push_payload()`** — async method POSTing a `DeltaPayload` to `/sync/:view_name`.
+- **`NetworkClient::fetch_blob()`** — async GET `/blobs/:hex` for single-blob retrieval.
+- **`fetch_http` blob sidecar** — HTTP fetch now transfers CAS blobs alongside changes; 404 on a blob is a hard error (previous silent-skip would produce a materialisation-broken CAS).
+- **`arc push <remote> <view>`** — real two-argument push command replacing the Phase 33 skeleton; dispatches to `push_local` (filesystem) or `push_http` (HTTP).
+- **`push_local`** — writes delta changes + blobs directly to remote CAS, then CRDT-unions view heads; uses O(1) atomic view rename for thread safety without locks.
+- **`push_http`** — builds `DeltaPayload` from BFS delta and POSTs to `/sync/:view_name` with a progress spinner.
+- 3 new unit tests: `verify_payload_accepts_valid_change`, `verify_payload_rejects_tampered_id`, `test_push_local` round-trip.
+
+### Added — Phase 37 (Algebraic History Rewriting)
+
+- **Atom schema hard break** — `Atom::Insert { content_hash: Blake3Hash }` / `Atom::Delete { prior_hash: Blake3Hash }` — blobs stored in CAS, not inline.
+- **`algebra/inverse.rs`** — `invert_atom()` / `invert_change()` — algebraic inverse for undo (5 tests).
+- **`commute.rs`** — `commute_pair()` with 4 commutation gates + Move path rewriting (4 tests).
+- **`engine/spacetime.rs`** — `squash_into()` fuses a linear spine into a single canonical Change (2 tests).
+- **`Repository::squash_into()`**, **`diffedit_prepare()`**, **`diffedit_apply()`** — high-level methods on the repository handle.
+- **`arc squash --into <rev>`** — fuses linear history; errors on non-linear topology.
+- **`arc diffedit --prepare <rev>` / `--apply`** — two-step external-editor workflow with lockfile protocol.
+- `fetch_local` blob copy in `sync.rs` — ensures CAS blobs are transferred alongside Changes in local pushes and pulls.
+- All `Atom::Delete { at }` destructuring updated to `{ at, .. }` workspace-wide.
+- 87 tests passing; clippy clean.
+
+---
+
 ## [0.1.0-beta.1] — 2026-03-08
 
 First versioned beta release covering Phases 26–33.
