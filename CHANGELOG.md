@@ -7,6 +7,26 @@ arc uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.0-beta.3] — 2026-03-08
+
+### Added — Phase 39 (Distributed Scale: Streaming & Dual-Provenance Identity Collapsing)
+
+- **`PUT /blobs/:hash`** — new arc-net server endpoint for streaming blob intake.  The server receives the body frame-by-frame, feeds each chunk to a `blake3::Hasher` and writes directly to `.arc/tmp/{hash}.tmp` (zero RAM buffering), then compares the computed hash to the path parameter and atomically renames the temp file on match.  Hash mismatch returns `400`; duplicate PUT returns `200` (idempotent).
+- **`DeltaPayload.blobs` removed** — blobs are no longer inline in the JSON envelope.  Clients must upload all referenced blobs via `PUT /blobs/:hash` before calling `POST /sync`.  Decouples the data plane from the control plane; prevents OOM on large binary-asset pushes.
+- **`SyncResponse` wire type** — `{ view_heads: HashSet<Blake3Hash>, rewritten_map: HashMap<String, String> }` returned by `POST /sync`.  `rewritten_map` is empty for ordinary pushes.
+- **`Author::Server { canonical_id, key }`** — new variant on the `Author` enum.  Used by the server to sign collapsed canonical Changes.  `verify_signature()` handles it via the same Ed25519 path as `Author::Human`.
+- **`Change::collapsed_from: Option<Blake3Hash>`** — new field (excluded from `compute_id`; `#[serde(default)]` for format compatibility).  Set by the server on canonical Changes; points to the original Change in CAS (SLSA L4 audit root).
+- **`Change::new_canonical()`** — builds a server-signed canonical Change from an existing one; sets `collapsed_from = Some(original.id)`.
+- **Dual-Provenance Identity Collapsing** in `POST /sync` — five-stage pipeline: (1) zero-trust verify, (2) blob pre-existence check / 409, (3) Kahn topological sort + cascade collapse, (4) CRDT view union with remapped heads, (5) return `SyncResponse`.  Cascade rule: collapse triggers on `is_transient(author) || any_dep_was_rewritten`, preventing signature chain breakage.
+- **Cycle detection** in `POST /sync` — Kahn's algorithm detects dep cycles in the incoming payload; returns `400 Bad Request` on cycle.
+- **Server signing identity** — `arc serve` loads (or generates on first run) an Ed25519 keypair at `.arc/server_identity.json`.  `AppState` carries `Arc<SigningKey>` for zero-copy sharing across handlers.
+- **`ObjectStore::blob_file_path()`** — new public method returning the on-disk path for a blob; used by the CLI to stream blobs from disk without loading into RAM.
+- **`push_http` streaming blob upload** — CLI builds delta, collects unique blob hashes, streams each via `reqwest::blocking::Body::from(File)` to `PUT /blobs/:hex`, then POSTs metadata-only `DeltaPayload`.
+- **409 retry guard** in `push_http` — on 409 the client re-uploads only the listed missing blobs and retries the POST once; a second 409 hard-fails with a clear error (prevents network flood from hash-mismatch bugs).
+- **`SyncResponse` handling** in `push_http` — if `rewritten_map` is non-empty, the local view is updated to canonical heads; TODO comments for Phase 40 GC.
+- **`NetworkClient::push_payload`** return type changed from `Result<()>` to `Result<SyncResponse>`.
+- 5 new unit tests: `test_collapsed_from_excluded_from_id`, `test_new_canonical_sets_collapsed_from_and_verifies`, `verify_payload_accepts_server_signed_change`, plus 2 existing network tests updated to compile without the removed `blobs` field.
+
 ## [0.1.0-beta.2] — 2026-03-08
 
 ### Added — Phase 38 (Coordination-Free Network Transport)

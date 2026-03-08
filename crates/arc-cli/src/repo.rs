@@ -1693,6 +1693,7 @@ impl Repository {
         let identity = match load_identity() {
             Ok((Author::Human { name, email, .. }, _)) => format!("{name} <{email}>"),
             Ok((Author::AI { model, .. }, _)) => format!("{model} [AI]"),
+            Ok((Author::Server { canonical_id, .. }, _)) => format!("{canonical_id} [server]"),
             Err(_) => "Not configured".to_string(),
         };
 

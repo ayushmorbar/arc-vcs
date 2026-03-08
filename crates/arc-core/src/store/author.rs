@@ -33,6 +33,20 @@ pub enum Author {
         /// The human sponsor's Ed25519 public key.
         human_sponsor: PublicKeyBytes,
     },
+    /// The arc server, acting as a canonical-identity issuer.
+    ///
+    /// Used in Dual-Provenance Identity Collapsing (Phase 39): the server
+    /// re-signs transient-author Changes under its own Ed25519 key, folding
+    /// ephemeral CRDT replica identities into a stable canonical identity.
+    /// The original Change's BLAKE3 hash is preserved in
+    /// `Change::collapsed_from` so auditors can reconstruct pre-collapse
+    /// history (SLSA L4 audit trail).
+    Server {
+        /// Stable logical name for this server (e.g. `"arc-server"`).
+        canonical_id: String,
+        /// Ed25519 public key bytes for the server identity.
+        key: PublicKeyBytes,
+    },
 }
 
 /// An Ed25519 signature over a change's BLAKE3 id.
@@ -101,6 +115,30 @@ pub fn test_keypair() -> (Author, ed25519_dalek::SigningKey) {
         key,
     };
     (author, signing_key)
+}
+
+/// Generate a fresh `Author::Server` identity + raw 32-byte signing key seed.
+///
+/// Returns `(Author::Server { canonical_id, key }, seed_bytes)`.  The seed
+/// bytes should be persisted securely (e.g. in `.arc/server_identity.json`)
+/// so the server uses the same signing key across restarts.  Only the seed
+/// is stored; the public key is always re-derived on load.
+///
+/// Uses the OS CSPRNG via `rand_core::OsRng` — forward-secure on all
+/// supported platforms.
+pub fn generate_server_keypair_seed(canonical_id: &str) -> (Author, [u8; 32]) {
+    use rand_core::OsRng;
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
+    let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
+    let author = Author::Server { canonical_id: canonical_id.to_string(), key };
+    (author, signing_key.to_bytes())
+}
+
+/// Derive `Author::Server` from a previously-saved 32-byte signing key seed.
+pub fn server_author_from_seed(canonical_id: &str, seed: &[u8; 32]) -> Author {
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(seed);
+    let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
+    Author::Server { canonical_id: canonical_id.to_string(), key }
 }
 
 // ---------------------------------------------------------------------------

@@ -24,8 +24,7 @@ JSON envelope, and delivers it in a single HTTP POST.
 
 ```json
 {
-  "changes": [ { "id": "<64-hex>", "deps": [...], "atoms": [...], ... } ],
-  "blobs":   { "<64-hex>": [72, 101, 108, ...] },
+  "changes":    [ { "id": "<64-hex>", "deps": [...], "atoms": [...], ... } ],
   "view_heads": ["<64-hex>", ...]
 }
 ```
@@ -33,16 +32,13 @@ JSON envelope, and delivers it in a single HTTP POST.
 | Field | Type | Purpose |
 |---|---|---|
 | `changes` | `Vec<Change>` | BFS-ordered slice of the DAG the remote is missing |
-| `blobs` | `HashMap<String, Vec<u8>>` | CAS blob bytes, hex-key indexed |
 | `view_heads` | `HashSet<Blake3Hash>` | Sender's current view heads for CRDT union |
 
-`blobs` contains every blob whose BLAKE3 hash appears in an
-`Insert { content_hash }` or `Delete { prior_hash }` atom in `changes`.
-This one-shot sidecar eliminates a second round-trip for blob hydration.
-
-> **Memory note:** For MVP (`0.1.0-beta.2`) all blobs are buffered in RAM.
-> TODO: Phase 39 — chunked multipart streaming for blobs above a size
-> threshold, keeping memory usage flat for large binary assets.
+> **Phase 39 change:** the `blobs` map has been removed from `DeltaPayload`.
+> Blobs are now transferred out-of-band via `PUT /blobs/:hash` (Section 8)
+> before the `POST /sync` call.  This decouples the data plane from the
+> control plane, keeping the JSON envelope small and memory usage flat even
+> for repositories with large binary assets.
 
 ---
 
@@ -164,28 +160,109 @@ ensuring the view pointer is never half-written.
 
 ---
 
-## 7. Identity Collapsing (Phase 39 — Planned)
+## 7. Dual-Provenance Identity Collapsing (Phase 39)
+
+### Problem: Transient Identity Explosion
 
 At scale, a long-running CRDT accumulates many **transient identities**:
-short-lived agents, CI runners, or ephemeral contributors who create one or
-two changes and are never seen again.  Each unique `Author` public key is
-tracked in the graph forever, creating unbounded tombstone growth.
+short-lived CI runners, ephemeral contributors, or temporary author keys
+that create one or two Changes and are never seen again.  Each unique
+`Author` public key must be tracked in the graph's causal metadata forever,
+causing unbounded tombstone growth.
 
-**Phase 39** will introduce an Identity Collapsing map: a server-side mapping
-from transient key fingerprints to canonical contributor identities.  This
-allows the graph to be compacted through the Epoch Map (`arc compact`) without
-losing authorship attribution, keeping the graph's author-identity set bounded
-as the project grows.
+### Solution: Server-Side Collapse with Dual Provenance
+
+**Phase 39** introduces *Dual-Provenance Identity Collapsing*:
+
+1. **Transient detection** — the server classifies a Change as transient
+   when its author name contains `"-temp"`, `"transient"`, or starts with
+   `"ci-"` (MVP heuristic; replaceable with a key registry in Phase 40).
+
+2. **Cascade rule** — the rewrite is also triggered when any *dependency*
+   of a non-transient Change was rewritten, because deps are included in
+   `compute_id`.  Remapping a dep changes the Change's hash, which
+   invalidates the original author's signature.  The server must therefore
+   re-sign the cascaded Change under `Author::Server` as well.
+
+3. **Server rewrite** — for each triggered Change `C`:
+   - Remap deps through the accumulated `rewritten_map`.
+   - Compute a new `canonical_id` with the remapped deps + `Author::Server`.
+   - Sign the `canonical_id` with the server's Ed25519 key.
+   - Set `collapsed_from = Some(C.id)` on the canonical Change.
+   - Write **both** the original Change and the canonical Change to CAS.
+
+4. **SLSA L4 preserved** — the original Change remains in CAS forever as
+   the cryptographic audit root.  `collapsed_from` is a permanent pointer
+   back to it; auditors can always verify the pre-collapse authorship.
+
+5. **`SyncResponse`** — the server returns:
+   ```json
+   {
+     "view_heads":    ["<canonical-64-hex>", ...],
+     "rewritten_map": { "<original-hex>": "<canonical-hex>", ... }
+   }
+   ```
+   Clients update their local view to point at canonical heads.
+   The `rewritten_map` is empty for pushes with no transient Changes
+   (the overwhelmingly common case).
+
+### `collapsed_from` Field
+
+`collapsed_from: Option<Blake3Hash>` is excluded from `compute_id`.  It is
+provenance metadata, not content: changing it must not alter the
+content-addressed identity of the canonical Change.  This means that two
+Changes with identical `(deps, atoms, intent, author)` but different
+`collapsed_from` values have the same `id` — an important invariant for
+CAS deduplication.
 
 ---
 
-## 8. Future: HTTP/3 + Streaming (Post-1.0)
+## 8. Blob Streaming Protocol (Phase 39)
 
-The current transport uses HTTP/1.1 via `reqwest`.  Post-1.0 work items:
+Blobs are no longer inline in `DeltaPayload`.  The client streams them
+separately before posting the sync payload.
 
-- **HTTP/3 + QUIC** — reduces latency on high-packet-loss connections
-  (satellite links, mobile).
-- **Chunked multipart streaming** (Phase 39) — prevents OOM when pushing
-  repositories with large binary assets.
-- **Compression** — `Content-Encoding: zstd` on the `DeltaPayload` body;
-  source code compresses 3–5×, dramatically reducing push time on slow links.
+### `PUT /blobs/:hash` — Streaming intake
+
+```
+Client                                     Server
+  │                                           │
+  │  PUT /blobs/{blake3-64-hex}               │
+  │  Content-Length: <size>                   │
+  │  <raw bytes streamed>                     │
+  │ ───────────────────────────────────────────>│
+  │                                           │  stream body frame-by-frame
+  │                                           │  compute BLAKE3 simultaneously
+  │                                           │  write each chunk to .arc/tmp/{hash}.tmp
+  │                                           │  compare hash to path param
+  │                                           │  match  → rename to .arc/blobs/{hash}
+  │  ← 201 Created                            │  (or 200 if already existed)
+  │  (or 400 if hash mismatch)                │
+```
+
+**Key properties:**
+- **Zero RAM buffering** — each body frame is fed to the BLAKE3 hasher AND
+  written directly to a temp file; no full blob is ever held in heap.
+- **Atomic commit** — `rename(tmp → blobs/{hash})` is OS-atomic.
+- **Idempotent** — a second PUT for an existing blob returns `200 OK`.
+- **Hash-verified** — content that does not match the path hash is deleted
+  and a `400` is returned; the CAS invariant is never violated.
+
+### Client Upload Contract
+
+All blobs referenced by `Insert { content_hash }` or `Delete { prior_hash }`
+atoms **must** be PUT to the server before the `POST /sync` call.
+The server enforces this with `409 Conflict` + a JSON list of missing hex
+hashes.  The client re-uploads the missing blobs and retries once.  If the
+409 persists after the retry, the push hard-fails (hash algorithm mismatch
+guard).
+
+### Endpoint Table (Phase 39)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/views/:name`      | Fetch view JSON |
+| `GET`  | `/objects/:hash`    | Fetch raw bincode Change |
+| `GET`  | `/blobs/:hash`      | Fetch raw blob bytes |
+| `PUT`  | `/blobs/:hash`      | Stream-upload a blob (Phase 39) |
+| `POST` | `/sync/:view_name`  | Push DAG delta + trigger collapse |

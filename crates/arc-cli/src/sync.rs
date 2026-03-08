@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::repo::Repository;
 use arc_core::algebra::Atom;
 use arc_core::algebra::Blake3Hash;
-use arc_core::network::DeltaPayload;
+use arc_core::network::{DeltaPayload, SyncResponse};
 use arc_core::store::change::Change;
 use arc_core::store::view::View;
 
@@ -382,8 +382,6 @@ fn push_http(
         .map_err(|e| anyhow::anyhow!("failed to load local view '{view_name}': {e}"))?;
 
     // BFS delta: collect local changes the remote is missing.
-    // Cut at any change that is exactly a remote head — the server has all
-    // ancestors of its heads by the CRDT causality invariant.
     let mut queue: VecDeque<Blake3Hash> = local_view.heads.iter().copied().collect();
     let mut visited: HashSet<Blake3Hash> = HashSet::new();
     let mut delta: Vec<Change> = Vec::new();
@@ -407,36 +405,20 @@ fn push_http(
         delta.push(change);
     }
 
-    // Collect blob sidecars for all atoms in the delta.
-    // TODO: Phase 39 — stream large blobs via multipart to keep memory flat.
-    let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();
+    // Collect unique blob hashes referenced by all delta atoms.
+    let mut blob_hashes: Vec<Blake3Hash> = Vec::new();
+    let mut seen_blobs: HashSet<Blake3Hash> = HashSet::new();
     for change in &delta {
         for atom in &change.atoms {
             match atom {
                 Atom::Insert { content_hash, .. } => {
-                    let hex: String =
-                        content_hash.iter().map(|b| format!("{b:02x}")).collect();
-                    if let std::collections::hash_map::Entry::Vacant(entry) =
-                        blobs.entry(hex)
-                    {
-                        let bytes = local
-                            .store
-                            .read_blob(content_hash)
-                            .map_err(|e| anyhow::anyhow!("missing local blob: {e}"))?;
-                        entry.insert(bytes);
+                    if seen_blobs.insert(*content_hash) {
+                        blob_hashes.push(*content_hash);
                     }
                 }
                 Atom::Delete { prior_hash, .. } => {
-                    let hex: String =
-                        prior_hash.iter().map(|b| format!("{b:02x}")).collect();
-                    if let std::collections::hash_map::Entry::Vacant(entry) =
-                        blobs.entry(hex)
-                    {
-                        let bytes = local
-                            .store
-                            .read_blob(prior_hash)
-                            .map_err(|e| anyhow::anyhow!("missing local blob: {e}"))?;
-                        entry.insert(bytes);
+                    if seen_blobs.insert(*prior_hash) {
+                        blob_hashes.push(*prior_hash);
                     }
                 }
                 _ => {}
@@ -445,27 +427,174 @@ fn push_http(
     }
 
     let n_changes = delta.len();
-    let payload = DeltaPayload {
-        changes: delta,
-        blobs,
-        view_heads: local_view.heads.clone(),
-    };
-
-    let url = format!("{remote_url}/sync/{view_name}");
+    let n_blobs = blob_hashes.len();
     let pb = indicatif::ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(80));
+
+    // Phase 1: Upload blobs out-of-band via PUT /blobs/:hash (streaming from
+    // disk — no RAM buffering regardless of blob size).
+    if n_blobs > 0 {
+        pb.set_message(format!("Uploading {n_blobs} blob(s) to {remote_url}..."));
+        upload_blobs(&client, remote_url, local, &blob_hashes, &pb)?;
+    }
+
+    // Phase 2: POST DeltaPayload (metadata only, no inline blobs).
+    let payload = DeltaPayload {
+        changes: delta,
+        view_heads: local_view.heads.clone(),
+    };
     pb.set_message(format!("Pushing {n_changes} change(s) to {remote_url}..."));
-    client
-        .post(&url)
-        .json(&payload)
-        .send()
-        .map_err(|e| anyhow::anyhow!("POST {url} failed: {e}"))?
-        .error_for_status()
-        .map_err(|e| anyhow::anyhow!("server rejected push: {e}"))?;
+    let sync_resp = post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?;
+
+    // Phase 3: Process identity collapsing result.
+    // If the server collapsed any transient-author Changes under its canonical
+    // identity, update the local view to point at the canonical heads.
+    if !sync_resp.rewritten_map.is_empty() {
+        View::new(view_name, sync_resp.view_heads)
+            .save(&local.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to update local view after identity collapse: {e}"))?;
+        // TODO Phase 40: fetch canonical Change objects from server into local CAS.
+        // TODO Phase 40: run local GC to prune orphaned transient-author Change entries.
+    }
+
     pb.finish_with_message(format!(
         "Pushed {n_changes} change(s) to {remote_url} [view: {view_name}]."
     ));
     Ok(())
+}
+
+/// Stream each blob file to `PUT {remote_url}/blobs/{hex}` without loading it
+/// into RAM.  Both 200 (already existed) and 201 (created) are success codes.
+fn upload_blobs(
+    client: &reqwest::blocking::Client,
+    remote_url: &str,
+    local: &Repository,
+    blob_hashes: &[Blake3Hash],
+    pb: &indicatif::ProgressBar,
+) -> anyhow::Result<()> {
+    for hash in blob_hashes {
+        let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+        pb.set_message(format!("Uploading blob {}...", &hex[..8]));
+        let blob_path = local.store.blob_file_path(hash);
+        let file = std::fs::File::open(&blob_path)
+            .map_err(|e| anyhow::anyhow!("cannot open local blob {hex}: {e}"))?;
+        let size = file
+            .metadata()
+            .map_err(|e| anyhow::anyhow!("cannot stat blob {hex}: {e}"))?
+            .len();
+        let url = format!("{remote_url}/blobs/{hex}");
+        let resp = client
+            .put(&url)
+            .header("content-length", size)
+            .body(reqwest::blocking::Body::from(file))
+            .send()
+            .map_err(|e| anyhow::anyhow!("PUT {url} failed: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "server rejected blob {}: HTTP {}",
+                &hex[..8],
+                resp.status()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// POST the [`DeltaPayload`] to `/sync/:view_name`.
+///
+/// Handles **409 Conflict** (server missed a blob) with a single retry:
+/// re-uploads each missing blob then retries the POST once.  If the server
+/// still returns 409 after the retry, the push aborts to prevent a network
+/// flood caused by a persistent hash mismatch.
+fn post_payload_with_retry(
+    client: &reqwest::blocking::Client,
+    remote_url: &str,
+    view_name: &str,
+    payload: &DeltaPayload,
+    local: &Repository,
+    pb: &indicatif::ProgressBar,
+) -> anyhow::Result<SyncResponse> {
+    let url = format!("{remote_url}/sync/{view_name}");
+    let mut already_retried = false;
+
+    loop {
+        let resp = client
+            .post(&url)
+            .json(payload)
+            .send()
+            .map_err(|e| anyhow::anyhow!("POST {url} failed: {e}"))?;
+
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            if already_retried {
+                // Hard-fail: the missing-blob list did not shrink after one
+                // re-upload cycle, indicating a persistent hash mismatch.
+                return Err(anyhow::anyhow!(
+                    "server persistently reports missing blobs after re-upload \
+                     (hash algorithm mismatch?) — aborting to prevent network flood"
+                ));
+            }
+            already_retried = true;
+
+            let missing: Vec<String> = resp
+                .json()
+                .map_err(|e| anyhow::anyhow!("failed to parse 409 response body: {e}"))?;
+            if missing.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "server returned 409 Conflict with an empty missing-blob list"
+                ));
+            }
+            pb.set_message(format!("Re-uploading {} missing blob(s)...", missing.len()));
+            for hex in &missing {
+                let hash = hex_to_blake3(hex)?;
+                let blob_path = local.store.blob_file_path(&hash);
+                let file = std::fs::File::open(&blob_path)
+                    .map_err(|e| anyhow::anyhow!("cannot open local blob {hex}: {e}"))?;
+                let size = file.metadata()?.len();
+                let blob_url = format!("{remote_url}/blobs/{hex}");
+                client
+                    .put(&blob_url)
+                    .header("content-length", size)
+                    .body(reqwest::blocking::Body::from(file))
+                    .send()
+                    .map_err(|e| anyhow::anyhow!("PUT {blob_url} failed: {e}"))?
+                    .error_for_status()
+                    .map_err(|e| anyhow::anyhow!("server rejected blob re-upload: {e}"))?;
+            }
+            continue; // retry the POST
+        }
+
+        return resp
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("server rejected push: {e}"))?
+            .json::<SyncResponse>()
+            .map_err(|e| anyhow::anyhow!("failed to deserialize SyncResponse: {e}"));
+    }
+}
+
+/// Decode a 64-character lowercase hex string into a `Blake3Hash`.
+fn hex_to_blake3(hex: &str) -> anyhow::Result<Blake3Hash> {
+    if hex.len() != 64 {
+        return Err(anyhow::anyhow!(
+            "invalid BLAKE3 hash hex length: expected 64, got {}",
+            hex.len()
+        ));
+    }
+    let mut bytes = [0u8; 32];
+    for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+        let hi = hex_nibble(chunk[0])?;
+        let lo = hex_nibble(chunk[1])?;
+        bytes[i] = (hi << 4) | lo;
+    }
+    Ok(bytes)
+}
+
+fn hex_nibble(c: u8) -> anyhow::Result<u8> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        _ => Err(anyhow::anyhow!("invalid hex nibble: {c}")),
+    }
 }
 
 #[cfg(test)]

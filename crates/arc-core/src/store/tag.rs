@@ -69,6 +69,8 @@ impl Tag {
         let pub_key_bytes: &PublicKeyBytes = match &self.author {
             Author::Human { key, .. } => key,
             Author::AI { human_sponsor, .. } => human_sponsor,
+            // Server-signed tags are verified against the server's own key.
+            Author::Server { key, .. } => key,
         };
 
         let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(pub_key_bytes) else {

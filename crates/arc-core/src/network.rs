@@ -1,21 +1,26 @@
-//! Async CRDT network transport — Phase 38: Coordination-Free Network Transport.
+//! Async CRDT network transport — Phase 39: Distributed Scale.
 //!
-//! Provides [`NetworkClient`] and the [`DeltaPayload`] wire type that carry
-//! the exact missing slice of a mathematical change graph — Changes plus their
-//! referenced CAS blobs — between arc peers in a single JSON envelope.
+//! Provides [`NetworkClient`] and the [`DeltaPayload`] / [`SyncResponse`]
+//! wire types that carry the exact missing slice of a mathematical change
+//! graph between arc peers.
 //!
-//! # Protocol summary
+//! # Protocol summary (Phase 39)
 //!
-//! * **Push** — The caller computes the DAG delta (Changes the remote is
-//!   missing), bundles all referenced blobs into a [`DeltaPayload`], and
-//!   POSTs it to `POST {remote}/sync/{view_name}`.  The server calls
-//!   [`verify_payload`] *before* any CAS write (zero-trust ingress), then
-//!   advances its view with `new_heads = remote ∪ payload.view_heads`.
-//!   This eliminates Git's multi-round-trip `Have/Want` negotiation entirely.
+//! * **Blob upload** — Before the sync POST, the caller streams each CAS blob
+//!   to `PUT {remote}/blobs/{hash}`.  The server verifies the BLAKE3 hash,
+//!   writes to a temp file, and atomically renames it into `.arc/blobs/`.
+//!   This decouples the data plane (blobs) from the control plane (DAG
+//!   metadata), preventing OOM on large binary-asset pushes.
+//!
+//! * **Push** — The caller then POSTs a [`DeltaPayload`] (Changes + view
+//!   heads, **no** inline blobs) to `POST {remote}/sync/{view_name}`.
+//!   The server calls [`verify_payload`] *before* any CAS write (zero-trust
+//!   ingress), runs Identity Collapsing if needed, advances its view, and
+//!   returns a [`SyncResponse`] containing the canonical view heads and a
+//!   `rewritten_map` of any collapsed Changes.
 //!
 //! * **Fetch blob** — `GET {remote}/blobs/{hex}` returns raw bytes for a
-//!   single CAS blob.  Used by `fetch_http` in `arc-cli` to hydrate the
-//!   blob sidecar for each fetched Change without a second round-trip.
+//!   single CAS blob.
 //!
 //! # Zero-trust ingress
 //!
@@ -49,35 +54,50 @@ use crate::store::change::Change;
 /// The wire type for a coordination-free push/sync operation.
 ///
 /// A `DeltaPayload` carries exactly the subset of the local DAG that the
-/// remote is missing, together with every CAS blob those Changes reference,
-/// in a single JSON envelope.  The receiver can apply it with no back-and-
-/// forth negotiation because:
+/// remote is missing.  CAS blobs are **not** included here — they are
+/// uploaded out-of-band via `PUT /blobs/:hash` before this payload is
+/// POSTed, keeping the JSON envelope small and memory usage flat even
+/// for repositories with large binary assets.
+///
+/// The receiver can apply it with no back-and-forth negotiation because:
 ///
 /// 1. **CAS writes are idempotent** — duplicate Changes are silently skipped.
 /// 2. **View merge is a set union** — `new_heads = remote ∪ payload.view_heads`.
-///
-/// # Memory note
-///
-/// Blobs are held in RAM as raw `Vec<u8>` bytes.  This is acceptable for
-/// most source-code repositories.
-/// TODO: Phase 39 — implement chunked multipart streaming for large blobs to
-/// keep memory usage flat when pushing binary assets above a size threshold.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeltaPayload {
     /// Slice of the DAG the remote is missing (BFS order from local heads).
     pub changes: Vec<Change>,
-    /// Raw CAS blob bytes keyed by lowercase hex-encoded BLAKE3 hash.
-    ///
-    /// Every blob referenced by an `Insert { content_hash }` or
-    /// `Delete { prior_hash }` atom in `changes` is included here so the
-    /// receiver can materialise the working directory without a second
-    /// round-trip.
-    pub blobs: HashMap<String, Vec<u8>>,
     /// The sender's current view heads.
     ///
     /// The receiver computes `new_heads = remote_heads ∪ view_heads` — a
     /// pure set union that requires zero coordination.
     pub view_heads: HashSet<Blake3Hash>,
+}
+
+// ── Sync response ──────────────────────────────────────────────────────────────────────────────
+
+/// Server response to a successful `POST /sync/:view_name`.
+///
+/// Carries the server's new canonical view heads plus a map of any Changes
+/// that were collapsed under Dual-Provenance Identity Collapsing (Phase 39).
+///
+/// # Identity Collapsing
+///
+/// When the server receives a payload containing transient-author Changes (or
+/// Changes whose dependencies were collapsed and therefore have a
+/// Cryptographic Cascade rewrite trigger), it re-signs them under
+/// `Author::Server`, writes the canonical Change alongside the original in
+/// CAS (`original.id` → `collapsed_from` pointer), and returns the mapping
+/// here.  Clients update their local view to point at canonical heads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncResponse {
+    /// Server's view heads after applying the payload (canonical IDs).
+    pub view_heads: HashSet<Blake3Hash>,
+    /// Collapsed Changes: `hex(original_id)` → `hex(canonical_id)`.
+    ///
+    /// Empty when no identity collapsing occurred (the common case).
+    /// JSON map keys are 64-character lowercase hex strings.
+    pub rewritten_map: HashMap<String, String>,
 }
 
 // ── Zero-trust ingress ─────────────────────────────────────────────────────
@@ -132,18 +152,26 @@ impl NetworkClient {
 
     /// POST a [`DeltaPayload`] to `{remote_url}/sync/{view_name}`.
     ///
+    /// Blobs must be uploaded out-of-band (via `PUT /blobs/:hash`) before
+    /// calling this.  The server enforces this with a 409 response listing
+    /// any missing blobs.
+    ///
     /// The server is expected to:
     /// 1. Call [`verify_payload`] and reject with 400 on failure.
-    /// 2. Write all changes and blobs to its CAS (idempotent).
-    /// 3. Advance its view: `new_heads = remote_heads ∪ payload.view_heads`.
+    /// 2. Run Dual-Provenance Identity Collapsing for transient-author Changes.
+    /// 3. Write all changes to its CAS (idempotent).
+    /// 4. Advance its view: `new_heads = remote_heads ∪ payload.view_heads`.
+    /// 5. Return a [`SyncResponse`] with canonical view heads and any
+    ///    `rewritten_map` entries.
     pub async fn push_payload(
         &self,
         remote_url: &str,
         view_name: &str,
         payload: &DeltaPayload,
-    ) -> Result<()> {
+    ) -> Result<SyncResponse> {
         let url = format!("{remote_url}/sync/{view_name}");
-        self.client
+        let resp = self
+            .client
             .post(&url)
             .json(payload)
             .send()
@@ -151,7 +179,9 @@ impl NetworkClient {
             .with_context(|| format!("POST {url} failed"))?
             .error_for_status()
             .with_context(|| format!("server rejected DeltaPayload at {url}"))?;
-        Ok(())
+        resp.json::<SyncResponse>()
+            .await
+            .with_context(|| format!("failed to deserialize SyncResponse from {url}"))
     }
 
     /// GET a single CAS blob from `{remote_url}/blobs/{hex_hash}`.
@@ -211,10 +241,35 @@ mod tests {
         let change = make_change("add widget");
         let payload = DeltaPayload {
             changes: vec![change],
-            blobs: HashMap::new(),
             view_heads: HashSet::new(),
         };
         assert!(verify_payload(&payload).is_ok());
+    }
+
+    /// `verify_payload` accepts Changes signed by `Author::Server`.
+    ///
+    /// Server-canonical Changes (Phase 39 Identity Collapsing) must pass
+    /// zero-trust ingress just like Human-signed changes.
+    #[test]
+    fn verify_payload_accepts_server_signed_change() {
+        use crate::store::author::{Author, PublicKeyBytes};
+
+        let server_key = ed25519_dalek::SigningKey::from_bytes(&[77u8; 32]);
+        let server_pubkey: PublicKeyBytes = server_key.verifying_key().to_bytes();
+        let server_author = Author::Server {
+            canonical_id: "arc-server".to_string(),
+            key: server_pubkey,
+        };
+        let change = Change::new(HashSet::new(), vec![], "server change", server_author, &server_key);
+
+        let payload = DeltaPayload {
+            changes: vec![change],
+            view_heads: HashSet::new(),
+        };
+        assert!(
+            verify_payload(&payload).is_ok(),
+            "Author::Server-signed Change must pass verify_payload"
+        );
     }
 
     /// `verify_payload` rejects a payload whose change id has been tampered with.
@@ -228,7 +283,6 @@ mod tests {
         change.id = [0u8; 32];
         let payload = DeltaPayload {
             changes: vec![change],
-            blobs: HashMap::new(),
             view_heads: HashSet::new(),
         };
         let err = verify_payload(&payload);

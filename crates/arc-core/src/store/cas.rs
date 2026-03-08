@@ -98,6 +98,15 @@ impl ObjectStore {
     pub fn contains_blob(&self, hash: &Blake3Hash) -> bool {
         self.blob_path(hash).exists()
     }
+
+    /// Return the filesystem path where the given blob is stored.
+    ///
+    /// Useful for callers that need to stream the blob directly from disk
+    /// rather than loading it into RAM (e.g. the HTTP push path in
+    /// `arc-cli` streams via `PUT /blobs/:hash` without buffering).
+    pub fn blob_file_path(&self, hash: &Blake3Hash) -> PathBuf {
+        self.blob_path(hash)
+    }
 }
 
 /// Encode a 32-byte hash as a lowercase hex string (64 chars).

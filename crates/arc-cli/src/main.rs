@@ -545,6 +545,9 @@ fn main() -> anyhow::Result<()> {
                                 human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                             format!("{model} | sponsor:{}", &sponsor[..8])
                         }
+                        Author::Server { canonical_id, .. } => {
+                            format!("{canonical_id} [server]")
+                        }
                     };
                     table.add_row(vec![
                         Cell::new(&hex[..8]).fg(Color::Cyan),
@@ -604,6 +607,9 @@ fn main() -> anyhow::Result<()> {
                             let sponsor: String =
                                 human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                             format!("{model} | sponsor:{}", &sponsor[..8])
+                        }
+                        Author::Server { canonical_id, .. } => {
+                            format!("{canonical_id} [server]")
                         }
                     };
                     let sig_status = if change.verify_signature() {
@@ -728,6 +734,11 @@ fn main() -> anyhow::Result<()> {
                             human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                         println!("Model:          {model}");
                         println!("Human sponsor:  {hex}");
+                    }
+                    Author::Server { canonical_id, key } => {
+                        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+                        println!("Server ID: {canonical_id}");
+                        println!("Key:       {hex}");
                     }
                 }
             }
