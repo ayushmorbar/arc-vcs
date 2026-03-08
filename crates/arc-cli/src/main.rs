@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use arc_cli::interop::git::import_repo;
-use arc_cli::repo::{Repository, load_merged_config, save_global_config};
+use arc_cli::repo::{Repository, ArcConfig, load_merged_config, save_global_config, save_local_config};
 use arc_cli::sync::{fetch, pull};
 use arc_core::ai::MockResolver;
 use arc_core::algebra::Blake3Hash;
@@ -79,6 +79,9 @@ enum Command {
     Init {
         /// Directory to initialize (defaults to current directory).
         path: Option<String>,
+        /// Skip auto-detection of an existing Git repository.
+        #[arg(long)]
+        no_git: bool,
     },
     /// Snapshot the working directory into a semantic change.
     Snap {
@@ -314,8 +317,21 @@ enum Command {
     },
     /// Get or set arc configuration / global aliases.
     Config {
+        /// Apply operation to the global config instead of the local one.
+        #[arg(long)]
+        global: bool,
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    /// Package OS metadata and an anonymized DAG dump for bug reporting.
+    BugReport {
+        /// Output file path (default: `./arc-bugreport.json`).
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Include raw `intent` strings in the dump (opt-in — may contain
+        /// proprietary information).
+        #[arg(long)]
+        include_raw_intent: bool,
     },
 }
 
@@ -461,6 +477,28 @@ enum ConfigAction {
     },
     /// List all configured aliases (global + local).
     Aliases,
+    /// Read a typed configuration value.
+    ///
+    /// Known keys: `user.name`, `user.email`, `ui.color`, `merge.tool`,
+    /// `remotes.<name>`, `aliases.<name>`.
+    Get {
+        /// Dot-separated config key (e.g. `ui.color`).
+        key: String,
+    },
+    /// Write a typed configuration value.
+    Set {
+        /// Dot-separated config key (e.g. `ui.color`).
+        key: String,
+        /// New value as a string.
+        value: String,
+    },
+    /// Remove a configuration key.
+    Unset {
+        /// Dot-separated config key to remove.
+        key: String,
+    },
+    /// Print all configuration values (global + local merged).
+    List,
 }
 
 fn init_tracing() {
@@ -502,10 +540,75 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse_from(&raw_args);
 
     match cli.command {
-        Command::Init { path } => {
+        Command::Init { path, no_git } => {
             let target = path.unwrap_or_else(|| ".".to_string());
-            Repository::init(&target)?;
+            let target_path = std::path::Path::new(&target);
+
+            // --- Git auto-detection (Phase D) ---
+            let do_import = if !no_git {
+                match arc_core::git_bridge::resolve_git_dir(target_path) {
+                    Ok(_git_dir) => {
+                        // Count commits for the prompt.
+                        let count = arc_core::git_bridge::analyze_git_repo(target_path)
+                            .map(|a| a.commit_count)
+                            .unwrap_or(0);
+                        eprint!(
+                            "Detected Git repository with {count} commit{}. \
+                             Import history as arc Changes? [Y/n] ",
+                            if count == 1 { "" } else { "s" }
+                        );
+                        use std::io::Write;
+                        let _ = std::io::stderr().flush();
+                        let mut line = String::new();
+                        std::io::stdin().read_line(&mut line).ok();
+                        matches!(line.trim().to_lowercase().as_str(), "" | "y" | "yes")
+                    }
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+
+            let mut repo = Repository::init(&target)?;
             println!("Initialized empty arc repository in {target}/.arc");
+
+            if do_import {
+                // --- Trust Anchor identity flow ---
+                let (author, signing_key) = match load_identity() {
+                    Ok(pair) => pair,
+                    Err(_) => {
+                        // No identity yet: read git user.name/email as defaults.
+                        let (git_name, git_email) =
+                            arc_core::git_bridge::read_git_user_config(target_path)
+                                .unwrap_or_else(|| ("arc user".into(), "".into()));
+                        eprintln!(
+                            "No arc cryptographic identity found.\n\
+                             Generating Ed25519 keypair for {git_name} <{git_email}>\n\
+                             Press Enter to confirm, or Ctrl-C to abort."
+                        );
+                        use std::io::Write;
+                        let _ = std::io::stderr().flush();
+                        let mut _confirm = String::new();
+                        std::io::stdin().read_line(&mut _confirm).ok();
+                        save_identity(&git_name, &git_email)?;
+                        // Also persist display identity into config.toml [user].
+                        let mut cfg = ArcConfig::default();
+                        cfg.user.name = Some(git_name);
+                        cfg.user.email = Some(git_email);
+                        save_global_config(&cfg)?;
+                        load_identity()?
+                    }
+                };
+
+                // --- Import ---
+                let n = import_repo(&target, &mut repo, &author, &signing_key)?;
+                println!(
+                    "Imported {n} change{} across all branches.\n\
+                     Note: Rust source files imported semantically; \
+                     other file types imported as blobs.",
+                    if n == 1 { "" } else { "s" }
+                );
+            }
         }
         Command::Snap {
             message,
@@ -1109,7 +1212,7 @@ fn main() -> anyhow::Result<()> {
             arc_cli::sync::push(&mut repo, &remote, &view)?;
             println!("Pushed '{}' \u{2192} {}.", view, remote);
         }
-        Command::Config { action } => match action {
+        Command::Config { global, action } => match action {
             ConfigAction::Alias { name, expansion } => {
                 let mut config = load_merged_config(std::path::Path::new("."))?;
                 config.aliases.insert(name.clone(), expansion.clone());
@@ -1128,9 +1231,156 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            ConfigAction::Get { key } => {
+                let config = load_merged_config(std::path::Path::new("."))?;
+                match config_get(&config, &key) {
+                    Some(v) => println!("{v}"),
+                    None => anyhow::bail!("config key '{key}' is not set"),
+                }
+            }
+            ConfigAction::Set { key, value } => {
+                let shared_root = std::path::Path::new(".");
+                let mut config = if global {
+                    // Load global only for mutation.
+                    load_merged_config(shared_root)?
+                } else {
+                    load_merged_config(shared_root)?
+                };
+                config_set(&mut config, &key, &value)?;
+                if global {
+                    save_global_config(&config)?;
+                } else {
+                    // Write back only the local layer.
+                    let local_path = std::path::Path::new(".arc").join("config.toml");
+                    let mut local = if local_path.exists() {
+                        let text = std::fs::read_to_string(&local_path).unwrap_or_default();
+                        toml::from_str::<ArcConfig>(&text).unwrap_or_default()
+                    } else {
+                        ArcConfig::default()
+                    };
+                    config_set(&mut local, &key, &value)?;
+                    save_local_config(&local, shared_root)?;
+                }
+                println!("Set {key} = {value}");
+            }
+            ConfigAction::Unset { key } => {
+                let shared_root = std::path::Path::new(".");
+                let local_path = shared_root.join(".arc").join("config.toml");
+                let mut local = if local_path.exists() {
+                    let text = std::fs::read_to_string(&local_path).unwrap_or_default();
+                    toml::from_str::<ArcConfig>(&text).unwrap_or_default()
+                } else {
+                    ArcConfig::default()
+                };
+                config_unset(&mut local, &key)?;
+                save_local_config(&local, shared_root)?;
+                println!("Unset {key}.");
+            }
+            ConfigAction::List => {
+                let config = load_merged_config(std::path::Path::new("."))?;
+                println!("[user]");
+                if let Some(n) = &config.user.name { println!("name = {n}"); }
+                if let Some(e) = &config.user.email { println!("email = {e}"); }
+                println!("\n[ui]");
+                println!("color = {}", config.ui.color);
+                println!("\n[merge]");
+                if let Some(t) = &config.merge.tool { println!("tool = {t}"); }
+                if !config.remotes.is_empty() {
+                    println!("\n[remotes]");
+                    let mut rs: Vec<_> = config.remotes.iter().collect();
+                    rs.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in rs { println!("{k} = {v}"); }
+                }
+                if !config.aliases.is_empty() {
+                    println!("\n[aliases]");
+                    let mut al: Vec<_> = config.aliases.iter().collect();
+                    al.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in al { println!("{k} = {v}"); }
+                }
+            }
         },
+        Command::BugReport { output, include_raw_intent } => {
+            let repo = Repository::open(".")?;
+            let out_path = output.unwrap_or_else(|| "./arc-bugreport.json".to_string());
+            arc_cli::bugreport::generate(&repo, &out_path, include_raw_intent)?;
+            println!("Bug report written to: {out_path}");
+        }
     }
 
+    Ok(())
+}
+
+/// Get a typed config value by dot-separated key.
+fn config_get(cfg: &ArcConfig, key: &str) -> Option<String> {
+    match key {
+        "user.name" => cfg.user.name.clone(),
+        "user.email" => cfg.user.email.clone(),
+        "ui.color" => Some(cfg.ui.color.clone()),
+        "merge.tool" => cfg.merge.tool.clone(),
+        _ => {
+            // remotes.<name> and aliases.<name>
+            if let Some(name) = key.strip_prefix("remotes.") {
+                cfg.remotes.get(name).cloned()
+            } else if let Some(name) = key.strip_prefix("aliases.") {
+                cfg.aliases.get(name).cloned()
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Set a typed config value by dot-separated key.
+fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()> {
+    match key {
+        "user.name" => cfg.user.name = Some(value.to_string()),
+        "user.email" => cfg.user.email = Some(value.to_string()),
+        "ui.color" => {
+            anyhow::ensure!(
+                matches!(value, "auto" | "always" | "never"),
+                "ui.color must be 'auto', 'always', or 'never'"
+            );
+            cfg.ui.color = value.to_string();
+        }
+        "merge.tool" => cfg.merge.tool = Some(value.to_string()),
+        _ => {
+            if let Some(name) = key.strip_prefix("remotes.") {
+                cfg.remotes.insert(name.to_string(), value.to_string());
+            } else if let Some(name) = key.strip_prefix("aliases.") {
+                cfg.aliases.insert(name.to_string(), value.to_string());
+            } else {
+                anyhow::bail!(
+                    "unknown config key '{key}'; known keys: \
+                     user.name, user.email, ui.color, merge.tool, \
+                     remotes.<name>, aliases.<name>"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Unset (clear) a typed config value by dot-separated key.
+fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
+    match key {
+        "user.name" => cfg.user.name = None,
+        "user.email" => cfg.user.email = None,
+        "ui.color" => cfg.ui.color = "auto".to_string(),
+        "merge.tool" => cfg.merge.tool = None,
+        _ => {
+            if let Some(name) = key.strip_prefix("remotes.") {
+                cfg.remotes.remove(name);
+            } else if let Some(name) = key.strip_prefix("aliases.") {
+                cfg.aliases.remove(name);
+            } else {
+                anyhow::bail!(
+                    "unknown config key '{key}'; known keys: \
+                     user.name, user.email, ui.color, merge.tool, \
+                     remotes.<name>, aliases.<name>"
+                );
+            }
+        }
+    }
     Ok(())
 }
 

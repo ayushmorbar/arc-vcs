@@ -18,6 +18,8 @@
 pub mod interop;
 /// Top-level repository operations and VCS commands.
 pub mod repo;
+/// Anonymized DAG telemetry packager for `arc bugreport`.
+pub mod bugreport;
 /// Semantic text diff rendering: Sesame alignment, intent annotation, and
 /// BDiff-inspired inline sub-expression highlighting.
 pub mod semantic_diff;

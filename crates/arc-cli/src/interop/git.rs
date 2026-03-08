@@ -26,7 +26,7 @@ pub fn import_repo(
     arc_repo: &mut Repository,
     author: &Author,
     signing_key: &ed25519_dalek::SigningKey,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     let git_path = git_path.as_ref();
     let analysis = git_bridge::analyze_git_repo(git_path)?;
     let git_dir = git_bridge::resolve_git_dir(git_path)?;
@@ -105,10 +105,14 @@ pub fn import_repo(
             }
         }
 
+        let intent = format!(
+            "git-author: {} <{}>\n\n{}",
+            commit.author_name, commit.author_email, commit.message
+        );
         let change = Change::new(
             deps,
             all_atoms,
-            commit.message.clone(),
+            intent,
             author.clone(),
             signing_key,
         );
@@ -133,7 +137,7 @@ pub fn import_repo(
         }
     }
 
-    Ok(())
+    Ok(analysis.commit_count)
 }
 
 #[cfg(test)]

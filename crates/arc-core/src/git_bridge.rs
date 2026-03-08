@@ -791,6 +791,67 @@ fn collect_loose_refs(
     Ok(())
 }
 
+/// Read `user.name` and `user.email` from a Git repository's config INI file.
+///
+/// Searches `<repo>/.git/config` first, then falls back to `~/.gitconfig`.
+/// Returns `None` if neither file contains a `[user]` section with both fields.
+pub fn read_git_user_config(repo_path: &Path) -> Option<(String, String)> {
+    // Prefer the local repo config, fall back to the global gitconfig.
+    let candidates: Vec<PathBuf> = {
+        let mut v = Vec::new();
+        if let Ok(git_dir) = resolve_git_dir(repo_path) {
+            v.push(git_dir.join("config"));
+        }
+        if let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+        {
+            v.push(PathBuf::from(home).join(".gitconfig"));
+        }
+        v
+    };
+
+    for path in candidates {
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Some(pair) = parse_git_user_config(&text)
+        {
+            return Some(pair);
+        }
+    }
+    None
+}
+
+/// Parse `user.name` and `user.email` from a Git INI config string.
+fn parse_git_user_config(text: &str) -> Option<(String, String)> {
+    let mut in_user = false;
+    let mut name: Option<String> = None;
+    let mut email: Option<String> = None;
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.starts_with('[') {
+            in_user = line.to_lowercase().starts_with("[user]");
+            continue;
+        }
+        if !in_user {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("name")
+            && let Some(v) = rest.trim_start().strip_prefix('=')
+        {
+            name = Some(v.trim().to_string());
+        } else if let Some(rest) = line.strip_prefix("email")
+            && let Some(v) = rest.trim_start().strip_prefix('=')
+        {
+            email = Some(v.trim().to_string());
+        }
+    }
+
+    match (name, email) {
+        (Some(n), Some(e)) => Some((n, e)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

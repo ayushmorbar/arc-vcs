@@ -35,11 +35,62 @@ pub struct WorkspaceManifest {
     pub sparse_patterns: Vec<String>,
 }
 
-/// Repository-level configuration persisted in `.arc/config.json`.
+/// Display-identity overrides — **not** cryptographic material.
+/// Cryptographic keys remain exclusively in `~/.config/arc/identity.json`.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct UserConfig {
+    /// Display name (overrides the name stored in identity.json for this repo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Display email (overrides the email stored in identity.json for this repo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// Merge-tool preferences.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct MergeConfig {
+    /// External diff/merge tool to launch for unresolved conflicts
+    /// (e.g. `"kdiff3"`, `"meld"`, `"vimdiff"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+}
+
+/// Terminal UI preferences.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiConfig {
+    /// Colour output mode: `"auto"` (default), `"always"`, or `"never"`.
+    #[serde(default = "UiConfig::default_color")]
+    pub color: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { color: Self::default_color() }
+    }
+}
+
+impl UiConfig {
+    fn default_color() -> String {
+        "auto".to_string()
+    }
+}
+
+/// Repository-level configuration persisted in `.arc/config.toml`.
 ///
 /// Settings are isolated per-repository and never touch the OS keyring.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct RepoConfig {
+/// Cryptographic key material lives exclusively in `identity.json`.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ArcConfig {
+    /// Display identity overrides (`[user]` table).
+    #[serde(default)]
+    pub user: UserConfig,
+    /// Merge-tool preferences (`[merge]` table).
+    #[serde(default)]
+    pub merge: MergeConfig,
+    /// Terminal UI preferences (`[ui]` table).
+    #[serde(default)]
+    pub ui: UiConfig,
     /// Named remote aliases mapping a short name to a URL or filesystem path.
     #[serde(default)]
     pub remotes: HashMap<String, String>,
@@ -51,6 +102,21 @@ pub struct RepoConfig {
     #[serde(default)]
     pub hooks: HashMap<String, Vec<String>>,
 }
+
+/// Backward-compat: the old JSON-only config shape (remotes + aliases + hooks).
+/// Used solely to migrate `config.json` → `config.toml` on first load.
+#[derive(Debug, Default, Deserialize)]
+struct LegacyConfig {
+    #[serde(default)]
+    remotes: HashMap<String, String>,
+    #[serde(default)]
+    aliases: HashMap<String, String>,
+    #[serde(default)]
+    hooks: HashMap<String, Vec<String>>,
+}
+
+/// Alias for backward-compatibility within this crate.
+pub type RepoConfig = ArcConfig;
 
 /// Persisted conflict state written to `.arc/conflict` when a merge fails.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3148,47 +3214,105 @@ fn load_sparse_patterns(root: &Path) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()
 }
 
-/// Load the merged `RepoConfig` for a shared-root repository.
-///
-/// The global config (stored in the OS config directory for "arc") is loaded
-/// first, then the local `.arc/config.json` is overlaid on top so that
-/// local settings take precedence.  The `aliases` map is merged with local
-/// entries overriding global ones of the same name.
-pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<RepoConfig> {
-    // Global config: ~/.config/arc/config.json (or platform equivalent).
-    let mut merged = RepoConfig::default();
-    if let Some(proj) = directories::ProjectDirs::from("", "arc-vcs", "arc") {
-        let global_path = proj.config_dir().join("config.json");
-        if global_path.exists()
-            && let Ok(json) = fs::read_to_string(&global_path)
-            && let Ok(global) = serde_json::from_str::<RepoConfig>(&json)
+// ── config helpers ────────────────────────────────────────────────────
+
+/// Try to load an `ArcConfig` from a TOML file at `path`.
+/// If the TOML file is absent but a legacy `config.json` is present at the
+/// same directory, migrate automatically: re-serialize as TOML, delete the
+/// old JSON, and print a one-time deprecation notice to stderr.
+fn load_config_file(toml_path: &Path) -> ArcConfig {
+    if toml_path.exists() {
+        if let Ok(text) = fs::read_to_string(toml_path)
+            && let Ok(cfg) = toml::from_str::<ArcConfig>(&text)
         {
-            merged.remotes.extend(global.remotes);
-            merged.aliases.extend(global.aliases);
+            return cfg;
+        }
+        return ArcConfig::default();
+    }
+    // Auto-migrate legacy config.json → config.toml.
+    let json_path = toml_path.with_extension("json");
+    if json_path.exists()
+        && let Ok(json) = fs::read_to_string(&json_path)
+        && let Ok(legacy) = serde_json::from_str::<LegacyConfig>(&json)
+    {
+        let migrated = ArcConfig {
+            remotes: legacy.remotes,
+            aliases: legacy.aliases,
+            hooks: legacy.hooks,
+            ..ArcConfig::default()
+        };
+        if let Ok(toml_text) = toml::to_string_pretty(&migrated)
+            && fs::write(toml_path, &toml_text).is_ok()
+        {
+            let _ = fs::remove_file(&json_path);
+            eprintln!(
+                "arc: migrated config.json → config.toml (one-time upgrade)"
+            );
+            return migrated;
         }
     }
-    // Local config: <shared_root>/.arc/config.json (overrides global).
-    let local_path = shared_root.join(".arc").join("config.json");
-    if local_path.exists()
-        && let Ok(json) = fs::read_to_string(&local_path)
-        && let Ok(local) = serde_json::from_str::<RepoConfig>(&json)
-    {
-        merged.remotes.extend(local.remotes);
-        merged.aliases.extend(local.aliases);
+    ArcConfig::default()
+}
+
+/// Persist `config` as TOML to `path`, creating parent directories as needed.
+fn save_config_file(config: &ArcConfig, path: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| anyhow::anyhow!("failed to create config dir: {e}"))?;
     }
+    let text = toml::to_string_pretty(config)
+        .map_err(|e| anyhow::anyhow!("failed to serialize config: {e}"))?;
+    fs::write(path, text).map_err(|e| anyhow::anyhow!("failed to write config: {e}"))
+}
+
+/// Return the path to the OS-level global `config.toml`.
+fn global_config_path() -> anyhow::Result<std::path::PathBuf> {
+    let proj = directories::ProjectDirs::from("", "arc-vcs", "arc")
+        .ok_or_else(|| anyhow::anyhow!("cannot determine global config directory"))?;
+    Ok(proj.config_dir().join("config.toml"))
+}
+
+/// Load the merged `ArcConfig` for a shared-root repository.
+///
+/// The global config (`~/.config/arc/config.toml`) is loaded first, then
+/// the local `.arc/config.toml` is overlaid so that local settings take
+/// precedence.  Maps (`remotes`, `aliases`, `hooks`) are merged with local
+/// entries overriding global ones of the same name.
+pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
+    let mut merged = ArcConfig::default();
+    // Global config.
+    if let Ok(global_path) = global_config_path() {
+        let global = load_config_file(&global_path);
+        merged.user = global.user;
+        merged.merge = global.merge;
+        merged.ui = global.ui;
+        merged.remotes.extend(global.remotes);
+        merged.aliases.extend(global.aliases);
+        merged.hooks.extend(global.hooks);
+    }
+    // Local config (overrides global).
+    let local_path = shared_root.join(".arc").join("config.toml");
+    let local = load_config_file(&local_path);
+    if local.user.name.is_some() { merged.user.name = local.user.name; }
+    if local.user.email.is_some() { merged.user.email = local.user.email; }
+    if local.merge.tool.is_some() { merged.merge.tool = local.merge.tool; }
+    if local.ui.color != "auto" { merged.ui.color = local.ui.color; }
+    merged.remotes.extend(local.remotes);
+    merged.aliases.extend(local.aliases);
+    merged.hooks.extend(local.hooks);
     Ok(merged)
 }
 
 /// Persist `config` to the OS-level global arc config file.
-pub fn save_global_config(config: &RepoConfig) -> anyhow::Result<()> {
-    let proj = directories::ProjectDirs::from("", "arc-vcs", "arc")
-        .ok_or_else(|| anyhow::anyhow!("cannot determine global config directory"))?;
-    let dir = proj.config_dir();
-    fs::create_dir_all(dir)
-        .map_err(|e| anyhow::anyhow!("failed to create config dir: {e}"))?;
-    let path = dir.join("config.json");
-    fs::write(&path, serde_json::to_string_pretty(config)?)
-        .map_err(|e| anyhow::anyhow!("failed to write global config: {e}"))
+pub fn save_global_config(config: &ArcConfig) -> anyhow::Result<()> {
+    let path = global_config_path()?;
+    save_config_file(config, &path)
+}
+
+/// Persist `config` to the local `.arc/config.toml` for `shared_root`.
+pub fn save_local_config(config: &ArcConfig, shared_root: &Path) -> anyhow::Result<()> {
+    let path = shared_root.join(".arc").join("config.toml");
+    save_config_file(config, &path)
 }
 
 fn load_agentignore(root: &Path) -> Gitignore {
