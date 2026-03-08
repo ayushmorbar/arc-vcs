@@ -71,6 +71,8 @@ impl Tag {
             Author::AI { human_sponsor, .. } => human_sponsor,
             // Server-signed tags are verified against the server's own key.
             Author::Server { key, .. } => key,
+            // Transient sessions sign with their own ephemeral key.
+            Author::Transient { key, .. } => key,
         };
 
         let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(pub_key_bytes) else {

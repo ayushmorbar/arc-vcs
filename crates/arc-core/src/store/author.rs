@@ -47,6 +47,24 @@ pub enum Author {
         /// Ed25519 public key bytes for the server identity.
         key: PublicKeyBytes,
     },
+    /// An ephemeral session identity for CI/CD runners and AI agents.
+    ///
+    /// `Transient` identities are provisioned automatically when the
+    /// `ARC_EPHEMERAL_RUNNER` environment variable is set, and are
+    /// persisted for the duration of a single workspace session in
+    /// `.arc/local/session.json`.  They are cryptographically first-class:
+    /// the holder signs with a real Ed25519 key and the server verifies the
+    /// signature before executing Identity Collapsing (Phase 39).
+    ///
+    /// This makes the collapse trigger a strict type-system match rather
+    /// than brittle string heuristics, satisfying the Phase 40 security
+    /// requirement.
+    Transient {
+        /// Session identifier, e.g. `"ci-runner-42"` or a process-scoped UUID.
+        session_id: String,
+        /// Ed25519 public key bytes for this ephemeral session.
+        key: PublicKeyBytes,
+    },
 }
 
 /// An Ed25519 signature over a change's BLAKE3 id.
@@ -115,6 +133,23 @@ pub fn test_keypair() -> (Author, ed25519_dalek::SigningKey) {
         key,
     };
     (author, signing_key)
+}
+
+/// Generate a fresh `Author::Transient` identity + raw 32-byte signing key seed.
+///
+/// Returns `(Author::Transient { session_id, key }, seed_bytes)`.  The seed
+/// bytes should be persisted in `.arc/local/session.json` (scoped to the
+/// current workspace) so the same ephemeral key is reused for the lifetime
+/// of the session.  A new key is generated on the next `arc init` or when
+/// `ARC_EPHEMERAL_RUNNER` triggers a fresh workspace.
+///
+/// Uses the OS CSPRNG — forward-secure on all supported platforms.
+pub fn generate_transient_keypair_seed(session_id: &str) -> (Author, [u8; 32]) {
+    use rand_core::OsRng;
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
+    let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
+    let author = Author::Transient { session_id: session_id.to_string(), key };
+    (author, signing_key.to_bytes())
 }
 
 /// Generate a fresh `Author::Server` identity + raw 32-byte signing key seed.

@@ -189,6 +189,8 @@ impl Change {
             // Server-signed canonical Changes are verified against the
             // server's own public key (same Ed25519 path as Human).
             Author::Server { key, .. } => key,
+            // Transient sessions sign with their own ephemeral key.
+            Author::Transient { key, .. } => key,
         };
 
         let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(pub_key_bytes) {
@@ -406,6 +408,34 @@ mod tests {
         assert!(
             canonical.verify_signature(),
             "canonical Change signed by Author::Server must verify"
+        );
+    }
+
+    /// `Author::Transient` changes are cryptographically first-class:
+    /// the ephemeral session key is a real Ed25519 key and must pass both
+    /// verification layers.
+    #[test]
+    fn test_transient_author_verifies() {
+        use crate::store::author::generate_transient_keypair_seed;
+        use ed25519_dalek::SigningKey;
+
+        let (author, seed) = generate_transient_keypair_seed("ci-runner-42");
+        let signing_key = SigningKey::from_bytes(&seed);
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["lib.rs".into()],
+                content_hash: [0u8; 32],
+            }],
+            "ephemeral CI commit",
+            author,
+            &signing_key,
+        );
+
+        assert!(
+            change.verify_signature(),
+            "Transient-authored change must pass both cryptographic verification layers"
         );
     }
 }

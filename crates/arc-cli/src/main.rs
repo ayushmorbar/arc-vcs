@@ -12,6 +12,60 @@ use arc_core::store::oplog::OperationAgent;
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
 
+/// Serialisable session record written to `.arc/local/session.json` when
+/// `ARC_EPHEMERAL_RUNNER` is set.  Keeps the same ephemeral key stable for
+/// the lifetime of the workspace so CRDT replica IDs don't flip mid-session.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct EphemeralSession {
+    session_id: String,
+    secret_key_bytes: [u8; 32],
+}
+
+/// Load or create an ephemeral `Author::Transient` identity scoped to the arc
+/// repository at `shared_root`.
+///
+/// Priority:
+/// 1. `.arc/local/session.json` if it already exists (stable within a session).
+/// 2. Generate a fresh keypair whose `session_id` comes from the
+///    `ARC_EPHEMERAL_RUNNER` environment variable (or the OS process ID as a
+///    fallback), then persist it for subsequent commands.
+///
+/// Global permanent identity (`~/.arc/identity.json`) is intentionally ignored
+/// when `ARC_EPHEMERAL_RUNNER` is set — the caller opted into ephemeral mode.
+fn load_ephemeral_session_identity(
+    shared_root: &std::path::Path,
+) -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
+    let session_path = shared_root.join(".arc").join("local").join("session.json");
+
+    let (author, seed) = if session_path.exists() {
+        let json = std::fs::read_to_string(&session_path)
+            .context("failed to read .arc/local/session.json")?;
+        let s: EphemeralSession = serde_json::from_str(&json)
+            .context("failed to parse .arc/local/session.json")?;
+        let key = ed25519_dalek::SigningKey::from_bytes(&s.secret_key_bytes)
+            .verifying_key()
+            .to_bytes();
+        let author = Author::Transient { session_id: s.session_id, key };
+        (author, s.secret_key_bytes)
+    } else {
+        let session_id = std::env::var("ARC_EPHEMERAL_RUNNER")
+            .unwrap_or_else(|_| format!("ephemeral-{}", std::process::id()));
+        let (author, seed) =
+            arc_core::store::author::generate_transient_keypair_seed(&session_id);
+        if let Some(parent) = session_path.parent() {
+            std::fs::create_dir_all(parent)
+                .context("failed to create .arc/local/ directory")?;
+        }
+        let record = EphemeralSession { session_id, secret_key_bytes: seed };
+        std::fs::write(&session_path, serde_json::to_string_pretty(&record)?)
+            .context("failed to write .arc/local/session.json")?;
+        (author, seed)
+    };
+
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+    Ok((author, signing_key))
+}
+
 #[derive(Parser)]
 #[command(name = "arc", version, about = "Atomic Replayable Changes")]
 struct Cli {
@@ -461,7 +515,20 @@ fn main() -> anyhow::Result<()> {
             use std::io::Write;
 
             let mut repo = Repository::open(".")?;
-            let (author, signing_key) = load_identity()?;
+            // Ephemeral CI/CD path: ARC_EPHEMERAL_RUNNER bypasses global identity.
+            // Permanent identity path: hard-fail with a clear action message if
+            // the user hasn't run `arc auth generate` yet.
+            let (author, signing_key) = if std::env::var("ARC_EPHEMERAL_RUNNER").is_ok() {
+                load_ephemeral_session_identity(&repo.shared_root)?
+            } else {
+                load_identity().map_err(|_| {
+                    anyhow::anyhow!(
+                        "No cryptographic identity found. \
+                         Run 'arc auth generate' to create one, or set \
+                         ARC_EPHEMERAL_RUNNER for CI/CD pipelines."
+                    )
+                })?
+            };
             repo.set_identity(author, signing_key);
 
             let final_message: String = if auto_msg {
@@ -548,6 +615,9 @@ fn main() -> anyhow::Result<()> {
                         Author::Server { canonical_id, .. } => {
                             format!("{canonical_id} [server]")
                         }
+                        Author::Transient { session_id, .. } => {
+                            format!("{session_id} [transient]")
+                        }
                     };
                     table.add_row(vec![
                         Cell::new(&hex[..8]).fg(Color::Cyan),
@@ -610,6 +680,9 @@ fn main() -> anyhow::Result<()> {
                         }
                         Author::Server { canonical_id, .. } => {
                             format!("{canonical_id} [server]")
+                        }
+                        Author::Transient { session_id, .. } => {
+                            format!("{session_id} [transient]")
                         }
                     };
                     let sig_status = if change.verify_signature() {
@@ -739,6 +812,11 @@ fn main() -> anyhow::Result<()> {
                         let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
                         println!("Server ID: {canonical_id}");
                         println!("Key:       {hex}");
+                    }
+                    Author::Transient { session_id, key } => {
+                        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+                        println!("Session ID: {session_id} [transient]");
+                        println!("Key:        {hex}");
                     }
                 }
             }
@@ -1027,8 +1105,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Command::Push { remote, view } => {
-            let repo = Repository::open(".")?;
-            arc_cli::sync::push(&repo, &remote, &view)?;
+            let mut repo = Repository::open(".")?;
+            arc_cli::sync::push(&mut repo, &remote, &view)?;
             println!("Pushed '{}' \u{2192} {}.", view, remote);
         }
         Command::Config { action } => match action {

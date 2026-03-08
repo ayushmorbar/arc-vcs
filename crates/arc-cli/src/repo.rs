@@ -1694,6 +1694,7 @@ impl Repository {
             Ok((Author::Human { name, email, .. }, _)) => format!("{name} <{email}>"),
             Ok((Author::AI { model, .. }, _)) => format!("{model} [AI]"),
             Ok((Author::Server { canonical_id, .. }, _)) => format!("{canonical_id} [server]"),
+            Ok((Author::Transient { session_id, .. }, _)) => format!("{session_id} [transient]"),
             Err(_) => "Not configured".to_string(),
         };
 
@@ -2135,31 +2136,50 @@ impl Repository {
         let mut result = GcResult::default();
 
         // Collect change IDs present on disk.
+        //
+        // CAS layout: `.arc/store/{first_2_hex}/{remaining_62_hex}`
+        // A flat `read_dir` of `.arc/store/` only finds the 2-char shard
+        // directories, never the actual change files — so a two-level walk is
+        // required.
         let mut on_disk: Vec<Blake3Hash> = Vec::new();
-        if let Ok(rd) = fs::read_dir(&store_dir) {
-            for entry in rd.filter_map(|e| e.ok()) {
-                let fname = entry.file_name().to_string_lossy().into_owned();
-                // CAS files are 64-char lowercase hex names.
-                if fname.len() == 64 && fname.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    let mut id = [0u8; 32];
-                    let mut valid = true;
-                    for (i, chunk) in fname.as_bytes().chunks(2).enumerate() {
-                        let hi = match chunk[0] {
-                            b'0'..=b'9' => chunk[0] - b'0',
-                            b'a'..=b'f' => chunk[0] - b'a' + 10,
-                            b'A'..=b'F' => chunk[0] - b'A' + 10,
-                            _ => { valid = false; break; }
-                        };
-                        let lo = match chunk[1] {
-                            b'0'..=b'9' => chunk[1] - b'0',
-                            b'a'..=b'f' => chunk[1] - b'a' + 10,
-                            b'A'..=b'F' => chunk[1] - b'A' + 10,
-                            _ => { valid = false; break; }
-                        };
-                        id[i] = (hi << 4) | lo;
-                    }
-                    if valid {
-                        on_disk.push(id);
+        if let Ok(prefixes) = fs::read_dir(&store_dir) {
+            for prefix_entry in prefixes.filter_map(|e| e.ok()) {
+                let prefix_name = prefix_entry.file_name().to_string_lossy().into_owned();
+                // Shard directories are exactly 2 lowercase hex chars.
+                if prefix_name.len() != 2
+                    || !prefix_name.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    continue;
+                }
+                if let Ok(files) = fs::read_dir(prefix_entry.path()) {
+                    for file_entry in files.filter_map(|e| e.ok()) {
+                        let suffix = file_entry.file_name().to_string_lossy().into_owned();
+                        // The suffix is 62 hex chars; combined with the 2-char
+                        // prefix it forms the full 64-char BLAKE3 hex.
+                        if suffix.len() != 62 || !suffix.bytes().all(|b| b.is_ascii_hexdigit()) {
+                            continue;
+                        }
+                        let hex_full = format!("{prefix_name}{suffix}");
+                        let mut id = [0u8; 32];
+                        let mut valid = true;
+                        for (i, chunk) in hex_full.as_bytes().chunks(2).enumerate() {
+                            let hi = match chunk[0] {
+                                b'0'..=b'9' => chunk[0] - b'0',
+                                b'a'..=b'f' => chunk[0] - b'a' + 10,
+                                b'A'..=b'F' => chunk[0] - b'A' + 10,
+                                _ => { valid = false; break; }
+                            };
+                            let lo = match chunk[1] {
+                                b'0'..=b'9' => chunk[1] - b'0',
+                                b'a'..=b'f' => chunk[1] - b'a' + 10,
+                                b'A'..=b'F' => chunk[1] - b'A' + 10,
+                                _ => { valid = false; break; }
+                            };
+                            id[i] = (hi << 4) | lo;
+                        }
+                        if valid {
+                            on_disk.push(id);
+                        }
                     }
                 }
             }
@@ -2167,9 +2187,15 @@ impl Repository {
 
         for id in &on_disk {
             if !reachable.contains(id) && causally_stable.contains(id) {
-                let path = store_dir.join(_hex(id));
+                let hex = _hex(id);
+                let path = store_dir.join(&hex[..2]).join(&hex[2..]);
                 if fs::remove_file(&path).is_ok() {
                     result.changes_deleted += 1;
+                    // Remove empty shard directory to avoid accumulating 256
+                    // empty dirs over time when the last object in a shard is
+                    // deleted.
+                    let shard_dir = store_dir.join(&hex[..2]);
+                    let _ = fs::remove_dir(&shard_dir); // no-op if not empty
                 }
             }
         }
@@ -4080,6 +4106,64 @@ mod tests {
         let result = repo.gc().unwrap();
         assert_eq!(result.changes_deleted, 0, "no unreachable changes expected");
         assert_eq!(result.blobs_deleted, 0, "no unreachable blobs expected");
+
+        // Verify the CAS is using the two-level sharding layout that gc()'s
+        // two-level walk requires.  The old flat walk silently found zero
+        // changes because it looked for 64-char files at the top level; the
+        // fixed walk looks for 2-char shard dirs containing 62-char files.
+        let store_dir = repo.shared_root.join(".arc").join("store");
+        let shards: Vec<_> = fs::read_dir(&store_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().unwrap().is_dir())
+            .collect();
+        assert!(!shards.is_empty(), "CAS must use two-level sharding (at least one shard dir exists)");
+        for shard in &shards {
+            let name = shard.file_name().to_string_lossy().into_owned();
+            assert_eq!(name.len(), 2, "shard directory '{name}' must be exactly 2 hex chars");
+            assert!(
+                name.bytes().all(|b| b.is_ascii_hexdigit()),
+                "shard directory '{name}' must be lowercase hex"
+            );
+        }
+    }
+
+    /// Verifies that GC removes orphaned blob files — blobs present in `.arc/blobs/`
+    /// that are not referenced by any reachable Change — while leaving reachable
+    /// blobs intact.
+    #[test]
+    fn test_local_gc_removes_orphans() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("orphan_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        // Snap a change so there is at least one reachable blob.
+        fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+        repo.snap("add main.rs", false).unwrap().expect("snap");
+
+        // Write an orphan blob directly into `.arc/blobs/` — no Change atom
+        // references this hash, so GC must collect it.
+        let orphan_content = b"orphan bytes not referenced by any change";
+        let orphan_hash: Blake3Hash = *blake3::hash(orphan_content).as_bytes();
+        let orphan_hex = _hex(&orphan_hash);
+        let blobs_dir = repo_path.join(".arc").join("blobs");
+        let orphan_path = blobs_dir.join(&orphan_hex);
+        fs::write(&orphan_path, orphan_content).unwrap();
+        assert!(orphan_path.exists(), "orphan blob must exist before GC");
+
+        // Record how many blobs exist before GC.
+        let before_count = fs::read_dir(&blobs_dir).unwrap().count();
+
+        let result = repo.gc().unwrap();
+        assert_eq!(result.changes_deleted, 0, "reachable changes must not be deleted");
+        assert!(result.blobs_deleted >= 1, "orphan blob must be deleted by GC");
+        assert!(!orphan_path.exists(), "orphan blob file must be removed from disk");
+
+        let after_count = fs::read_dir(&blobs_dir).unwrap().count();
+        assert!(after_count < before_count, "blob count must decrease after GC");
     }
 
     /// DAG Compaction: PO-Log Compaction via a single Genesis Change.

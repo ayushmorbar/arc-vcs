@@ -126,25 +126,24 @@ fn fetch_local(
     Ok(remote_view.heads)
 }
 
-fn fetch_http(
-    local: &mut Repository,
+/// Bounded BFS fetch from a remote HTTP server.
+///
+/// Traverses the DAG backward from `roots`, downloading every [`Change`]
+/// (via `GET /objects/{hex}`) and its blob sidecars (via `GET /blobs/{hex}`)
+/// that the local CAS is missing.  Returns the number of objects fetched.
+///
+/// This is the shared primitive used by both [`fetch_http`] (initial clone /
+/// pull) and the synchronization-closure step in [`push_http`] (fetching
+/// canonical objects written by the server during Identity Collapsing).
+fn bfs_fetch_changes(
+    client: &reqwest::blocking::Client,
     remote_url: &str,
-    view_name: &str,
-) -> anyhow::Result<HashSet<Blake3Hash>> {
-    let url = format!("{remote_url}/views/{view_name}");
-    let remote_view: View = reqwest::blocking::get(&url)
-        .map_err(|e| anyhow::anyhow!("HTTP GET {url} failed: {e}"))?
-        .error_for_status()
-        .map_err(|e| anyhow::anyhow!("server returned error for {url}: {e}"))?
-        .json::<View>()
-        .map_err(|e| anyhow::anyhow!("failed to deserialise remote view: {e}"))?;
-
-    let mut queue: VecDeque<Blake3Hash> = remote_view.heads.iter().copied().collect();
+    local: &mut Repository,
+    roots: &HashSet<Blake3Hash>,
+    pb: &indicatif::ProgressBar,
+) -> anyhow::Result<usize> {
+    let mut queue: VecDeque<Blake3Hash> = roots.iter().copied().collect();
     let mut visited: HashSet<Blake3Hash> = HashSet::new();
-    let client = reqwest::blocking::Client::new();
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.enable_steady_tick(Duration::from_millis(80));
-    pb.set_message(format!("Fetching view '{view_name}' from {remote_url}..."));
 
     while let Some(id) = queue.pop_front() {
         if !visited.insert(id) {
@@ -181,10 +180,6 @@ fn fetch_http(
                 queue.push_back(dep);
             }
         }
-        // Phase 38: fetch blob sidecar for every atom in this change.
-        // A 404 is a hard error (not a silent skip) because Insert atoms in the
-        // Phase 37 schema have no inline bytes — a missing blob leaves the CAS
-        // in a materialisation-broken state.
         for atom in &change.atoms {
             match atom {
                 Atom::Insert { content_hash, .. }
@@ -238,7 +233,29 @@ fn fetch_http(
         }
         local.graph.add_change(change);
     }
-    pb.finish_with_message(format!("Fetched {} objects from {remote_url}.", visited.len()));
+    Ok(visited.len())
+}
+
+fn fetch_http(
+    local: &mut Repository,
+    remote_url: &str,
+    view_name: &str,
+) -> anyhow::Result<HashSet<Blake3Hash>> {
+    let url = format!("{remote_url}/views/{view_name}");
+    let remote_view: View = reqwest::blocking::get(&url)
+        .map_err(|e| anyhow::anyhow!("HTTP GET {url} failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| anyhow::anyhow!("server returned error for {url}: {e}"))?
+        .json::<View>()
+        .map_err(|e| anyhow::anyhow!("failed to deserialise remote view: {e}"))?;
+
+    let client = reqwest::blocking::Client::new();
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb.set_message(format!("Fetching view '{view_name}' from {remote_url}..."));
+
+    let fetched = bfs_fetch_changes(&client, remote_url, local, &remote_view.heads, &pb)?;
+    pb.finish_with_message(format!("Fetched {fetched} objects from {remote_url}."));
 
     Ok(remote_view.heads)
 }
@@ -260,7 +277,7 @@ pub fn pull(local: &mut Repository, remote_path: &str, view_name: &str) -> anyho
 ///
 /// The algorithm is the CRDT dual of [`fetch`]: compute the delta of Changes
 /// the remote is missing, bundle their blob sidecars, and deliver atomically.
-pub fn push(local: &Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()> {
+pub fn push(local: &mut Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()> {
     let resolved = resolve_remote(local, remote_path)?;
     if resolved.starts_with("http://") || resolved.starts_with("https://") {
         return push_http(local, &resolved, view_name);
@@ -358,7 +375,7 @@ fn push_local(
 }
 
 fn push_http(
-    local: &Repository,
+    local: &mut Repository,
     remote_url: &str,
     view_name: &str,
 ) -> anyhow::Result<()> {
@@ -428,14 +445,17 @@ fn push_http(
 
     let n_changes = delta.len();
     let n_blobs = blob_hashes.len();
-    let pb = indicatif::ProgressBar::new_spinner();
-    pb.enable_steady_tick(Duration::from_millis(80));
 
     // Phase 1: Upload blobs out-of-band via PUT /blobs/:hash (streaming from
     // disk — no RAM buffering regardless of blob size).
+    // Pre-scan total bytes upfront so the hierarchical progress bar can show
+    // bytes-uploaded/total and per-file bars for blobs above the threshold.
     if n_blobs > 0 {
-        pb.set_message(format!("Uploading {n_blobs} blob(s) to {remote_url}..."));
-        upload_blobs(&client, remote_url, local, &blob_hashes, &pb)?;
+        let total_blob_bytes: u64 = blob_hashes
+            .iter()
+            .map(|h| local.store.blob_file_path(h).metadata().map(|m| m.len()).unwrap_or(0))
+            .sum();
+        upload_blobs(&client, remote_url, local, &blob_hashes, total_blob_bytes)?;
     }
 
     // Phase 2: POST DeltaPayload (metadata only, no inline blobs).
@@ -443,18 +463,28 @@ fn push_http(
         changes: delta,
         view_heads: local_view.heads.clone(),
     };
+    let pb = indicatif::ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(80));
     pb.set_message(format!("Pushing {n_changes} change(s) to {remote_url}..."));
     let sync_resp = post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?;
 
     // Phase 3: Process identity collapsing result.
     // If the server collapsed any transient-author Changes under its canonical
-    // identity, update the local view to point at the canonical heads.
+    // identity, fetch the new canonical objects into the local CAS and advance
+    // the local view pointer, then run a conservative GC to prune the now-
+    // orphaned transient-author metadata (conservative = respects OpLog so
+    // `arc undo` remains safe; CAS dedup means old metadata is negligible bytes).
     if !sync_resp.rewritten_map.is_empty() {
+        pb.set_message("Fetching canonical objects after identity collapse...");
+        bfs_fetch_changes(&client, remote_url, local, &sync_resp.view_heads, &pb)?;
         View::new(view_name, sync_resp.view_heads)
             .save(&local.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to update local view after identity collapse: {e}"))?;
-        // TODO Phase 40: fetch canonical Change objects from server into local CAS.
-        // TODO Phase 40: run local GC to prune orphaned transient-author Change entries.
+        if let Err(e) = local.gc() {
+            // Non-fatal: repository is fully consistent; old metadata lingers
+            // in the CAS until the next OpLog compaction prunes the references.
+            eprintln!("warning: post-collapse GC failed: {e}");
+        }
     }
 
     pb.finish_with_message(format!(
@@ -463,18 +493,40 @@ fn push_http(
     Ok(())
 }
 
+/// Minimum blob size that gets its own dedicated progress bar line.
+/// Below this threshold, blobs are silently streamed and only the master
+/// bytes-uploaded counter is updated.
+const HEAVY_BLOB_THRESHOLD: u64 = 5_242_880; // 5 MiB
+
 /// Stream each blob file to `PUT {remote_url}/blobs/{hex}` without loading it
 /// into RAM.  Both 200 (already existed) and 201 (created) are success codes.
+///
+/// **Progress reporting** — uses a `MultiProgress` layout:
+/// - One persistent master bar showing total bytes / bytes-per-second.
+/// - Per-blob child bars (inserted above the master) for blobs that exceed
+///   [`HEAVY_BLOB_THRESHOLD`].  Each child bar clears itself on completion,
+///   keeping the terminal clean during bulk small-blob uploads.
 fn upload_blobs(
     client: &reqwest::blocking::Client,
     remote_url: &str,
     local: &Repository,
     blob_hashes: &[Blake3Hash],
-    pb: &indicatif::ProgressBar,
+    total_bytes: u64,
 ) -> anyhow::Result<()> {
-    for hash in blob_hashes {
+    let mp = indicatif::MultiProgress::new();
+    let master_style = indicatif::ProgressStyle::with_template(
+        "{bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec}) {msg}",
+    )
+    .unwrap()
+    .progress_chars("=>-");
+    let master_pb = mp.add(indicatif::ProgressBar::new(total_bytes));
+    master_pb.set_style(master_style);
+    master_pb.enable_steady_tick(Duration::from_millis(80));
+
+    let n = blob_hashes.len();
+    for (idx, hash) in blob_hashes.iter().enumerate() {
         let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-        pb.set_message(format!("Uploading blob {}...", &hex[..8]));
+        master_pb.set_message(format!("{}/{n} blobs", idx + 1));
         let blob_path = local.store.blob_file_path(hash);
         let file = std::fs::File::open(&blob_path)
             .map_err(|e| anyhow::anyhow!("cannot open local blob {hex}: {e}"))?;
@@ -483,20 +535,48 @@ fn upload_blobs(
             .map_err(|e| anyhow::anyhow!("cannot stat blob {hex}: {e}"))?
             .len();
         let url = format!("{remote_url}/blobs/{hex}");
-        let resp = client
-            .put(&url)
-            .header("content-length", size)
-            .body(reqwest::blocking::Body::from(file))
-            .send()
-            .map_err(|e| anyhow::anyhow!("PUT {url} failed: {e}"))?;
+
+        let resp = if size > HEAVY_BLOB_THRESHOLD {
+            // Large blob: spawn a per-file progress bar inserted above the master.
+            let file_style = indicatif::ProgressStyle::with_template(
+                "  {bar:38.yellow/black} {bytes}/{total_bytes} [{msg}]",
+            )
+            .unwrap()
+            .progress_chars("=>-");
+            let file_pb =
+                mp.insert_before(&master_pb, indicatif::ProgressBar::new(size));
+            file_pb.set_style(file_style);
+            file_pb.set_message(format!("{} ...", &hex[..8]));
+            let reader = file_pb.wrap_read(file);
+            let resp = client
+                .put(&url)
+                .header("content-length", size)
+                .body(reqwest::blocking::Body::sized(reader, size))
+                .send()
+                .map_err(|e| anyhow::anyhow!("PUT {url} failed: {e}"))?;
+            file_pb.finish_and_clear();
+            resp
+        } else {
+            // Small blob: stream directly from disk, no per-file bar.
+            client
+                .put(&url)
+                .header("content-length", size)
+                .body(reqwest::blocking::Body::from(file))
+                .send()
+                .map_err(|e| anyhow::anyhow!("PUT {url} failed: {e}"))?
+        };
+
         if !resp.status().is_success() {
+            master_pb.abandon();
             return Err(anyhow::anyhow!(
                 "server rejected blob {}: HTTP {}",
                 &hex[..8],
                 resp.status()
             ));
         }
+        master_pb.inc(size);
     }
+    master_pb.finish_with_message("Done.");
     Ok(())
 }
 
@@ -697,7 +777,7 @@ mod tests {
         repo_b.set_identity(author_b, key_b);
 
         // Push A's view to B.
-        push(&repo_a, path_b.to_str().unwrap(), "main").unwrap();
+        push(&mut repo_a, path_b.to_str().unwrap(), "main").unwrap();
 
         // B's view heads must exactly match A's after push.
         let view_a = arc_core::store::view::View::load(&path_a, "main").unwrap();

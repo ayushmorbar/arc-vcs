@@ -67,21 +67,12 @@ fn load_or_generate_server_identity(
 /// Returns `true` when the author represents a transient or ephemeral identity
 /// that should be collapsed into a canonical server identity on ingress.
 ///
-/// MVP heuristic: author name/model contains `"-temp"`, `"transient"`, or
-/// starts with `"ci-"` (case-insensitive).  Replaceable with a server-side
-/// key registry in Phase 40.
+/// Phase 40: the trigger is a strict enum match on `Author::Transient`
+/// rather than brittle string heuristics.  CI/CD runners and AI agents that
+/// set `ARC_EPHEMERAL_RUNNER` automatically push with a `Transient` author,
+/// which flows through here and triggers the Phase 39 Identity Collapse.
 fn is_transient_author(author: &Author) -> bool {
-    match author {
-        Author::Human { name, .. } => {
-            let lower = name.to_lowercase();
-            lower.contains("-temp") || lower.contains("transient") || lower.starts_with("ci-")
-        }
-        Author::AI { model, .. } => {
-            let lower = model.to_lowercase();
-            lower.contains("-temp") || lower.contains("transient") || lower.starts_with("ci-")
-        }
-        Author::Server { .. } => false, // already canonical
-    }
+    matches!(author, Author::Transient { .. })
 }
 
 async fn get_view(
