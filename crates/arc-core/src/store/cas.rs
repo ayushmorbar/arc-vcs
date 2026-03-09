@@ -6,6 +6,7 @@ use memmap2::Mmap;
 
 use crate::algebra::Blake3Hash;
 use crate::store::StoreError;
+use crate::error::{Exn, ResultExt};
 use crate::store::change::Change;
 
 /// Files smaller than one OS page (4 KiB) are read into a heap buffer so the
@@ -76,42 +77,44 @@ impl ObjectStore {
     ///
     /// Returns the change's `id` (its BLAKE3 hash). If the object already
     /// exists on disk the write is skipped (deduplication).
-    pub fn write_change(&self, change: &Change) -> Result<Blake3Hash, StoreError> {
+    #[track_caller]
+    pub fn write_change(&self, change: &Change) -> Result<Blake3Hash, Exn<StoreError>> {
         let path = self.object_path(&change.id);
 
         // Dedup: skip write when the object is already present.
-        if path.exists() {
-            return Ok(change.id);
-        }
+            if path.exists() {
+                return Ok(change.id);
+            }
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "create_dir_all failed")))?;
         }
 
-        let bytes = bincode::serialize(change)?;
-        fs::write(&path, &bytes)?;
+            let bytes = bincode::serialize(change).or_raise(|| StoreError::Serialization(Box::new(bincode::ErrorKind::Custom("serialize failed".to_string()))))?;
+            fs::write(&path, &bytes).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "write failed")))?;
 
-        Ok(change.id)
+            Ok(change.id)
     }
 
     /// Read a [`Change`] back from the CAS.
     ///
     /// Files < 4 096 bytes are read into a `Vec<u8>`; larger objects are
     /// memory-mapped to avoid a heap copy.
-    pub fn read_change(&self, hash: &Blake3Hash) -> Result<Change, StoreError> {
+    #[track_caller]
+    pub fn read_change(&self, hash: &Blake3Hash) -> Result<Change, Exn<StoreError>> {
         let path = self.object_path(hash);
-        let mut file = fs::File::open(&path)?;
-        let len = file.metadata()?.len();
-        let bytes: CasBytes = if len < 4096 {
-            let mut buf = Vec::with_capacity(len as usize);
-            file.read_to_end(&mut buf)?;
-            CasBytes::Owned(buf)
-        } else {
-            // SAFETY: the file is immutable once written (CAS guarantee).
-            CasBytes::Mapped(unsafe { Mmap::map(&file)? })
-        };
-        let change: Change = bincode::deserialize(&bytes)?;
-        Ok(change)
+            let mut file = fs::File::open(&path).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "file open failed")))?;
+            let len = file.metadata().or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "metadata failed")))?.len();
+            let bytes: CasBytes = if len < 4096 {
+                let mut buf = Vec::with_capacity(len as usize);
+                file.read_to_end(&mut buf).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "read_to_end failed")))?;
+                CasBytes::Owned(buf)
+            } else {
+                // SAFETY: the file is immutable once written (CAS guarantee).
+                CasBytes::Mapped(unsafe { Mmap::map(&file).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "mmap failed")))? })
+            };
+            let change: Change = bincode::deserialize(&bytes).or_raise(|| StoreError::Serialization(Box::new(bincode::ErrorKind::Custom("deserialize failed".to_string()))))?;
+            Ok(change)
     }
 
     /// Derive the on-disk path for a raw blob in `.arc/blobs/{hex(hash)}`.
@@ -123,17 +126,18 @@ impl ObjectStore {
     ///
     /// Returns the BLAKE3 hash of the content (the blob's storage key).
     /// If the blob already exists the write is skipped.
-    pub fn write_blob(&self, bytes: &[u8]) -> Result<Blake3Hash, StoreError> {
+    #[track_caller]
+    pub fn write_blob(&self, bytes: &[u8]) -> Result<Blake3Hash, Exn<StoreError>> {
         let hash: Blake3Hash = *blake3::hash(bytes).as_bytes();
         let path = self.blob_path(&hash);
-        if path.exists() {
-            return Ok(hash);
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, bytes)?;
-        Ok(hash)
+            if path.exists() {
+                return Ok(hash);
+            }
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "create_dir_all failed")))?;
+            }
+            fs::write(&path, bytes).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "write failed")))?;
+            Ok(hash)
     }
 
     /// Read raw bytes for a blob by its BLAKE3 hash.
@@ -141,19 +145,20 @@ impl ObjectStore {
     /// Files < 4 096 bytes are read into a `Vec<u8>`; larger blobs are
     /// memory-mapped for zero-copy access.  Callers dereference the result
     /// to obtain a `&[u8]` slice.
-    pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, StoreError> {
+    #[track_caller]
+    pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, Exn<StoreError>> {
         let path = self.blob_path(hash);
-        let mut file = fs::File::open(&path)?;
-        let len = file.metadata()?.len();
-        if len < 4096 {
-            let mut buf = Vec::with_capacity(len as usize);
-            file.read_to_end(&mut buf)?;
-            Ok(CasBytes::Owned(buf))
-        } else {
-            // SAFETY: CAS blobs are immutable once written — no writer holds
-            // a reference after `write_blob` returns.
-            Ok(CasBytes::Mapped(unsafe { Mmap::map(&file)? }))
-        }
+            let mut file = fs::File::open(&path).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "file open failed")))?;
+            let len = file.metadata().or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "metadata failed")))?.len();
+            if len < 4096 {
+                let mut buf = Vec::with_capacity(len as usize);
+                file.read_to_end(&mut buf).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "read_to_end failed")))?;
+                Ok(CasBytes::Owned(buf))
+            } else {
+                // SAFETY: CAS blobs are immutable once written — no writer holds
+                // a reference after `write_blob` returns.
+                Ok(CasBytes::Mapped(unsafe { Mmap::map(&file).or_raise(|| StoreError::Io(std::io::Error::new(std::io::ErrorKind::Other, "mmap failed")))? }))
+            }
     }
 
     /// Return `true` when the blob exists in `.arc/blobs/`.

@@ -30,3 +30,5 @@ pub mod git_bridge;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS).
 pub mod network;
 pub mod store;
+/// Error types for this crate.
+pub mod error;
