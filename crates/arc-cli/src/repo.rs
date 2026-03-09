@@ -20,6 +20,7 @@ use arc_core::store::graph::ChangeGraph;
 use arc_core::store::oplog::{OpLog, Operation};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
+use gix_features::parallel;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
@@ -148,6 +149,39 @@ pub struct GcResult {
     pub changes_deleted: usize,
     /// Number of blob files deleted from `.arc/blobs/`.
     pub blobs_deleted: usize,
+}
+
+/// Reducer for the parallel non-Rust file hashing pass in
+/// [`Repository::compute_working_directory_delta`].
+///
+/// Worker threads produce `anyhow::Result<Option<Atom>>` for each file;
+/// this reducer collects the `Some` variants into a `Vec<Atom>`.
+struct BlobAtomReducer {
+    atoms: Vec<Atom>,
+}
+
+impl BlobAtomReducer {
+    fn new() -> Self {
+        Self { atoms: Vec::new() }
+    }
+}
+
+impl parallel::Reduce for BlobAtomReducer {
+    type Input = anyhow::Result<Option<Atom>>;
+    type FeedProduce = ();
+    type Output = Vec<Atom>;
+    type Error = anyhow::Error;
+
+    fn feed(&mut self, item: anyhow::Result<Option<Atom>>) -> Result<(), anyhow::Error> {
+        if let Some(atom) = item? {
+            self.atoms.push(atom);
+        }
+        Ok(())
+    }
+
+    fn finalize(self) -> Result<Vec<Atom>, anyhow::Error> {
+        Ok(self.atoms)
+    }
 }
 
 /// Top-level repository handle, tying together the CAS, the change graph,
@@ -734,28 +768,42 @@ impl Repository {
             }
         }
 
-        // ── Pass 2: Non-Rust files — O(1) BLAKE3 blob diff ───────────────────
+        // ── Pass 2: Non-Rust files — parallel BLAKE3 blob diff ─────────────
         let all_files = collect_all_files(&self.work_root, &arcignore)?;
-        for filepath in all_files.iter().filter(|f| !f.ends_with(".rs")) {
-            let bytes = fs::read(self.work_root.join(filepath))
-                .map_err(|e| anyhow::anyhow!("failed to read '{filepath}': {e}"))?;
-            let new_hash: Blake3Hash = *blake3::hash(&bytes).as_bytes();
-            let path_key = vec!["file".to_string(), filepath.clone()];
-            // Skip if the blob ref in state already matches this hash.
-            if let Some(existing) = state.get(&path_key)
-                && existing.starts_with(b"ARC_BLOB_REF:")
-                && existing.len() >= 45
-            {
-                let old_hash: Blake3Hash = existing[13..45].try_into().unwrap_or([0u8; 32]);
-                if old_hash == new_hash {
-                    continue;
+        let non_rs_files: Vec<String> = all_files
+            .into_iter()
+            .filter(|f| !f.ends_with(".rs"))
+            .collect();
+        let work_root: &std::path::Path = &self.work_root;
+        let blob_atoms = parallel::in_parallel(
+            non_rs_files.into_iter(),
+            None,
+            |_| blake3::Hasher::new(),
+            |filepath: String, hasher: &mut blake3::Hasher| -> anyhow::Result<Option<Atom>> {
+                let bytes = fs::read(work_root.join(&filepath))
+                    .map_err(|e| anyhow::anyhow!("failed to read '{filepath}': {e}"))?;
+                hasher.reset();
+                hasher.update(&bytes);
+                let new_hash: Blake3Hash = *hasher.finalize().as_bytes();
+                let path_key = vec!["file".to_string(), filepath];
+                if let Some(existing) = state.get(&path_key)
+                    && existing.starts_with(b"ARC_BLOB_REF:")
+                    && existing.len() >= 45
+                {
+                    let old_hash: Blake3Hash =
+                        existing[13..45].try_into().unwrap_or([0u8; 32]);
+                    if old_hash == new_hash {
+                        return Ok(None);
+                    }
                 }
-            }
-            atoms.push(Atom::Blob {
-                path: path_key,
-                hash: new_hash,
-            });
-        }
+                Ok(Some(Atom::Blob {
+                    path: path_key,
+                    hash: new_hash,
+                }))
+            },
+            BlobAtomReducer::new(),
+        )?;
+        atoms.extend(blob_atoms);
 
         // Deleted files.
         let state_filepaths = extract_filepaths_from_state(state);

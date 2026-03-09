@@ -77,7 +77,7 @@ pub fn apply_change(
                 let bytes = store
                     .read_blob(content_hash)
                     .map_err(|e| format!("CAS read error for Insert at {at:?}: {e}"))?;
-                state.insert(at.clone(), bytes);
+                state.insert(at.clone(), bytes.to_vec());
                 if let Some(ref mut b) = blame {
                     b.insert(at.clone(), change.id);
                 }

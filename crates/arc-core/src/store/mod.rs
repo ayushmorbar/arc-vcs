@@ -14,6 +14,7 @@ pub mod graph;
 pub mod tempfile;
 
 pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
+pub use cas::CasBytes;
 /// Append-only spacetime operation log for O(1) undo.
 pub mod oplog;
 /// Cryptographically-signed immutable tags.

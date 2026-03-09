@@ -133,6 +133,7 @@ dependencies = [
  "directories",
  "ed25519-dalek",
  "fs2",
+ "gix-features",
  "ignore",
  "indicatif 0.18.4",
  "memmap2",
@@ -163,6 +164,7 @@ dependencies = [
  "ed25519-dalek",
  "fastembed",
  "flate2",
+ "gix-features",
  "ignore",
  "memmap2",
  "rand_core 0.6.4",
@@ -712,6 +714,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -1338,6 +1349,24 @@ dependencies = [
  "color_quant",
  "weezl",
 ]
+
+[[package]]
+name = "gix-features"
+version = "0.46.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a83a5fe8927de3bb02b0cfb87165dbfb49f04d4c297767443f2e1011ecc15bdd"
+dependencies = [
+ "crossbeam-channel",
+ "gix-trace",
+ "libc",
+ "parking_lot",
+]
+
+[[package]]
+name = "gix-trace"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f69a13643b8437d4ca6845e08143e847a36ca82903eed13303475d0ae8b162e0"
 
 [[package]]
 name = "globset"

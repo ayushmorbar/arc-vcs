@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use memmap2::Mmap;
@@ -6,6 +7,45 @@ use memmap2::Mmap;
 use crate::algebra::Blake3Hash;
 use crate::store::StoreError;
 use crate::store::change::Change;
+
+/// Files smaller than one OS page (4 KiB) are read into a heap buffer so the
+/// kernel does not need to manage a very short-lived page-table entry.
+/// Larger blobs are returned as a memory-mapped slice, avoiding a copy
+/// into the process heap entirely.
+///
+/// Callers access the bytes via `Deref<Target = [u8]>`; the distinction is
+/// fully transparent to them.
+pub enum CasBytes {
+    /// Heap-allocated bytes for small blobs (< 4 096 bytes).
+    Owned(Vec<u8>),
+    /// Memory-mapped file for large blobs (≥ 4 096 bytes).
+    Mapped(Mmap),
+}
+
+impl std::ops::Deref for CasBytes {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            CasBytes::Owned(v) => v,
+            CasBytes::Mapped(m) => m,
+        }
+    }
+}
+
+impl Default for CasBytes {
+    #[inline]
+    fn default() -> Self {
+        CasBytes::Owned(Vec::new())
+    }
+}
+
+impl AsRef<[u8]> for CasBytes {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self
+    }
+}
 
 /// Content-addressable object store backed by BLAKE3 hashes and `bincode`
 /// serialization.
@@ -54,15 +94,23 @@ impl ObjectStore {
         Ok(change.id)
     }
 
-    /// Read a [`Change`] back from the CAS using zero-copy memory mapping.
+    /// Read a [`Change`] back from the CAS.
+    ///
+    /// Files < 4 096 bytes are read into a `Vec<u8>`; larger objects are
+    /// memory-mapped to avoid a heap copy.
     pub fn read_change(&self, hash: &Blake3Hash) -> Result<Change, StoreError> {
         let path = self.object_path(hash);
-        let file = fs::File::open(path)?;
-
-        // SAFETY: the file is immutable once written (CAS guarantee).
-        let mmap = unsafe { Mmap::map(&file)? };
-
-        let change: Change = bincode::deserialize(&mmap)?;
+        let mut file = fs::File::open(&path)?;
+        let len = file.metadata()?.len();
+        let bytes: CasBytes = if len < 4096 {
+            let mut buf = Vec::with_capacity(len as usize);
+            file.read_to_end(&mut buf)?;
+            CasBytes::Owned(buf)
+        } else {
+            // SAFETY: the file is immutable once written (CAS guarantee).
+            CasBytes::Mapped(unsafe { Mmap::map(&file)? })
+        };
+        let change: Change = bincode::deserialize(&bytes)?;
         Ok(change)
     }
 
@@ -89,9 +137,23 @@ impl ObjectStore {
     }
 
     /// Read raw bytes for a blob by its BLAKE3 hash.
-    pub fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, StoreError> {
+    ///
+    /// Files < 4 096 bytes are read into a `Vec<u8>`; larger blobs are
+    /// memory-mapped for zero-copy access.  Callers dereference the result
+    /// to obtain a `&[u8]` slice.
+    pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, StoreError> {
         let path = self.blob_path(hash);
-        Ok(fs::read(path)?)
+        let mut file = fs::File::open(&path)?;
+        let len = file.metadata()?.len();
+        if len < 4096 {
+            let mut buf = Vec::with_capacity(len as usize);
+            file.read_to_end(&mut buf)?;
+            Ok(CasBytes::Owned(buf))
+        } else {
+            // SAFETY: CAS blobs are immutable once written — no writer holds
+            // a reference after `write_blob` returns.
+            Ok(CasBytes::Mapped(unsafe { Mmap::map(&file)? }))
+        }
     }
 
     /// Return `true` when the blob exists in `.arc/blobs/`.
