@@ -36,13 +36,13 @@ use serde_json::json;
 /// Returns `Err` if `ARC_AI_KEY` is unset (hard configuration failure) or if the HTTP
 /// request itself fails (transient — callers should offer an interactive fallback).
 pub async fn generate_message(diff_summary: &str) -> Result<String> {
-    let api_key = std::env::var("ARC_AI_KEY")
-        .context("ARC_AI_KEY environment variable must be set. Export it before using --auto-msg.")?;
+    let api_key = std::env::var("ARC_AI_KEY").context(
+        "ARC_AI_KEY environment variable must be set. Export it before using --auto-msg.",
+    )?;
 
-    let base_url = std::env::var("ARC_AI_URL")
-        .unwrap_or_else(|_| "https://api.openai.com".to_owned());
-    let model = std::env::var("ARC_AI_MODEL")
-        .unwrap_or_else(|_| "gpt-4o-mini".to_owned());
+    let base_url =
+        std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
+    let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
 
     let client = Client::builder()
         .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
@@ -111,8 +111,8 @@ pub fn extract_code_fence(text: &str) -> String {
     };
     let after_open = &text[fence_start + 3..];
     // Skip optional language tag (e.g. ```rust).
-    let after_tag = after_open
-        .trim_start_matches(|c: char| c.is_alphanumeric() || c == '-' || c == '_');
+    let after_tag =
+        after_open.trim_start_matches(|c: char| c.is_alphanumeric() || c == '-' || c == '_');
     let content_start = match after_tag.find('\n') {
         Some(i) => &after_tag[i + 1..],
         None => after_tag,
@@ -131,10 +131,9 @@ pub fn extract_code_fence(text: &str) -> String {
 pub async fn generate_code(prompt: &str) -> Result<String> {
     let api_key = std::env::var("ARC_AI_KEY")
         .context("ARC_AI_KEY must be set. Export it before using 'arc generate'.")?;
-    let base_url = std::env::var("ARC_AI_URL")
-        .unwrap_or_else(|_| "https://api.openai.com".to_owned());
-    let model = std::env::var("ARC_AI_MODEL")
-        .unwrap_or_else(|_| "gpt-4o-mini".to_owned());
+    let base_url =
+        std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
+    let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
 
     let client = Client::builder()
         .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
@@ -198,11 +197,14 @@ impl LlmResolver {
     /// [`MockResolver`] for offline / CI scenarios.
     pub fn from_env() -> Option<Self> {
         let api_key = std::env::var("ARC_AI_KEY").ok()?;
-        let base_url = std::env::var("ARC_AI_URL")
-            .unwrap_or_else(|_| "https://api.openai.com".to_owned());
-        let model = std::env::var("ARC_AI_MODEL")
-            .unwrap_or_else(|_| "gpt-4o-mini".to_owned());
-        Some(Self { model, api_key, base_url })
+        let base_url =
+            std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
+        let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
+        Some(Self {
+            model,
+            api_key,
+            base_url,
+        })
     }
 }
 

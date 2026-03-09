@@ -109,18 +109,12 @@ pub fn import_repo(
             "git-author: {} <{}>\n\n{}",
             commit.author_name, commit.author_email, commit.message
         );
-        let change = Change::new(
-            deps,
-            all_atoms,
-            intent,
-            author.clone(),
-            signing_key,
-        );
+        let change = Change::new(deps, all_atoms, intent, author.clone(), signing_key);
         arc_repo
             .store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        arc_repo.graph.add_change(change.clone());
+        arc_repo.graph_add_change(change.clone());
 
         oid_to_arc.insert(commit.oid, change.id);
         oid_to_tree.insert(commit.oid, commit.tree);
@@ -143,8 +137,8 @@ pub fn import_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
     use arc_lang::ast::LanguagePlugin;
+    use std::process::Command;
 
     /// Run a git command in `dir`, panicking on failure.
     fn git(args: &[&str], dir: &Path) {
@@ -186,7 +180,7 @@ mod tests {
         import_repo(git_path, &mut arc_repo, &author, &signing_key).unwrap();
 
         // Verify the arc graph has exactly 2 changes.
-        assert_eq!(arc_repo.graph.len(), 2, "arc graph must have 2 changes");
+        assert_eq!(arc_repo.graph.load().len(), 2, "arc graph must have 2 changes");
 
         // Discover the branch name that Git created (could be "master" or "main").
         let output = Command::new("git")
@@ -197,8 +191,7 @@ mod tests {
         let branch_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // Verify the branch view was saved with at least one head.
-        let imported_view =
-            arc_core::store::view::View::load(&arc_path, &branch_name).unwrap();
+        let imported_view = arc_core::store::view::View::load(&arc_path, &branch_name).unwrap();
         assert!(
             !imported_view.heads.is_empty(),
             "imported branch view '{branch_name}' must have at least one head after import"

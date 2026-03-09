@@ -204,7 +204,6 @@ impl NetworkClient {
             .with_context(|| format!("failed to read blob bytes from {url}"))?;
         Ok(bytes.to_vec())
     }
-
 }
 
 impl Default for NetworkClient {
@@ -232,7 +231,11 @@ mod tests {
     #[test]
     fn test_network_client_new() {
         let result = NetworkClient::new();
-        assert!(result.is_ok(), "NetworkClient::new() must succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "NetworkClient::new() must succeed: {:?}",
+            result.err()
+        );
     }
 
     /// `verify_payload` accepts a correctly-signed [`DeltaPayload`].
@@ -260,7 +263,13 @@ mod tests {
             canonical_id: "arc-server".to_string(),
             key: server_pubkey,
         };
-        let change = Change::new(HashSet::new(), vec![], "server change", server_author, &server_key);
+        let change = Change::new(
+            HashSet::new(),
+            vec![],
+            "server change",
+            server_author,
+            &server_key,
+        );
 
         let payload = DeltaPayload {
             changes: vec![change],
@@ -288,7 +297,9 @@ mod tests {
         let err = verify_payload(&payload);
         assert!(err.is_err(), "tampered change id must fail verify_payload");
         assert!(
-            err.unwrap_err().to_string().contains("signature verification failed"),
+            err.unwrap_err()
+                .to_string()
+                .contains("signature verification failed"),
             "error message must mention signature verification"
         );
     }

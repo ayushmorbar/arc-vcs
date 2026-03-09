@@ -14,16 +14,16 @@
 
 #![warn(missing_docs)]
 
+/// Ghost Node state machine for pending AI-authored changes.
+pub mod ai_pending;
+/// Anonymized DAG telemetry packager for `arc bugreport`.
+pub mod bugreport;
+/// `arc generate` — agentic code generation with semantic context.
+pub mod generate;
 /// Git repository interoperability tools.
 pub mod interop;
 /// Top-level repository operations and VCS commands.
 pub mod repo;
-/// Anonymized DAG telemetry packager for `arc bugreport`.
-pub mod bugreport;
-/// Ghost Node state machine for pending AI-authored changes.
-pub mod ai_pending;
-/// `arc generate` — agentic code generation with semantic context.
-pub mod generate;
 /// Semantic text diff rendering: Sesame alignment, intent annotation, and
 /// BDiff-inspired inline sub-expression highlighting.
 pub mod semantic_diff;

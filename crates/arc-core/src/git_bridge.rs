@@ -12,7 +12,7 @@
 //! the same logical layering inside a single module: ref resolution →
 //! object I/O (loose + pack) → commit parsing → DAG traversal.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -149,8 +149,7 @@ pub fn resolve_git_dir(path: &Path) -> Result<PathBuf> {
 }
 
 fn resolve_head(git_dir: &Path) -> Result<GitOid> {
-    let raw = std::fs::read_to_string(git_dir.join("HEAD"))
-        .context("failed to read .git/HEAD")?;
+    let raw = std::fs::read_to_string(git_dir.join("HEAD")).context("failed to read .git/HEAD")?;
     let raw = raw.trim();
     if let Some(refpath) = raw.strip_prefix("ref: ") {
         resolve_ref(git_dir, refpath)
@@ -294,14 +293,12 @@ fn lookup_in_pack(
     };
 
     // Read 4-byte offset (MSB set → index into the 8-byte large table).
-    let raw_off = u32::from_be_bytes(
-        idx[off_table + idx_pos * 4..off_table + idx_pos * 4 + 4].try_into()?,
-    );
+    let raw_off =
+        u32::from_be_bytes(idx[off_table + idx_pos * 4..off_table + idx_pos * 4 + 4].try_into()?);
     let pack_offset = if raw_off & 0x8000_0000 != 0 {
         let big_idx = (raw_off & 0x7FFF_FFFF) as usize;
-        u64::from_be_bytes(
-            idx[big_table + big_idx * 8..big_table + big_idx * 8 + 8].try_into()?,
-        ) as usize
+        u64::from_be_bytes(idx[big_table + big_idx * 8..big_table + big_idx * 8 + 8].try_into()?)
+            as usize
     } else {
         raw_off as usize
     };
@@ -661,13 +658,14 @@ pub fn parse_tree(raw_data: &[u8]) -> Result<GitTree> {
         if oid_end > raw_data.len() {
             break; // truncated entry — stop gracefully
         }
-        let oid = raw_data[oid_start..oid_end]
-            .iter()
-            .fold(String::with_capacity(40), |mut s, b| {
-                use std::fmt::Write;
-                let _ = write!(s, "{b:02x}");
-                s
-            });
+        let oid =
+            raw_data[oid_start..oid_end]
+                .iter()
+                .fold(String::with_capacity(40), |mut s, b| {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{b:02x}");
+                    s
+                });
 
         entries.push(TreeEntry { mode, name, oid });
         i = oid_end;
@@ -769,11 +767,7 @@ pub fn list_branch_heads(path: &Path) -> Result<HashMap<String, GitOid>> {
 ///
 /// Keys are slash-separated paths relative to `base` (the
 /// `refs/heads/` directory), e.g. `"main"` or `"feature/fix-42"`.
-fn collect_loose_refs(
-    base: &Path,
-    dir: &Path,
-    out: &mut HashMap<String, GitOid>,
-) -> Result<()> {
+fn collect_loose_refs(base: &Path, dir: &Path, out: &mut HashMap<String, GitOid>) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -802,9 +796,7 @@ pub fn read_git_user_config(repo_path: &Path) -> Option<(String, String)> {
         if let Ok(git_dir) = resolve_git_dir(repo_path) {
             v.push(git_dir.join("config"));
         }
-        if let Some(home) = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-        {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
             v.push(PathBuf::from(home).join(".gitconfig"));
         }
         v
@@ -907,7 +899,11 @@ mod tests {
 
         std::fs::write(path.join("root.rs"), b"fn root() {}" as &[u8]).unwrap();
         std::fs::create_dir_all(path.join("sub")).unwrap();
-        std::fs::write(path.join("sub").join("nested.rs"), b"fn nested() {}" as &[u8]).unwrap();
+        std::fs::write(
+            path.join("sub").join("nested.rs"),
+            b"fn nested() {}" as &[u8],
+        )
+        .unwrap();
 
         git(&["add", "."], path);
         git(&["commit", "-m", "initial"], path);
@@ -919,10 +915,22 @@ mod tests {
         let mut files: HashMap<String, Vec<u8>> = HashMap::new();
         extract_tree_to_memory(&git_dir, &tree_oid, "", &mut files).unwrap();
 
-        assert!(files.contains_key("root.rs"), "root-level file must be extracted");
-        assert!(files.contains_key("sub/nested.rs"), "nested file must be extracted");
-        assert_eq!(files["root.rs"], b"fn root() {}", "root.rs bytes must match exactly");
-        assert_eq!(files["sub/nested.rs"], b"fn nested() {}", "sub/nested.rs bytes must match exactly");
+        assert!(
+            files.contains_key("root.rs"),
+            "root-level file must be extracted"
+        );
+        assert!(
+            files.contains_key("sub/nested.rs"),
+            "nested file must be extracted"
+        );
+        assert_eq!(
+            files["root.rs"], b"fn root() {}",
+            "root.rs bytes must match exactly"
+        );
+        assert_eq!(
+            files["sub/nested.rs"], b"fn nested() {}",
+            "sub/nested.rs bytes must match exactly"
+        );
     }
 
     /// `list_branch_heads` must return the correct branch name and its tip OID.

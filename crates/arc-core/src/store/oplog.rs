@@ -162,7 +162,13 @@ impl Operation {
         before_heads: HashSet<Blake3Hash>,
         after_heads: HashSet<Blake3Hash>,
     ) -> Self {
-        Self::new_with_agent(command, view, before_heads, after_heads, OperationAgent::Human)
+        Self::new_with_agent(
+            command,
+            view,
+            before_heads,
+            after_heads,
+            OperationAgent::Human,
+        )
     }
 
     /// Construct a new [`Operation`] specifying the triggering agent explicitly.
@@ -377,7 +383,10 @@ mod tests {
     fn test_operation_new_has_short_id() {
         let op = Operation::new("snap", "main", HashSet::new(), HashSet::new());
         assert_eq!(op.id.len(), 8, "id must be 8 hex chars");
-        assert!(op.id.chars().all(|c| c.is_ascii_hexdigit()), "id must be hex");
+        assert!(
+            op.id.chars().all(|c| c.is_ascii_hexdigit()),
+            "id must be hex"
+        );
         assert_eq!(op.command, "snap");
         assert_eq!(op.view, "main");
         assert_eq!(op.agent, OperationAgent::Human);
@@ -423,7 +432,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log = OpLog::new(dir.path());
 
-        assert!(log.read_all().unwrap().is_empty(), "fresh log must be empty");
+        assert!(
+            log.read_all().unwrap().is_empty(),
+            "fresh log must be empty"
+        );
 
         let op1 = Operation::new("snap", "main", HashSet::new(), HashSet::new());
         let op2 = Operation::new("merge", "main", HashSet::new(), HashSet::new());
@@ -461,14 +473,20 @@ mod tests {
         let log = OpLog::new(dir.path());
         // Write MAX_ENTRIES + 5 entries; expect only MAX_ENTRIES to survive.
         for i in 0..=(MAX_ENTRIES + 4) {
-            let op =
-                Operation::new(format!("snap-{i}"), "main", HashSet::new(), HashSet::new());
+            let op = Operation::new(format!("snap-{i}"), "main", HashSet::new(), HashSet::new());
             log.append(&op).unwrap();
         }
         let all = log.read_all().unwrap();
-        assert_eq!(all.len(), MAX_ENTRIES, "oplog must be capped at MAX_ENTRIES");
+        assert_eq!(
+            all.len(),
+            MAX_ENTRIES,
+            "oplog must be capped at MAX_ENTRIES"
+        );
         // The oldest entries were evicted; the most recent entries are retained.
-        assert_eq!(all[MAX_ENTRIES - 1].command, format!("snap-{}", MAX_ENTRIES + 4));
+        assert_eq!(
+            all[MAX_ENTRIES - 1].command,
+            format!("snap-{}", MAX_ENTRIES + 4)
+        );
     }
 
     #[test]

@@ -78,13 +78,12 @@ fn fetch_local(
         // Bounded BFS: if the local store already has this change,
         // all its ancestors are causally guaranteed to be present.
         if local.store.read_change(&id).is_ok() {
-            if local.graph.get(&id).is_none() {
+            if local.graph.load().get(&id).is_none() {
                 let change = local.store.read_change(&id).unwrap();
-                local.graph.add_change(change);
+                local.graph_add_change(change);
             }
             continue;
         }
-
         let change = remote
             .store
             .read_change(&id)
@@ -120,7 +119,7 @@ fn fetch_local(
                 queue.push_back(dep);
             }
         }
-        local.graph.add_change(change);
+        local.graph_add_change(change);
     }
 
     Ok(remote_view.heads)
@@ -151,9 +150,9 @@ fn bfs_fetch_changes(
         }
 
         if local.store.read_change(&id).is_ok() {
-            if local.graph.get(&id).is_none() {
+            if local.graph.load().get(&id).is_none() {
                 let change = local.store.read_change(&id).unwrap();
-                local.graph.add_change(change);
+                local.graph_add_change(change);
             }
             continue;
         }
@@ -182,9 +181,7 @@ fn bfs_fetch_changes(
         }
         for atom in &change.atoms {
             match atom {
-                Atom::Insert { content_hash, .. }
-                    if !local.store.contains_blob(content_hash) =>
-                {
+                Atom::Insert { content_hash, .. } if !local.store.contains_blob(content_hash) => {
                     let blob_hex: String =
                         content_hash.iter().map(|b| format!("{b:02x}")).collect();
                     let blob_url = format!("{remote_url}/blobs/{blob_hex}");
@@ -205,11 +202,8 @@ fn bfs_fetch_changes(
                         .write_blob(&blob_bytes)
                         .map_err(|e| anyhow::anyhow!("failed to write blob {blob_hex}: {e}"))?;
                 }
-                Atom::Delete { prior_hash, .. }
-                    if !local.store.contains_blob(prior_hash) =>
-                {
-                    let blob_hex: String =
-                        prior_hash.iter().map(|b| format!("{b:02x}")).collect();
+                Atom::Delete { prior_hash, .. } if !local.store.contains_blob(prior_hash) => {
+                    let blob_hex: String = prior_hash.iter().map(|b| format!("{b:02x}")).collect();
                     let blob_url = format!("{remote_url}/blobs/{blob_hex}");
                     let blob_bytes = client
                         .get(&blob_url)
@@ -231,7 +225,7 @@ fn bfs_fetch_changes(
                 _ => {}
             }
         }
-        local.graph.add_change(change);
+        local.graph_add_change(change);
     }
     Ok(visited.len())
 }
@@ -285,11 +279,7 @@ pub fn push(local: &mut Repository, remote_path: &str, view_name: &str) -> anyho
     push_local(local, &resolved, view_name)
 }
 
-fn push_local(
-    local: &Repository,
-    remote_path: &str,
-    view_name: &str,
-) -> anyhow::Result<()> {
+fn push_local(local: &Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()> {
     let remote = Repository::open(remote_path)?;
     let local_view = View::load(&local.shared_root, view_name)
         .map_err(|e| anyhow::anyhow!("failed to load local view '{view_name}': {e}"))?;
@@ -330,9 +320,7 @@ fn push_local(
             .map_err(|e| anyhow::anyhow!("failed to write change to remote: {e}"))?;
         for atom in &change.atoms {
             match atom {
-                Atom::Insert { content_hash, .. }
-                    if !remote.store.contains_blob(content_hash) =>
-                {
+                Atom::Insert { content_hash, .. } if !remote.store.contains_blob(content_hash) => {
                     let bytes = local
                         .store
                         .read_blob(content_hash)
@@ -342,9 +330,7 @@ fn push_local(
                         .write_blob(&bytes)
                         .map_err(|e| anyhow::anyhow!("failed to write blob to remote: {e}"))?;
                 }
-                Atom::Delete { prior_hash, .. }
-                    if !remote.store.contains_blob(prior_hash) =>
-                {
+                Atom::Delete { prior_hash, .. } if !remote.store.contains_blob(prior_hash) => {
                     let bytes = local
                         .store
                         .read_blob(prior_hash)
@@ -374,11 +360,7 @@ fn push_local(
     Ok(())
 }
 
-fn push_http(
-    local: &mut Repository,
-    remote_url: &str,
-    view_name: &str,
-) -> anyhow::Result<()> {
+fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -453,7 +435,14 @@ fn push_http(
     if n_blobs > 0 {
         let total_blob_bytes: u64 = blob_hashes
             .iter()
-            .map(|h| local.store.blob_file_path(h).metadata().map(|m| m.len()).unwrap_or(0))
+            .map(|h| {
+                local
+                    .store
+                    .blob_file_path(h)
+                    .metadata()
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            })
             .sum();
         upload_blobs(&client, remote_url, local, &blob_hashes, total_blob_bytes)?;
     }
@@ -479,7 +468,9 @@ fn push_http(
         bfs_fetch_changes(&client, remote_url, local, &sync_resp.view_heads, &pb)?;
         View::new(view_name, sync_resp.view_heads)
             .save(&local.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to update local view after identity collapse: {e}"))?;
+            .map_err(|e| {
+                anyhow::anyhow!("failed to update local view after identity collapse: {e}")
+            })?;
         if let Err(e) = local.gc() {
             // Non-fatal: repository is fully consistent; old metadata lingers
             // in the CAS until the next OpLog compaction prunes the references.
@@ -543,8 +534,7 @@ fn upload_blobs(
             )
             .unwrap()
             .progress_chars("=>-");
-            let file_pb =
-                mp.insert_before(&master_pb, indicatif::ProgressBar::new(size));
+            let file_pb = mp.insert_before(&master_pb, indicatif::ProgressBar::new(size));
             file_pb.set_style(file_style);
             file_pb.set_message(format!("{} ...", &hex[..8]));
             let reader = file_pb.wrap_read(file);

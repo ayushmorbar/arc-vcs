@@ -50,14 +50,13 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
             let bounded: String = content.chars().take(FILE_CONTENT_BUDGET).collect();
             let truncated = bounded.len() < content.len();
             let note = if truncated {
-                format!("\n[Note: file truncated to {FILE_CONTENT_BUDGET} chars for context safety]")
+                format!(
+                    "\n[Note: file truncated to {FILE_CONTENT_BUDGET} chars for context safety]"
+                )
             } else {
                 String::new()
             };
-            let ctx = format!(
-                "Current file ({}):\n```\n{bounded}{note}\n```",
-                p.display()
-            );
+            let ctx = format!("Current file ({}):\n```\n{bounded}{note}\n```", p.display());
             (ctx, Some(p))
         }
         None => (String::new(), None),
@@ -90,19 +89,12 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
     println!("[arc] Code written to '{}'.", path.display());
 
     // ── 6. Save Ghost Node ────────────────────────────────────────────────────
-    let model =
-        std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
+    let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
 
-    let pending = PendingAiChange::new_generate(
-        model,
-        goal.to_owned(),
-        vec![path.to_path_buf()],
-    );
+    let pending = PendingAiChange::new_generate(model, goal.to_owned(), vec![path.to_path_buf()]);
     save_pending_ai(&repo.shared_root, &pending)?;
 
-    println!(
-        "[arc] Review the changes, run your tests, then 'arc ai approve' to sign and commit."
-    );
+    println!("[arc] Review the changes, run your tests, then 'arc ai approve' to sign and commit.");
     Ok(())
 }
 
@@ -115,7 +107,11 @@ fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
     use arc_core::ai::embedding::{EmbeddingProvider, HybridProvider};
     use arc_core::ai::vector_store::VectorStore;
 
-    let db_path = repo.shared_root.join(".arc").join("ai").join("embeddings.db");
+    let db_path = repo
+        .shared_root
+        .join(".arc")
+        .join("ai")
+        .join("embeddings.db");
     if !db_path.exists() {
         return String::new();
     }
@@ -143,7 +139,7 @@ fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
     let mut ctx = String::from("Relevant prior changes in this repository:\n");
     for (id_hex, score) in &results {
         if let Some(hash) = parse_hex_hash(id_hex)
-            && let Some(change) = repo.graph.get(&hash)
+            && let Some(change) = repo.graph.load().get(&hash)
         {
             ctx.push_str(&format!("- (similarity {score:.2}) {}\n", change.intent));
         }

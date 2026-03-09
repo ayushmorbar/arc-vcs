@@ -161,12 +161,22 @@ fn rewrite_atom_paths(atom: &Atom, moves: &[(&NodePath, &NodePath)]) -> Atom {
     };
 
     match atom {
-        Atom::Insert { at, content_hash } => Atom::Insert { at: rewrite(at), content_hash: *content_hash },
-        Atom::Delete { at, prior_hash } => Atom::Delete { at: rewrite(at), prior_hash: *prior_hash },
-        Atom::Move { from, to } => Atom::Move { from: rewrite(from), to: rewrite(to) },
-        Atom::SemanticsPreserving { at, description } => {
-            Atom::SemanticsPreserving { at: rewrite(at), description: description.clone() }
-        }
+        Atom::Insert { at, content_hash } => Atom::Insert {
+            at: rewrite(at),
+            content_hash: *content_hash,
+        },
+        Atom::Delete { at, prior_hash } => Atom::Delete {
+            at: rewrite(at),
+            prior_hash: *prior_hash,
+        },
+        Atom::Move { from, to } => Atom::Move {
+            from: rewrite(from),
+            to: rewrite(to),
+        },
+        Atom::SemanticsPreserving { at, description } => Atom::SemanticsPreserving {
+            at: rewrite(at),
+            description: description.clone(),
+        },
         other => other.clone(),
     }
 }
@@ -284,19 +294,28 @@ mod tests {
         let (author, signing_key) = crate::store::author::test_keypair();
         let a = Change::new(
             HashSet::new(),
-            vec![Atom::Delete { at: vec!["fn_foo".into()], prior_hash: [0u8; 32] }],
+            vec![Atom::Delete {
+                at: vec!["fn_foo".into()],
+                prior_hash: [0u8; 32],
+            }],
             "delete",
             author.clone(),
             &signing_key,
         );
         let b = Change::new(
             HashSet::new(),
-            vec![Atom::Insert { at: vec!["fn_foo".into()], content_hash: [0u8; 32] }],
+            vec![Atom::Insert {
+                at: vec!["fn_foo".into()],
+                content_hash: [0u8; 32],
+            }],
             "insert",
             author,
             &signing_key,
         );
-        assert!(!commutes(&a, &b), "Delete and Insert at the same path must NOT commute");
+        assert!(
+            !commutes(&a, &b),
+            "Delete and Insert at the same path must NOT commute"
+        );
     }
 
     // ── commute_pair() tests ─────────────────────────────────────────────────
@@ -308,7 +327,10 @@ mod tests {
         let b = make_change(HashSet::new(), vec![vec!["module_b".into()]]);
 
         let result = commute_pair(&a, &b, &(author, signing_key));
-        assert!(result.is_some(), "disjoint changes must commute via commute_pair");
+        assert!(
+            result.is_some(),
+            "disjoint changes must commute via commute_pair"
+        );
         let (b_prime, a_prime) = result.unwrap();
         // b′ and a′ must now validate correctly.
         assert!(b_prime.verify_signature());
@@ -322,7 +344,10 @@ mod tests {
         let b = make_change(HashSet::from([a.id]), vec![vec!["mod_b".into()]]);
 
         let result = commute_pair(&a, &b, &(author, signing_key));
-        assert!(result.is_none(), "Gate 1 (explicit dep) must block commute_pair");
+        assert!(
+            result.is_none(),
+            "Gate 1 (explicit dep) must block commute_pair"
+        );
     }
 
     #[test]
@@ -331,20 +356,36 @@ mod tests {
         // Delete P in a, Insert P in b — same terminal path.
         let a = Change::new(
             HashSet::new(),
-            vec![Atom::Delete { at: vec!["fn_foo".into()], prior_hash: [0u8; 32] }],
+            vec![Atom::Delete {
+                at: vec!["fn_foo".into()],
+                prior_hash: [0u8; 32],
+            }],
             "delete",
             author.clone(),
             &signing_key,
         );
         let b = Change::new(
             HashSet::new(),
-            vec![Atom::Insert { at: vec!["fn_foo".into()], content_hash: [1u8; 32] }],
+            vec![Atom::Insert {
+                at: vec!["fn_foo".into()],
+                content_hash: [1u8; 32],
+            }],
             "insert",
             author,
             &signing_key,
         );
-        let result = commute_pair(&a, &b, &(crate::store::author::test_keypair().0, crate::store::author::test_keypair().1));
-        assert!(result.is_none(), "Gate 3 (ghost conflict) must block commute_pair");
+        let result = commute_pair(
+            &a,
+            &b,
+            &(
+                crate::store::author::test_keypair().0,
+                crate::store::author::test_keypair().1,
+            ),
+        );
+        assert!(
+            result.is_none(),
+            "Gate 3 (ghost conflict) must block commute_pair"
+        );
     }
 
     #[test]
@@ -376,13 +417,20 @@ mod tests {
         );
 
         let result = commute_pair(&a, &b, &(author, signing_key));
-        assert!(result.is_some(), "Move should not block commutativity for disjoint inserts");
+        assert!(
+            result.is_some(),
+            "Move should not block commutativity for disjoint inserts"
+        );
         let (b_prime, a_prime) = result.unwrap();
         // a′ should have its Insert path rewritten through the Move
-        let has_rewritten = a_prime.atoms.iter().any(|atom| {
-            matches!(atom, Atom::Insert { at, .. } if at[0] == "new_mod")
-        });
-        assert!(has_rewritten, "Insert path must be rewritten through Move: {a_prime:?}");
+        let has_rewritten = a_prime
+            .atoms
+            .iter()
+            .any(|atom| matches!(atom, Atom::Insert { at, .. } if at[0] == "new_mod"));
+        assert!(
+            has_rewritten,
+            "Insert path must be rewritten through Move: {a_prime:?}"
+        );
         assert!(b_prime.verify_signature());
         assert!(a_prime.verify_signature());
     }

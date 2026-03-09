@@ -98,8 +98,7 @@ pub fn group_and_render(
         // Gracefully degrade when the file was deleted: read_to_string returns
         // an OS NotFound error which we collapse to an empty string so that
         // the diff can still render the deletion correctly via old_text.
-        let new_text =
-            std::fs::read_to_string(work_root.join(filepath)).unwrap_or_default();
+        let new_text = std::fs::read_to_string(work_root.join(filepath)).unwrap_or_default();
 
         render_diff(file_atoms, old_text, &new_text, filepath)?;
     }
@@ -121,12 +120,7 @@ pub fn group_and_render(
 /// 5. **Sesame alignment** — inject structural newlines before running `TextDiff`.
 /// 6. **Inline sub-expression highlighting** via `similar::iter_inline_changes`.
 /// 7. **Summary footer** — `∑ +N -N ~N refactorings`.
-pub fn render_diff(
-    atoms: &[&Atom],
-    old_text: &str,
-    new_text: &str,
-    file_path: &str,
-) -> Result<()> {
+pub fn render_diff(atoms: &[&Atom], old_text: &str, new_text: &str, file_path: &str) -> Result<()> {
     // ── 1. Header ────────────────────────────────────────────────────────────
     println!(
         "{}",
@@ -489,17 +483,11 @@ fn is_pure_import_change(old_text: &str, new_text: &str) -> bool {
 /// differ but must still appear in the output.
 fn format_atom_brief(atom: &Atom) -> String {
     match atom {
-        Atom::Directory { path } => {
-            format!("++ dir {}", path.join("/")).green().to_string()
-        }
-        Atom::Blob { path, .. } => {
-            format!("~~ blob {}", path.join("/")).yellow().to_string()
-        }
-        Atom::Mount { path, url, .. } => {
-            format!("~~ mount {} @ {}", path.join("/"), url)
-                .cyan()
-                .to_string()
-        }
+        Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
+        Atom::Blob { path, .. } => format!("~~ blob {}", path.join("/")).yellow().to_string(),
+        Atom::Mount { path, url, .. } => format!("~~ mount {} @ {}", path.join("/"), url)
+            .cyan()
+            .to_string(),
         // File atoms are handled by group_and_render — this arm is a safety net.
         other => format!("{other:?}").dimmed().to_string(),
     }
@@ -519,7 +507,10 @@ mod tests {
             aligned.contains('\n'),
             "sesame_align should inject newlines at structural boundaries"
         );
-        assert!(aligned.contains("\n{"), "opening brace should be on its own line");
+        assert!(
+            aligned.contains("\n{"),
+            "opening brace should be on its own line"
+        );
     }
 
     #[test]
@@ -558,17 +549,38 @@ mod tests {
 
     #[test]
     fn test_infer_node_kind_recognises_prefixes() {
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "fn_parse".into()]), "function");
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "struct_Config".into()]), "struct");
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "enum_State".into()]), "enum");
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "trait_Display".into()]), "trait");
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "field_id".into()]), "field");
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "const_MAX".into()]), "constant");
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "fn_parse".into()]),
+            "function"
+        );
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "struct_Config".into()]),
+            "struct"
+        );
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "enum_State".into()]),
+            "enum"
+        );
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "trait_Display".into()]),
+            "trait"
+        );
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "field_id".into()]),
+            "field"
+        );
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "const_MAX".into()]),
+            "constant"
+        );
     }
 
     #[test]
     fn test_infer_node_kind_fallback() {
-        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "unknown_xyz".into()]), "node");
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "unknown_xyz".into()]),
+            "node"
+        );
         assert_eq!(infer_node_kind(&[]), "node");
     }
 

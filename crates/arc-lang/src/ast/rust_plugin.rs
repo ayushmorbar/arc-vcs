@@ -55,7 +55,10 @@ impl LanguagePlugin for RustPlugin {
                 let prior_hash = store
                     .write_blob(old_content)
                     .map_err(|e| format!("CAS write error for Delete at {path:?}: {e}"))?;
-                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
+                atoms.push(Atom::Delete {
+                    at: path.clone(),
+                    prior_hash,
+                });
             }
         }
 
@@ -83,7 +86,10 @@ impl LanguagePlugin for RustPlugin {
                 let content_hash = store
                     .write_blob(new_content)
                     .map_err(|e| format!("CAS write error for Insert at {path:?}: {e}"))?;
-                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
+                atoms.push(Atom::Delete {
+                    at: path.clone(),
+                    prior_hash,
+                });
                 atoms.push(Atom::Insert {
                     at: path.clone(),
                     content_hash,

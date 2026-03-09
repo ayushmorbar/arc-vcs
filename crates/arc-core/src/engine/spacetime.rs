@@ -94,9 +94,7 @@ pub fn squash_into(
     for (i, &id) in spine[..spine.len().saturating_sub(1)].iter().enumerate() {
         let children_in_spine = spine[i + 1..]
             .iter()
-            .filter(|&&candidate| {
-                graph.get(&candidate).is_some_and(|c| c.deps.contains(&id))
-            })
+            .filter(|&&candidate| graph.get(&candidate).is_some_and(|c| c.deps.contains(&id)))
             .count();
 
         if children_in_spine > 1 {
@@ -182,12 +180,25 @@ mod tests {
             .expect("linear chain must squash without error");
 
         // Squashed change must carry all 3 atoms.
-        assert_eq!(squashed.atoms.len(), 3, "squashed change must contain all atoms");
+        assert_eq!(
+            squashed.atoms.len(),
+            3,
+            "squashed change must contain all atoms"
+        );
         // Must have the same deps as the target (a has empty deps).
-        assert!(squashed.deps.is_empty(), "squashed must inherit target's deps");
+        assert!(
+            squashed.deps.is_empty(),
+            "squashed must inherit target's deps"
+        );
         // Must be cryptographically valid.
-        assert!(squashed.verify_signature(), "squashed change must have valid signature");
-        assert!(squashed.intent.contains("Squash"), "intent must mention Squash");
+        assert!(
+            squashed.verify_signature(),
+            "squashed change must have valid signature"
+        );
+        assert!(
+            squashed.intent.contains("Squash"),
+            "intent must mention Squash"
+        );
     }
 
     #[test]

@@ -90,7 +90,10 @@ mod tests {
         let loaded = View::load(dir.path(), "empty-branch").unwrap();
 
         assert_eq!(loaded, view);
-        assert!(loaded.heads.is_empty(), "empty-headed view must round-trip cleanly");
+        assert!(
+            loaded.heads.is_empty(),
+            "empty-headed view must round-trip cleanly"
+        );
     }
 
     /// Loading a non-existent view must return an error, not panic.
@@ -98,7 +101,10 @@ mod tests {
     fn test_view_load_nonexistent_returns_error() {
         let dir = tempfile::tempdir().unwrap();
         let result = View::load(dir.path(), "ghost-branch");
-        assert!(result.is_err(), "loading a non-existent view must return an error");
+        assert!(
+            result.is_err(),
+            "loading a non-existent view must return an error"
+        );
     }
 
     /// A view name containing a slash (nested branch) must round-trip correctly.

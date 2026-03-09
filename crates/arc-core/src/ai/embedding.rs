@@ -54,10 +54,12 @@ impl LocalProvider {
 
         let opts = InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_cache_dir(cache_dir);
 
-        let model = TextEmbedding::try_new(opts)
-            .context("failed to initialize local embedding model")?;
+        let model =
+            TextEmbedding::try_new(opts).context("failed to initialize local embedding model")?;
 
-        Ok(Self { inner: std::sync::Mutex::new(model) })
+        Ok(Self {
+            inner: std::sync::Mutex::new(model),
+        })
     }
 }
 
@@ -99,15 +101,20 @@ impl ApiProvider {
             "ARC_AI_KEY is required for API embedding. \
              Set ARC_AI_KEY or ensure the local model is available.",
         )?;
-        let base_url = std::env::var("ARC_AI_URL")
-            .unwrap_or_else(|_| "https://api.openai.com".to_owned());
+        let base_url =
+            std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
         let model = std::env::var("ARC_AI_EMBEDDING_MODEL")
             .unwrap_or_else(|_| "text-embedding-3-small".to_owned());
         let client = Client::builder()
             .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
             .build()
             .context("failed to build HTTP client for API embedding")?;
-        Ok(Self { api_key, base_url, model, client })
+        Ok(Self {
+            api_key,
+            base_url,
+            model,
+            client,
+        })
     }
 }
 
@@ -121,8 +128,9 @@ impl EmbeddingProvider for ApiProvider {
             .send()
             .context("embedding API request failed")?;
 
-        let data: serde_json::Value =
-            response.json().context("failed to parse embedding API response")?;
+        let data: serde_json::Value = response
+            .json()
+            .context("failed to parse embedding API response")?;
 
         let embedding = data["data"][0]["embedding"]
             .as_array()
@@ -156,9 +164,7 @@ impl HybridProvider {
         match LocalProvider::new() {
             Ok(local) => Ok(Self::Local(Box::new(local))),
             Err(local_err) => {
-                eprintln!(
-                    "[arc] Local embedding unavailable ({local_err}); falling back to API."
-                );
+                eprintln!("[arc] Local embedding unavailable ({local_err}); falling back to API.");
                 let api = ApiProvider::from_env()
                     .context("both local embedding and API embedding providers failed")?;
                 Ok(Self::Api(api))

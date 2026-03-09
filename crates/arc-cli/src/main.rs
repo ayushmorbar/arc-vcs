@@ -1,9 +1,11 @@
-﻿use anyhow::Context as _;
+use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use arc_cli::interop::git::import_repo;
-use arc_cli::repo::{Repository, ArcConfig, load_merged_config, save_global_config, save_local_config};
+use arc_cli::repo::{
+    ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
+};
 use arc_cli::sync::{fetch, pull};
 use arc_core::ai::{LlmResolver, MockResolver};
 use arc_core::algebra::Blake3Hash;
@@ -40,23 +42,27 @@ fn load_ephemeral_session_identity(
     let (author, seed) = if session_path.exists() {
         let json = std::fs::read_to_string(&session_path)
             .context("failed to read .arc/local/session.json")?;
-        let s: EphemeralSession = serde_json::from_str(&json)
-            .context("failed to parse .arc/local/session.json")?;
+        let s: EphemeralSession =
+            serde_json::from_str(&json).context("failed to parse .arc/local/session.json")?;
         let key = ed25519_dalek::SigningKey::from_bytes(&s.secret_key_bytes)
             .verifying_key()
             .to_bytes();
-        let author = Author::Transient { session_id: s.session_id, key };
+        let author = Author::Transient {
+            session_id: s.session_id,
+            key,
+        };
         (author, s.secret_key_bytes)
     } else {
         let session_id = std::env::var("ARC_EPHEMERAL_RUNNER")
             .unwrap_or_else(|_| format!("ephemeral-{}", std::process::id()));
-        let (author, seed) =
-            arc_core::store::author::generate_transient_keypair_seed(&session_id);
+        let (author, seed) = arc_core::store::author::generate_transient_keypair_seed(&session_id);
         if let Some(parent) = session_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("failed to create .arc/local/ directory")?;
+            std::fs::create_dir_all(parent).context("failed to create .arc/local/ directory")?;
         }
-        let record = EphemeralSession { session_id, secret_key_bytes: seed };
+        let record = EphemeralSession {
+            session_id,
+            secret_key_bytes: seed,
+        };
         std::fs::write(&session_path, serde_json::to_string_pretty(&record)?)
             .context("failed to write .arc/local/session.json")?;
         (author, seed)
@@ -550,6 +556,27 @@ fn init_tracing() {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Initialise the tempfile registry eagerly so no allocations happen inside
+    // a signal handler later.
+    arc_core::store::tempfile::init();
+
+    // Register UNIX termination signals to trigger cleanup before exit.
+    // On Windows, tempfile cleanup happens via Drop — no signal handler needed.
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::TERM_SIGNALS;
+        for &sig in TERM_SIGNALS {
+            // SAFETY: The handler only calls `remove_file` (unlink syscall)
+            // and iterates a DashMap.  No memory allocation or non-signal-safe
+            // operations are used inside `cleanup_signal_safe`.
+            unsafe {
+                signal_hook::low_level::register(sig, || {
+                    arc_core::store::tempfile::cleanup_signal_safe();
+                })?;
+            }
+        }
+    }
+
     init_tracing();
     // --- Single-pass alias interception (no recursion) -------------------
     let mut raw_args: Vec<String> = std::env::args().collect();
@@ -678,8 +705,7 @@ fn main() -> anyhow::Result<()> {
                 eprint!("{} Analyzing changes", "🧠".cyan());
                 let _ = std::io::stderr().flush();
 
-                let rt = tokio::runtime::Runtime::new()
-                    .context("failed to start async runtime")?;
+                let rt = tokio::runtime::Runtime::new().context("failed to start async runtime")?;
                 match rt.block_on(arc_core::ai::generate_message(&diff_summary)) {
                     Ok(msg) => {
                         eprintln!(); // newline after the spinner text
@@ -729,11 +755,13 @@ fn main() -> anyhow::Result<()> {
                     let mut table = Table::new();
                     table.load_preset(presets::NOTHING);
                     for (change, score) in results {
-                        let hex: String =
-                            change.id.iter().map(|b| format!("{b:02x}")).collect();
+                        let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
                         let author_str = match &change.author {
                             Author::Human { name, email, .. } => format!("{name} <{email}>"),
-                            Author::AI { model, human_sponsor } => {
+                            Author::AI {
+                                model,
+                                human_sponsor,
+                            } => {
                                 let sponsor: String =
                                     human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
                                 format!("{model} | sponsor:{}", &sponsor[..8])
@@ -762,8 +790,7 @@ fn main() -> anyhow::Result<()> {
                     let mut table = Table::new();
                     table.load_preset(presets::NOTHING);
                     for change in changes {
-                        let hex: String =
-                            change.id.iter().map(|b| format!("{b:02x}")).collect();
+                        let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
                         let author_str = match &change.author {
                             Author::Human { name, email, .. } => {
                                 format!("{name} <{email}>")
@@ -916,23 +943,19 @@ fn main() -> anyhow::Result<()> {
                 let mut repo = Repository::open(".")?;
                 let (author, signing_key) = load_identity()?;
                 repo.set_identity(author, signing_key);
-                let resolver: Box<dyn arc_core::ai::AiResolver> =
-                    match LlmResolver::from_env() {
-                        Some(llm) => {
-                            eprintln!(
-                                "[arc] Using LLM resolver (model: {}).",
-                                llm.model
-                            );
-                            Box::new(llm)
-                        }
-                        None => {
-                            eprintln!(
-                                "[arc] ARC_AI_KEY not set — using mock resolver. \
+                let resolver: Box<dyn arc_core::ai::AiResolver> = match LlmResolver::from_env() {
+                    Some(llm) => {
+                        eprintln!("[arc] Using LLM resolver (model: {}).", llm.model);
+                        Box::new(llm)
+                    }
+                    None => {
+                        eprintln!(
+                            "[arc] ARC_AI_KEY not set — using mock resolver. \
                                  Set ARC_AI_KEY to enable real AI resolution."
-                            );
-                            Box::new(MockResolver)
-                        }
-                    };
+                        );
+                        Box::new(MockResolver)
+                    }
+                };
                 repo.resolve_conflict(resolver.as_ref())?;
                 println!(
                     "[arc] Resolution staged as Ghost Node. \
@@ -1078,7 +1101,11 @@ fn main() -> anyhow::Result<()> {
             let target_hex: String = hash_bytes.iter().map(|b| format!("{b:02x}")).collect();
             let revert_id = repo.revert(&hash_bytes)?;
             let revert_hex: String = revert_id.iter().map(|b| format!("{b:02x}")).collect();
-            println!("Reverted {} \u{2192} new change {}", &target_hex[..8], &revert_hex[..8]);
+            println!(
+                "Reverted {} \u{2192} new change {}",
+                &target_hex[..8],
+                &revert_hex[..8]
+            );
         }
         Command::Restore { filepath } => {
             let mut repo = Repository::open(".")?;
@@ -1260,7 +1287,11 @@ fn main() -> anyhow::Result<()> {
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Squashed → {}", &hex[..8]);
         }
-        Command::Diffedit { prepare, apply, message } => {
+        Command::Diffedit {
+            prepare,
+            apply,
+            message,
+        } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;
             repo.set_identity(author, signing_key);
@@ -1291,11 +1322,7 @@ fn main() -> anyhow::Result<()> {
             } else if semantic {
                 arc_cli::semantic_diff::group_and_render_semantic(&atoms)?;
             } else {
-                arc_cli::semantic_diff::group_and_render(
-                    &atoms,
-                    &old_texts,
-                    &repo.work_root,
-                )?;
+                arc_cli::semantic_diff::group_and_render(&atoms, &old_texts, &repo.work_root)?;
             }
         }
         Command::Push { remote, view } => {
@@ -1370,27 +1397,40 @@ fn main() -> anyhow::Result<()> {
             ConfigAction::List => {
                 let config = load_merged_config(std::path::Path::new("."))?;
                 println!("[user]");
-                if let Some(n) = &config.user.name { println!("name = {n}"); }
-                if let Some(e) = &config.user.email { println!("email = {e}"); }
+                if let Some(n) = &config.user.name {
+                    println!("name = {n}");
+                }
+                if let Some(e) = &config.user.email {
+                    println!("email = {e}");
+                }
                 println!("\n[ui]");
                 println!("color = {}", config.ui.color);
                 println!("\n[merge]");
-                if let Some(t) = &config.merge.tool { println!("tool = {t}"); }
+                if let Some(t) = &config.merge.tool {
+                    println!("tool = {t}");
+                }
                 if !config.remotes.is_empty() {
                     println!("\n[remotes]");
                     let mut rs: Vec<_> = config.remotes.iter().collect();
                     rs.sort_by_key(|(k, _)| k.as_str());
-                    for (k, v) in rs { println!("{k} = {v}"); }
+                    for (k, v) in rs {
+                        println!("{k} = {v}");
+                    }
                 }
                 if !config.aliases.is_empty() {
                     println!("\n[aliases]");
                     let mut al: Vec<_> = config.aliases.iter().collect();
                     al.sort_by_key(|(k, _)| k.as_str());
-                    for (k, v) in al { println!("{k} = {v}"); }
+                    for (k, v) in al {
+                        println!("{k} = {v}");
+                    }
                 }
             }
         },
-        Command::BugReport { output, include_raw_intent } => {
+        Command::BugReport {
+            output,
+            include_raw_intent,
+        } => {
             let repo = Repository::open(".")?;
             let out_path = output.unwrap_or_else(|| "./arc-bugreport.json".to_string());
             arc_cli::bugreport::generate(&repo, &out_path, include_raw_intent)?;
@@ -1502,16 +1542,12 @@ use arc_core::algebra::Atom;
 
 fn atom_display_label(atom: &Atom) -> String {
     match atom {
-        Atom::Insert { at, .. } => {
-            format!("++ Added:   {}", at.last().unwrap_or(&"?".to_string()))
-                .green()
-                .to_string()
-        }
-        Atom::Delete { at, .. } => {
-            format!("-- Deleted: {}", at.last().unwrap_or(&"?".to_string()))
-                .red()
-                .to_string()
-        }
+        Atom::Insert { at, .. } => format!("++ Added:   {}", at.last().unwrap_or(&"?".to_string()))
+            .green()
+            .to_string(),
+        Atom::Delete { at, .. } => format!("-- Deleted: {}", at.last().unwrap_or(&"?".to_string()))
+            .red()
+            .to_string(),
         Atom::Move { from, to } => format!(
             "~~ Moved:   {} → {}",
             from.last().unwrap_or(&"?".to_string()),

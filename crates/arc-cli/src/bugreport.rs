@@ -14,7 +14,7 @@ use std::io::Write;
 
 use serde::Serialize;
 
-use crate::repo::{load_merged_config, Repository};
+use crate::repo::{Repository, load_merged_config};
 use arc_core::store::author::Author;
 use arc_core::store::change::Change;
 
@@ -58,8 +58,8 @@ pub fn generate(
 ) -> anyhow::Result<()> {
     let config = load_merged_config(&repo.shared_root).unwrap_or_default();
 
-    let graph: Vec<NodeEntry<'_>> = repo
-        .graph
+    let g = repo.graph.load_full();
+    let graph: Vec<NodeEntry<'_>> = g
         .iter()
         .map(|change| node_entry(change, include_raw_intent))
         .collect();
@@ -101,10 +101,21 @@ fn node_entry<'c>(change: &'c Change, include_raw_intent: bool) -> NodeEntry<'c>
     };
     let (author_type, author_display) = author_meta(&change.author);
     let author_name_hash = hex(blake3::hash(author_display.as_bytes()).as_bytes());
-    let intent = if include_raw_intent { Some(change.intent.as_str()) } else { None };
+    let intent = if include_raw_intent {
+        Some(change.intent.as_str())
+    } else {
+        None
+    };
     let collapsed_from = change.collapsed_from.as_ref().map(hex);
 
-    NodeEntry { id, deps, author_type, author_name_hash, intent, collapsed_from }
+    NodeEntry {
+        id,
+        deps,
+        author_type,
+        author_name_hash,
+        intent,
+        collapsed_from,
+    }
 }
 
 fn author_meta(author: &Author) -> (&'static str, String) {

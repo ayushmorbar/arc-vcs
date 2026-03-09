@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 use crate::algebra::Blake3Hash;
+use crate::store::blake3_hasher::Blake3HashMap;
 use crate::store::change::Change;
 
 /// In-memory DAG of changes loaded from the CAS.
@@ -17,22 +18,26 @@ use crate::store::change::Change;
 /// (depending on `Change A`) may arrive before `Change A`. All traversals
 /// safely halt at graph boundaries by checking `edges.get()` / `nodes.get()`
 /// and skipping missing entries.
+#[derive(Clone)]
 pub struct ChangeGraph {
     /// Every change in the graph, keyed by its content-addressed id.
-    nodes: HashMap<Blake3Hash, Change>,
+    /// Uses [`Blake3HashMap`] — the identity hasher extracts the first 8 bytes
+    /// of each BLAKE3 digest directly as the bucket index, eliminating
+    /// SipHash mixing on every DAG lookup.
+    nodes: Blake3HashMap<Change>,
     /// Forward edges: `child → set of parents (dependencies)`.
-    edges: HashMap<Blake3Hash, HashSet<Blake3Hash>>,
+    edges: Blake3HashMap<HashSet<Blake3Hash>>,
     /// Reverse edges: `parent → set of children (dependents)`.
-    reverse_edges: HashMap<Blake3Hash, HashSet<Blake3Hash>>,
+    reverse_edges: Blake3HashMap<HashSet<Blake3Hash>>,
 }
 
 impl ChangeGraph {
     /// Create an empty change graph.
     pub fn new() -> Self {
         Self {
-            nodes: HashMap::new(),
-            edges: HashMap::new(),
-            reverse_edges: HashMap::new(),
+            nodes: Blake3HashMap::default(),
+            edges: Blake3HashMap::default(),
+            reverse_edges: Blake3HashMap::default(),
         }
     }
 
@@ -86,7 +91,7 @@ impl ChangeGraph {
         let reachable = self.ancestors_inclusive(start_heads);
 
         // 2. Compute in-degree within the sub-DAG.
-        let mut in_degree: HashMap<Blake3Hash, usize> = HashMap::new();
+        let mut in_degree: Blake3HashMap<usize> = Blake3HashMap::default();
         for &id in &reachable {
             let count = self.edges.get(&id).map_or(0, |deps| {
                 deps.iter().filter(|&d| reachable.contains(d)).count()
@@ -220,7 +225,7 @@ impl Default for ChangeGraph {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use super::*;
 

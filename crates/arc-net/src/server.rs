@@ -43,12 +43,13 @@ fn load_or_generate_server_identity(
     if identity_path.exists() {
         let json = std::fs::read_to_string(&identity_path)?;
         let id: ServerIdentity = serde_json::from_str(&json)?;
-        let author =
-            arc_core::store::author::server_author_from_seed(&id.canonical_id, &id.secret_key_bytes);
+        let author = arc_core::store::author::server_author_from_seed(
+            &id.canonical_id,
+            &id.secret_key_bytes,
+        );
         Ok((author, id.secret_key_bytes))
     } else {
-        let (author, seed) =
-            arc_core::store::author::generate_server_keypair_seed("arc-server");
+        let (author, seed) = arc_core::store::author::generate_server_keypair_seed("arc-server");
         let id = ServerIdentity {
             canonical_id: match &author {
                 Author::Server { canonical_id, .. } => canonical_id.clone(),
@@ -106,10 +107,7 @@ async fn get_object(State(state): State<AppState>, Path(hash): Path<String>) -> 
     }
 }
 
-async fn get_blob(
-    State(state): State<AppState>,
-    Path(hash): Path<String>,
-) -> impl IntoResponse {
+async fn get_blob(State(state): State<AppState>, Path(hash): Path<String>) -> impl IntoResponse {
     // Security: validate exactly 64 lowercase hex digits to prevent path traversal.
     if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return StatusCode::BAD_REQUEST.into_response();
@@ -172,8 +170,7 @@ async fn put_blob(
                     hasher.update(&chunk);
                     if let Err(e) = tmp_file.write_all(&chunk).await {
                         let _ = tokio::fs::remove_file(&tmp_path).await;
-                        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                            .into_response();
+                        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
                     }
                 }
             }
@@ -192,8 +189,12 @@ async fn put_blob(
     drop(tmp_file);
 
     // Verify the BLAKE3 hash matches the path parameter.
-    let computed_hex: String =
-        hasher.finalize().as_bytes().iter().map(|b| format!("{b:02x}")).collect();
+    let computed_hex: String = hasher
+        .finalize()
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if computed_hex != hash {
         let _ = tokio::fs::remove_file(&tmp_path).await;
         return (
@@ -282,8 +283,11 @@ async fn post_sync(
     }
 
     // Kahn queue: start with all zero-in-degree nodes.
-    let mut queue: VecDeque<Blake3Hash> =
-        in_degree.iter().filter(|(_, deg)| **deg == 0).map(|(id, _)| *id).collect();
+    let mut queue: VecDeque<Blake3Hash> = in_degree
+        .iter()
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(id, _)| *id)
+        .collect();
 
     let change_map: HashMap<Blake3Hash, &Change> =
         payload.changes.iter().map(|c| (c.id, c)).collect();
@@ -359,10 +363,15 @@ async fn post_sync(
         .iter()
         .map(|&h| rewritten_map.get(&h).copied().unwrap_or(h))
         .collect();
-    let new_heads: HashSet<Blake3Hash> =
-        existing_heads.union(&canonical_payload_heads).copied().collect();
+    let new_heads: HashSet<Blake3Hash> = existing_heads
+        .union(&canonical_payload_heads)
+        .copied()
+        .collect();
 
-    if View::new(&view_name, new_heads.clone()).save(&state.repo_root).is_err() {
+    if View::new(&view_name, new_heads.clone())
+        .save(&state.repo_root)
+        .is_err()
+    {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
@@ -376,7 +385,11 @@ async fn post_sync(
         })
         .collect();
 
-    Json(SyncResponse { view_heads: new_heads, rewritten_map: rewritten_map_str }).into_response()
+    Json(SyncResponse {
+        view_heads: new_heads,
+        rewritten_map: rewritten_map_str,
+    })
+    .into_response()
 }
 
 /// Start the arc HTTP server exposing this repository's CAS.

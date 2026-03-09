@@ -161,7 +161,10 @@ mod tests {
 
         let inv = invert_atom(&original, &store).unwrap();
         let inv_inv = invert_atom(&inv, &store).unwrap();
-        assert_eq!(original, inv_inv, "double inversion must produce the original atom");
+        assert_eq!(
+            original, inv_inv,
+            "double inversion must produce the original atom"
+        );
     }
 
     #[test]
@@ -199,8 +202,7 @@ mod tests {
             &signing_key,
         );
 
-        let inverted =
-            invert_change(&original, &store, &(author, signing_key)).unwrap();
+        let inverted = invert_change(&original, &store, &(author, signing_key)).unwrap();
 
         assert!(
             inverted.deps.contains(&original.id),

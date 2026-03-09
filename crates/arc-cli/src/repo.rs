@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Context as _;
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
 use arc_core::ai::AiResolver;
@@ -15,15 +17,17 @@ use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
-use arc_core::store::oplog::{Operation, OpLog};
+use arc_core::store::oplog::{OpLog, Operation};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use crate::ai_pending::{PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai,
-                        load_pending_ai, save_pending_ai};
+use crate::ai_pending::{
+    PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
+    save_pending_ai,
+};
 
 /// Workspace manifest persisted at `<workspace>/.arc-workspace`.
 ///
@@ -72,7 +76,9 @@ pub struct UiConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { color: Self::default_color() }
+        Self {
+            color: Self::default_color(),
+        }
     }
 }
 
@@ -163,8 +169,12 @@ pub struct Repository {
     pub work_root: PathBuf,
     /// Content-addressable object store.
     pub store: ObjectStore,
-    /// In-memory change DAG.
-    pub graph: ChangeGraph,
+    /// In-memory change DAG — stored in an [`ArcSwap`] for lock-free reader
+    /// access.  Writers perform copy-on-write: clone the current graph,
+    /// mutate the clone, then atomically swap the `Arc` pointer.  Readers
+    /// receive a hazard-pointer guard (or a strong `Arc` clone via
+    /// [`ArcSwap::load_full`]) and never contend with writers.
+    pub graph: ArcSwap<ChangeGraph>,
     /// Optional signing identity set via [`Repository::set_identity`].
     /// Required before calling [`Repository::snap`] or
     /// [`Repository::resolve_conflict`].
@@ -212,7 +222,7 @@ impl Repository {
 
         Ok(Self {
             store: ObjectStore::new(&root),
-            graph: ChangeGraph::new(),
+            graph: ArcSwap::new(Arc::new(ChangeGraph::new())),
             shared_root: root.clone(),
             work_root: root,
             identity: None,
@@ -246,7 +256,7 @@ impl Repository {
             }
             return Ok(Self {
                 store: ObjectStore::new(&shared_root),
-                graph: ChangeGraph::new(),
+                graph: ArcSwap::new(Arc::new(ChangeGraph::new())),
                 shared_root,
                 work_root,
                 identity: None,
@@ -261,7 +271,7 @@ impl Repository {
 
         Ok(Self {
             store: ObjectStore::new(&work_root),
-            graph: ChangeGraph::new(),
+            graph: ArcSwap::new(Arc::new(ChangeGraph::new())),
             shared_root: work_root.clone(),
             work_root,
             identity: None,
@@ -275,6 +285,18 @@ impl Repository {
     /// [`resolve_conflict`](Repository::resolve_conflict).
     pub fn set_identity(&mut self, author: Author, signing_key: ed25519_dalek::SigningKey) {
         self.identity = Some((author, signing_key));
+    }
+
+    /// Add a single [`Change`] to the in-memory graph via a copy-on-write swap.
+    ///
+    /// Loads the current `Arc<ChangeGraph>`, clones it, inserts `change` into
+    /// the clone, then atomically stores the new `Arc` back.  Readers that
+    /// loaded the old `Arc` before the swap continue to see a consistent
+    /// snapshot and are never invalidated mid-traversal.
+    pub fn graph_add_change(&mut self, change: Change) {
+        let mut new_graph = (*self.graph.load_full()).clone();
+        new_graph.add_change(change);
+        self.graph.store(Arc::new(new_graph));
     }
 
     /// Return a reference to the signing identity, or an error if unset.
@@ -350,10 +372,8 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("corrupt .arc/epochs JSON: {e}"))?;
         let mut map = HashMap::new();
         for (k, v) in json {
-            let old_id = _unhex(&k)
-                .ok_or_else(|| anyhow::anyhow!("invalid epoch key: {k}"))?;
-            let new_id = _unhex(&v)
-                .ok_or_else(|| anyhow::anyhow!("invalid epoch value: {v}"))?;
+            let old_id = _unhex(&k).ok_or_else(|| anyhow::anyhow!("invalid epoch key: {k}"))?;
+            let new_id = _unhex(&v).ok_or_else(|| anyhow::anyhow!("invalid epoch value: {v}"))?;
             map.insert(old_id, new_id);
         }
         Ok(map)
@@ -374,13 +394,18 @@ impl Repository {
     /// **never mutated**; only the read path is intercepted.
     pub fn hydrate_heads(&mut self, heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
         let epoch_map = self.load_epoch_map()?;
+
+        // Clone the current graph once and accumulate all new changes locally.
+        // A single atomic ArcSwap store at the end makes the full batch visible
+        // to readers atomically — far cheaper than one swap per change.
+        let mut graph = (*self.graph.load_full()).clone();
         let mut queue: VecDeque<Blake3Hash> = heads.iter().copied().collect();
 
         while let Some(id) = queue.pop_front() {
             // Epoch Map interception: if this ID was compacted away, redirect
             // to the Genesis Change instead of attempting a CAS read.
             let id = if let Some(&genesis_id) = epoch_map.get(&id) {
-                if self.graph.get(&genesis_id).is_none() {
+                if graph.get(&genesis_id).is_none() {
                     queue.push_back(genesis_id);
                 }
                 continue;
@@ -388,7 +413,7 @@ impl Repository {
                 id
             };
 
-            if self.graph.get(&id).is_some() {
+            if graph.get(&id).is_some() {
                 continue;
             }
             let change = self
@@ -396,13 +421,15 @@ impl Repository {
                 .read_change(&id)
                 .map_err(|e| anyhow::anyhow!("failed to read change from CAS: {e}"))?;
             for &dep in &change.deps {
-                if self.graph.get(&dep).is_none() {
+                if graph.get(&dep).is_none() {
                     queue.push_back(dep);
                 }
             }
-            self.graph.add_change(change);
+            graph.add_change(change);
         }
 
+        // Single atomic swap — all queued changes become visible at once.
+        self.graph.store(Arc::new(graph));
         Ok(())
     }
 
@@ -421,12 +448,12 @@ impl Repository {
         heads: &HashSet<Blake3Hash>,
     ) -> anyhow::Result<MaterializedState> {
         let agent_ignore = load_agentignore(&self.shared_root);
-        let order = self.graph.topological_sort(heads);
+        let order = self.graph.load().topological_sort(heads);
         let mut state = MaterializedState::new();
+        let g = self.graph.load_full();
 
         for id in order {
-            let change = self
-                .graph
+            let change = g
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
             apply_change(&mut state, change, &self.store, &agent_ignore, None)
@@ -441,7 +468,8 @@ impl Repository {
     /// Iterates all nodes and calls [`Change::verify_signature`] on each.
     /// Returns an error describing the first change that fails verification.
     pub fn verify_graph(&self) -> anyhow::Result<()> {
-        for change in self.graph.iter() {
+        let g = self.graph.load_full();
+        for change in g.iter() {
             if !change.verify_signature() {
                 let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
                 anyhow::bail!("cryptographic verification failed for change {hex}");
@@ -472,17 +500,23 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
         let agent_ignore = load_agentignore(&self.shared_root);
-        let order = self.graph.topological_sort(&view.heads);
+        let g = self.graph.load_full();
+        let order = g.topological_sort(&view.heads);
         let mut state = MaterializedState::new();
         let mut blame = BlameState::new();
 
         for id in order {
-            let change = self
-                .graph
+            let change = g
                 .get(&id)
                 .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(&mut state, change, &self.store, &agent_ignore, Some(&mut blame))
-                .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
+            apply_change(
+                &mut state,
+                change,
+                &self.store,
+                &agent_ignore,
+                Some(&mut blame),
+            )
+            .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
         // Filter to nodes belonging to `filepath`.
@@ -649,7 +683,7 @@ impl Repository {
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(change.clone());
+        self.graph_add_change(change.clone());
 
         // Update the semantic intent index (no-op if index not yet initialised).
         let _ = self.try_embed_change(&change);
@@ -729,7 +763,11 @@ impl Repository {
         let is_sparse = !sparse_patterns.is_empty();
         for filepath in &state_filepaths {
             // Sparse Safety Law: do not emit Delete for files hidden by sparse cone.
-            if is_sparse && !sparse_patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
+            if is_sparse
+                && !sparse_patterns
+                    .iter()
+                    .any(|p| filepath.starts_with(p.as_str()))
+            {
                 continue;
             }
             if !self.work_root.join(filepath).exists() {
@@ -738,11 +776,13 @@ impl Repository {
                     // >= covers blob keys (len==2) as well as AST sub-keys (len>2).
                     if key.len() >= prefix.len() && key[..prefix.len()] == prefix[..] {
                         let prior_bytes = state.get(key).cloned().unwrap_or_default();
-                        let prior_hash = self
-                            .store
-                            .write_blob(&prior_bytes)
-                            .map_err(|e| anyhow::anyhow!("CAS write error for deleted file: {e}"))?;
-                        atoms.push(Atom::Delete { at: key.clone(), prior_hash });
+                        let prior_hash = self.store.write_blob(&prior_bytes).map_err(|e| {
+                            anyhow::anyhow!("CAS write error for deleted file: {e}")
+                        })?;
+                        atoms.push(Atom::Delete {
+                            at: key.clone(),
+                            prior_hash,
+                        });
                     }
                 }
             }
@@ -770,7 +810,10 @@ impl Repository {
                     .store
                     .write_blob(&prior_bytes)
                     .map_err(|e| anyhow::anyhow!("CAS write error for deleted dir: {e}"))?;
-                atoms.push(Atom::Delete { at: key, prior_hash });
+                atoms.push(Atom::Delete {
+                    at: key,
+                    prior_hash,
+                });
             }
         }
 
@@ -811,7 +854,12 @@ impl Repository {
         let current_state = self.materialize(&current_name)?;
 
         // Check for un-snapped changes.
-        check_working_dir_clean(&self.work_root, &current_state, &self.store, "switching views")?;
+        check_working_dir_clean(
+            &self.work_root,
+            &current_state,
+            &self.store,
+            "switching views",
+        )?;
 
         // Hydrate the target view.
         self.hydrate(target)?;
@@ -865,17 +913,19 @@ impl Repository {
         let current_state = self.materialize_heads(&current_view.heads)?;
         check_working_dir_clean(&self.work_root, &current_state, &self.store, "merging")?;
 
-
         // Find LCA.
-        let lca_heads = self.graph.merge_base(&current_view.heads, target_heads);
+        let lca_heads = self
+            .graph
+            .load()
+            .merge_base(&current_view.heads, target_heads);
 
         // Compute ancestors from each side and from the LCA.
-        let ancestors_current = self.graph.ancestors(&current_view.heads);
-        let ancestors_target = self.graph.ancestors(target_heads);
+        let ancestors_current = self.graph.load().ancestors(&current_view.heads);
+        let ancestors_target = self.graph.load().ancestors(target_heads);
         let ancestors_lca = if lca_heads.is_empty() {
             HashSet::new()
         } else {
-            self.graph.ancestors(&lca_heads)
+            self.graph.load().ancestors(&lca_heads)
         };
 
         // ΔA = changes in current but not in LCA ancestry.
@@ -892,14 +942,13 @@ impl Repository {
 
         // Cross-product commutativity check.
         let mut conflicting_pairs = Vec::new();
+        let g = self.graph.load_full();
         for &id_a in &delta_a {
-            let change_a = self
-                .graph
+            let change_a = g
                 .get(&id_a)
                 .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
             for &id_b in &delta_b {
-                let change_b = self
-                    .graph
+                let change_b = g
                     .get(&id_b)
                     .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
                 if !commutes(change_a, change_b) {
@@ -990,6 +1039,7 @@ impl Repository {
         // Materialize LCA state directly from heads — no temp view needed.
         let lca_heads = self
             .graph
+            .load()
             .merge_base(&current_view.heads, &conflict.target_heads);
         let lca_state = if lca_heads.is_empty() {
             MaterializedState::new()
@@ -1004,14 +1054,13 @@ impl Repository {
         let mut combined_intent = String::from("AI merge: ");
         let mut affected_files: Vec<PathBuf> = Vec::new();
 
+        let g = self.graph.load_full();
         for (id_a, id_b) in &conflict.conflicting_pairs {
-            let change_a = self
-                .graph
+            let change_a = g
                 .get(id_a)
                 .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
                 .clone();
-            let change_b = self
-                .graph
+            let change_b = g
                 .get(id_b)
                 .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
                 .clone();
@@ -1040,7 +1089,10 @@ impl Repository {
                 .store
                 .write_blob(&resolved)
                 .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
-            merge_atoms.push(Atom::Insert { at: path.clone(), content_hash });
+            merge_atoms.push(Atom::Insert {
+                at: path.clone(),
+                content_hash,
+            });
 
             // Write resolved bytes directly to the working directory.
             if path.len() >= 2 && path[0] == "file" {
@@ -1098,16 +1150,15 @@ impl Repository {
         human_author: &Author,
         signing_key: &ed25519_dalek::SigningKey,
     ) -> anyhow::Result<Blake3Hash> {
-        let pending = load_pending_ai(&self.shared_root)
-            .ok_or_else(|| anyhow::anyhow!(
-                "no pending AI change — '.arc/ai/pending.json' not found"
-            ))?;
+        let pending = load_pending_ai(&self.shared_root).ok_or_else(|| {
+            anyhow::anyhow!("no pending AI change — '.arc/ai/pending.json' not found")
+        })?;
 
         let human_key: PublicKeyBytes = match human_author {
             Author::Human { key, .. } => *key,
-            _ => anyhow::bail!(
-                "active identity is not a Human author; cannot sponsor an AI change"
-            ),
+            _ => {
+                anyhow::bail!("active identity is not a Human author; cannot sponsor an AI change")
+            }
         };
 
         let ai_author = Author::AI {
@@ -1118,8 +1169,7 @@ impl Repository {
         let id = match pending.kind {
             PendingKind::Resolve => {
                 // Atoms and deps were pre-staged by resolve_conflict().
-                let deps: HashSet<Blake3Hash> =
-                    pending.staged_deps.iter().cloned().collect();
+                let deps: HashSet<Blake3Hash> = pending.staged_deps.iter().cloned().collect();
                 let change = Change::new(
                     deps,
                     pending.staged_atoms.clone(),
@@ -1130,13 +1180,13 @@ impl Repository {
                 self.store
                     .write_change(&change)
                     .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-                self.graph.add_change(change.clone());
+                self.graph_add_change(change.clone());
 
                 // Advance the current view to the new merge change.
                 let view_name = self.current_view_name()?;
-                let updated =
-                    View::new(&view_name, HashSet::from([change.id]));
-                updated.save(&self.shared_root)
+                let updated = View::new(&view_name, HashSet::from([change.id]));
+                updated
+                    .save(&self.shared_root)
                     .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
                 let _ = self.try_embed_change(&change);
@@ -1145,9 +1195,9 @@ impl Repository {
             PendingKind::Generate => {
                 // Diff the working directory and snap with Author::AI.
                 self.snap_ai(&pending.intent, &ai_author, signing_key)?
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "no working-directory changes detected — nothing to commit"
-                    ))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no working-directory changes detected — nothing to commit")
+                    })?
             }
         };
 
@@ -1185,7 +1235,7 @@ impl Repository {
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(change.clone());
+        self.graph_add_change(change.clone());
         let before_heads = view.heads.clone();
         view.heads = HashSet::from([change.id]);
         view.save(&self.shared_root)
@@ -1202,7 +1252,11 @@ impl Repository {
     /// is only updated when `.arc/ai/embeddings.db` already exists (meaning
     /// the user has already run `arc log --intent` to bootstrap the index).
     fn try_embed_change(&self, change: &Change) -> anyhow::Result<()> {
-        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
+        let db_path = self
+            .shared_root
+            .join(".arc")
+            .join("ai")
+            .join("embeddings.db");
         if !db_path.exists() {
             // Index not yet bootstrapped; skip silently.
             return Ok(());
@@ -1256,11 +1310,13 @@ impl Repository {
                 for key in base_state.keys() {
                     if key.len() > prefix.len() && key[..prefix.len()] == prefix[..] {
                         let prior_bytes = base_state.get(key).cloned().unwrap_or_default();
-                        let prior_hash = self
-                            .store
-                            .write_blob(&prior_bytes)
-                            .map_err(|e| anyhow::anyhow!("CAS write error for stash delete: {e}"))?;
-                        stash_atoms.push(Atom::Delete { at: key.clone(), prior_hash });
+                        let prior_hash = self.store.write_blob(&prior_bytes).map_err(|e| {
+                            anyhow::anyhow!("CAS write error for stash delete: {e}")
+                        })?;
+                        stash_atoms.push(Atom::Delete {
+                            at: key.clone(),
+                            prior_hash,
+                        });
                     }
                 }
             }
@@ -1300,7 +1356,7 @@ impl Repository {
         self.store
             .write_change(&stash_change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(stash_change.clone());
+        self.graph_add_change(stash_change.clone());
 
         // Create & save the stash view (forked from current heads, then advanced).
         let stash_view = View::new(&stash_name, HashSet::from([stash_change.id]));
@@ -1393,9 +1449,7 @@ impl Repository {
     /// Returns `(atoms, old_texts)` where `old_texts` maps each changed
     /// filepath to its last-snapped source text (empty string when the file
     /// did not previously exist).
-    pub fn diff_info(
-        &mut self,
-    ) -> anyhow::Result<(Vec<Atom>, HashMap<String, String>)> {
+    pub fn diff_info(&mut self) -> anyhow::Result<(Vec<Atom>, HashMap<String, String>)> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
@@ -1409,14 +1463,12 @@ impl Repository {
                 Atom::Insert { at, .. }
                 | Atom::Delete { at, .. }
                 | Atom::SemanticsPreserving { at, .. }
-                    if at.first().map(|s| s == "file").unwrap_or(false)
-                        && at.len() > 1 =>
+                    if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 1 =>
                 {
                     Some(at[1].clone())
                 }
                 Atom::Move { from, .. }
-                    if from.first().map(|s| s == "file").unwrap_or(false)
-                        && from.len() > 1 =>
+                    if from.first().map(|s| s == "file").unwrap_or(false) && from.len() > 1 =>
                 {
                     Some(from[1].clone())
                 }
@@ -1438,12 +1490,13 @@ impl Repository {
         self.hydrate(&view_name)?;
         let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let mut order = self.graph.topological_sort(&view.heads);
+        let mut order = self.graph.load().topological_sort(&view.heads);
         order.reverse(); // oldest-first → newest-first
         order
             .iter()
             .map(|id| {
                 self.graph
+                    .load()
                     .get(id)
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("change {} missing from graph", _hex(id)))
@@ -1460,51 +1513,55 @@ impl Repository {
     /// The index is populated eagerly on the first call (embeds every change
     /// in the current view), then updated incrementally by [`snap`] and
     /// [`approve_pending_ai`] on each new write.
-    pub fn log_semantic(
-        &mut self,
-        query: &str,
-        k: usize,
-    ) -> anyhow::Result<Vec<(Change, f32)>> {
-        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
+    pub fn log_semantic(&mut self, query: &str, k: usize) -> anyhow::Result<Vec<(Change, f32)>> {
+        let db_path = self
+            .shared_root
+            .join(".arc")
+            .join("ai")
+            .join("embeddings.db");
 
         // Initialise the embedding provider (may trigger model download on
         // first call; subsequent calls load the model from disk cache).
         eprintln!("[arc] Initializing embedding provider…");
-        let provider = HybridProvider::new()
-            .context("failed to initialize embedding provider")?;
+        let provider = HybridProvider::new().context("failed to initialize embedding provider")?;
 
-        let query_vec = provider.embed(query)
+        let query_vec = provider
+            .embed(query)
             .context("failed to embed search query")?;
 
         // Open (or create) the vector store.
-        let store = VectorStore::open(&db_path)
-            .context("failed to open vector store")?;
+        let store = VectorStore::open(&db_path).context("failed to open vector store")?;
 
         // Populate / refresh the index for the current view.
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let order = self.graph.topological_sort(&view.heads);
+        // Hold a strong Arc so all get() borrows stay valid across the loop.
+        let g = self.graph.load_full();
+        let order = g.topological_sort(&view.heads);
         for id in &order {
             let hex_id: String = id.iter().map(|b| format!("{b:02x}")).collect();
-            if let Some(change) = self.graph.get(id) {
+            if let Some(change) = g.get(id) {
                 // Only index if not already present (avoid redundant embeds).
-                let embedding = provider.embed(&change.intent)
+                let embedding = provider
+                    .embed(&change.intent)
                     .context("failed to embed change intent")?;
-                store.upsert(&hex_id, &embedding)
+                store
+                    .upsert(&hex_id, &embedding)
                     .context("failed to upsert embedding")?;
             }
         }
 
         // Search.
-        let results = store.search(&query_vec, k)
+        let results = store
+            .search(&query_vec, k)
             .context("vector store search failed")?;
 
         let mut out = Vec::new();
         for (id_hex, score) in results {
             if let Some(hash) = hex_to_blake3(&id_hex)
-                && let Some(change) = self.graph.get(&hash)
+                && let Some(change) = g.get(&hash)
             {
                 out.push((change.clone(), score));
             }
@@ -1540,7 +1597,7 @@ impl Repository {
         let current_view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
-        let ancestors_v = self.graph.ancestors(&current_view.heads);
+        let ancestors_v = self.graph.load().ancestors(&current_view.heads);
 
         // All declared dependencies of the change must already be in the view.
         for dep in &change.deps {
@@ -1556,26 +1613,29 @@ impl Repository {
         // Exclusive changes: in the current view's ancestry but NOT in the
         // ancestry of the change being cherry-picked.  The cherry-picked
         // change must commute with every one of them.
-        let ancestors_x = self.graph.ancestors(&HashSet::from([*hash]));
+        let ancestors_x = self.graph.load().ancestors(&HashSet::from([*hash]));
         let exclusive: Vec<Blake3Hash> = ancestors_v.difference(&ancestors_x).copied().collect();
-        for exc_id in &exclusive {
-            let exc_change = self.graph.get(exc_id).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "change {} missing from graph during cherry-pick",
-                    _hex(exc_id)
-                )
-            })?;
-            if !commutes(&change, exc_change) {
-                anyhow::bail!(
-                    "Cannot cherry-pick {}: semantic conflict with {}. AI resolution required.",
-                    _hex(hash),
-                    _hex(exc_id)
-                );
+        {
+            let g = self.graph.load_full();
+            for exc_id in &exclusive {
+                let exc_change = g.get(exc_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "change {} missing from graph during cherry-pick",
+                        _hex(exc_id)
+                    )
+                })?;
+                if !commutes(&change, exc_change) {
+                    anyhow::bail!(
+                        "Cannot cherry-pick {}: semantic conflict with {}. AI resolution required.",
+                        _hex(hash),
+                        _hex(exc_id)
+                    );
+                }
             }
         }
 
         // Reuse the existing Change object (same hash → same CAS entry).
-        self.graph.add_change(change);
+        self.graph_add_change(change);
         let before_cp = current_view.heads.clone();
         let mut new_heads = current_view.heads.clone();
         new_heads.insert(*hash);
@@ -1650,16 +1710,16 @@ impl Repository {
                 .args(args)
                 .current_dir(&self.work_root)
                 .status()
-                .map_err(|e| anyhow::anyhow!(
-                    "Hook '{event}' failed to launch '{bin}': {e}. \
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Hook '{event}' failed to launch '{bin}': {e}. \
                      Ensure the command is an executable in your PATH \
                      (shell built-ins like 'echo' are not PATH executables \
                      on Windows — use 'cmd /C echo ...' instead)."
-                ))?;
+                    )
+                })?;
             if !status.success() {
-                anyhow::bail!(
-                    "hook '{event}' exited with {status} — operation aborted."
-                );
+                anyhow::bail!("hook '{event}' exited with {status} — operation aborted.");
             }
         }
         Ok(())
@@ -1817,7 +1877,7 @@ impl Repository {
             .store
             .read_change(hash)
             .map_err(|_| anyhow::anyhow!("change {} not found in CAS", _hex(hash)))?;
-        self.graph.add_change(target.clone());
+        self.graph_add_change(target.clone());
 
         // Hydrate all of X's declared dependencies.
         self.hydrate_heads(&target.deps)?;
@@ -1856,11 +1916,16 @@ impl Repository {
         self.store
             .write_change(&revert_change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(revert_change.clone());
+        self.graph_add_change(revert_change.clone());
 
         // Advance the current view to point at the revert change and record
         // the completed revert in the spacetime log.
-        self.log_operation("revert", &view_name, current_view.heads.clone(), HashSet::from([revert_change.id]))?;
+        self.log_operation(
+            "revert",
+            &view_name,
+            current_view.heads.clone(),
+            HashSet::from([revert_change.id]),
+        )?;
         let updated_view = View::new(&view_name, HashSet::from([revert_change.id]));
         updated_view
             .save(&self.shared_root)
@@ -1921,7 +1986,11 @@ impl Repository {
             if let Some(content) = state.get(&path_key) {
                 if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
                     let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
-                    let blob_path = self.shared_root.join(".arc").join("blobs").join(_hex(&hash));
+                    let blob_path = self
+                        .shared_root
+                        .join(".arc")
+                        .join("blobs")
+                        .join(_hex(&hash));
                     let blob_file = std::fs::File::open(&blob_path)
                         .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
                     // SAFETY: The CAS blob store is an append-only, content-addressed system.
@@ -1993,9 +2062,9 @@ impl Repository {
         table.load_preset(presets::NOTHING);
         let rows: &[(&str, String)] = &[
             ("Repository Path", self.shared_root.display().to_string()),
-            ("Current View",    current),
-            ("CAS Objects",     format!("{changes}")),
-            ("Views",           format!("{views}")),
+            ("Current View", current),
+            ("CAS Objects", format!("{changes}")),
+            ("Views", format!("{views}")),
             ("Active Identity", identity),
         ];
         for (label, value) in rows {
@@ -2189,12 +2258,7 @@ impl Repository {
     /// The change is signed, written to the CAS, and replaces the view's head
     /// frontier.  The operation is also appended to the operation log so that
     /// `arc undo` can revert it.
-    pub fn mount_add(
-        &mut self,
-        path: &str,
-        url: &str,
-        target: &str,
-    ) -> anyhow::Result<Blake3Hash> {
+    pub fn mount_add(&mut self, path: &str, url: &str, target: &str) -> anyhow::Result<Blake3Hash> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let mut view = View::load(&self.shared_root, &view_name)
@@ -2215,9 +2279,14 @@ impl Repository {
         self.store
             .write_change(&change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(change.clone());
+        self.graph_add_change(change.clone());
         // Record the completed mount-add in the spacetime log.
-        self.log_operation("mount add", &view_name, view.heads.clone(), HashSet::from([change.id]))?;
+        self.log_operation(
+            "mount add",
+            &view_name,
+            view.heads.clone(),
+            HashSet::from([change.id]),
+        )?;
         view.heads = HashSet::from([change.id]);
         view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
@@ -2245,7 +2314,9 @@ impl Repository {
             .iter()
             .filter_map(|(key, value)| {
                 if key.len() == 2 && key[0] == "file" && value.starts_with(b"ARC_MOUNT:") {
-                    let info = std::str::from_utf8(value).ok()?.strip_prefix("ARC_MOUNT:")?;
+                    let info = std::str::from_utf8(value)
+                        .ok()?
+                        .strip_prefix("ARC_MOUNT:")?;
                     let (url, tgt) = info.split_once('|')?;
                     Some((key[1].clone(), url.to_string(), tgt.to_string()))
                 } else {
@@ -2336,10 +2407,7 @@ impl Repository {
     ///
     /// Scans the parent of `shared_root` one level deep for `.arc-workspace` files.
     pub fn workspace_list(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let parent = self
-            .shared_root
-            .parent()
-            .unwrap_or(&self.shared_root);
+        let parent = self.shared_root.parent().unwrap_or(&self.shared_root);
         let mut workspaces = Vec::new();
         if let Ok(rd) = fs::read_dir(parent) {
             for entry in rd.filter_map(|e| e.ok()) {
@@ -2399,7 +2467,7 @@ impl Repository {
         }
 
         // --- Step 2: BFS to find all reachable changes ---------------------
-        let reachable = self.graph.ancestors(&root_set);
+        let reachable = self.graph.load().ancestors(&root_set);
 
         // --- Step 3: causal stability — intersection of all view histories --
         // A change is causally stable if it appears in EVERY view's ancestry.
@@ -2408,7 +2476,7 @@ impl Repository {
             for entry in rd.filter_map(|e| e.ok()) {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if let Ok(view) = View::load(&self.shared_root, &name) {
-                    per_view_ancestors.push(self.graph.ancestors(&view.heads));
+                    per_view_ancestors.push(self.graph.load().ancestors(&view.heads));
                 }
             }
         }
@@ -2437,9 +2505,7 @@ impl Repository {
             for prefix_entry in prefixes.filter_map(|e| e.ok()) {
                 let prefix_name = prefix_entry.file_name().to_string_lossy().into_owned();
                 // Shard directories are exactly 2 lowercase hex chars.
-                if prefix_name.len() != 2
-                    || !prefix_name.bytes().all(|b| b.is_ascii_hexdigit())
-                {
+                if prefix_name.len() != 2 || !prefix_name.bytes().all(|b| b.is_ascii_hexdigit()) {
                     continue;
                 }
                 if let Ok(files) = fs::read_dir(prefix_entry.path()) {
@@ -2458,13 +2524,19 @@ impl Repository {
                                 b'0'..=b'9' => chunk[0] - b'0',
                                 b'a'..=b'f' => chunk[0] - b'a' + 10,
                                 b'A'..=b'F' => chunk[0] - b'A' + 10,
-                                _ => { valid = false; break; }
+                                _ => {
+                                    valid = false;
+                                    break;
+                                }
                             };
                             let lo = match chunk[1] {
                                 b'0'..=b'9' => chunk[1] - b'0',
                                 b'a'..=b'f' => chunk[1] - b'a' + 10,
                                 b'A'..=b'F' => chunk[1] - b'A' + 10,
-                                _ => { valid = false; break; }
+                                _ => {
+                                    valid = false;
+                                    break;
+                                }
                             };
                             id[i] = (hi << 4) | lo;
                         }
@@ -2495,20 +2567,23 @@ impl Repository {
         let blobs_dir = self.shared_root.join(".arc").join("blobs");
         // Collect all blob hashes referenced in the reachable changes.
         let mut referenced_blobs: HashSet<String> = HashSet::new();
-        for id in &reachable {
-            if let Some(change) = self.graph.get(id) {
-                for atom in &change.atoms {
-                    match atom {
-                        Atom::Blob { hash, .. } => {
-                            referenced_blobs.insert(_hex(hash));
+        {
+            let g = self.graph.load_full();
+            for id in &reachable {
+                if let Some(change) = g.get(id) {
+                    for atom in &change.atoms {
+                        match atom {
+                            Atom::Blob { hash, .. } => {
+                                referenced_blobs.insert(_hex(hash));
+                            }
+                            Atom::Insert { content_hash, .. } => {
+                                referenced_blobs.insert(_hex(content_hash));
+                            }
+                            Atom::Delete { prior_hash, .. } => {
+                                referenced_blobs.insert(_hex(prior_hash));
+                            }
+                            _ => {}
                         }
-                        Atom::Insert { content_hash, .. } => {
-                            referenced_blobs.insert(_hex(content_hash));
-                        }
-                        Atom::Delete { prior_hash, .. } => {
-                            referenced_blobs.insert(_hex(prior_hash));
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -2518,9 +2593,7 @@ impl Repository {
         {
             for entry in rd.filter_map(|e| e.ok()) {
                 let fname = entry.file_name().to_string_lossy().into_owned();
-                if !referenced_blobs.contains(&fname)
-                    && fs::remove_file(entry.path()).is_ok()
-                {
+                if !referenced_blobs.contains(&fname) && fs::remove_file(entry.path()).is_ok() {
                     result.blobs_deleted += 1;
                 }
             }
@@ -2573,7 +2646,7 @@ impl Repository {
                 if let Ok(view) = View::load(&self.shared_root, &name) {
                     // Ensure the graph is hydrated for this view.
                     self.hydrate_heads(&view.heads)?;
-                    per_view_ancestors.push(self.graph.ancestors(&view.heads));
+                    per_view_ancestors.push(self.graph.load().ancestors(&view.heads));
                     all_view_names.push(name);
                 }
             }
@@ -2591,18 +2664,23 @@ impl Repository {
         };
 
         if causally_stable.is_empty() {
-            anyhow::bail!("No stable history to compact — repository has no causally-stable changes. \
-                           Ensure every view has observed the same base history before compacting.");
+            anyhow::bail!(
+                "No stable history to compact — repository has no causally-stable changes. \
+                           Ensure every view has observed the same base history before compacting."
+            );
         }
 
         // --- Step 3: find stable tips (stable nodes whose deps are also     --
         //     within the stable set, but that no OTHER stable node points to) --
         let mut depended_on_by_stable: HashSet<Blake3Hash> = HashSet::new();
-        for &id in &causally_stable {
-            if let Some(change) = self.graph.get(&id) {
-                for dep in &change.deps {
-                    if causally_stable.contains(dep) {
-                        depended_on_by_stable.insert(*dep);
+        {
+            let g = self.graph.load_full();
+            for &id in &causally_stable {
+                if let Some(change) = g.get(&id) {
+                    for dep in &change.deps {
+                        if causally_stable.contains(dep) {
+                            depended_on_by_stable.insert(*dep);
+                        }
                     }
                 }
             }
@@ -2632,13 +2710,19 @@ impl Repository {
                 let hash: Blake3Hash = content[13..45]
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("corrupt ARC_BLOB_REF token at {path:?}"))?;
-                atoms.push(Atom::Blob { path: path.clone(), hash });
+                atoms.push(Atom::Blob {
+                    path: path.clone(),
+                    hash,
+                });
             } else {
                 let content_hash = self
                     .store
                     .write_blob(content)
                     .map_err(|e| anyhow::anyhow!("CAS write error in compact: {e}"))?;
-                atoms.push(Atom::Insert { at: path.clone(), content_hash });
+                atoms.push(Atom::Insert {
+                    at: path.clone(),
+                    content_hash,
+                });
             }
         }
 
@@ -2654,14 +2738,13 @@ impl Repository {
         self.store
             .write_change(&genesis)
             .map_err(|e| anyhow::anyhow!("CAS write error for Genesis Change: {e}"))?;
-        self.graph.add_change(genesis.clone());
+        self.graph_add_change(genesis.clone());
         let genesis_id = genesis.id;
 
         // --- Step 7: build and persist the Epoch Map (append-only) ---------
         let epochs_path = self.shared_root.join(".arc").join("epochs");
         let mut epoch_json: HashMap<String, String> = if epochs_path.exists() {
-            let raw = fs::read_to_string(&epochs_path)
-                .unwrap_or_default();
+            let raw = fs::read_to_string(&epochs_path).unwrap_or_default();
             serde_json::from_str(&raw).unwrap_or_default()
         } else {
             HashMap::new()
@@ -2764,7 +2847,9 @@ impl Repository {
         let delta = self.compute_working_directory_delta(&grandparent_state)?;
 
         if delta.is_empty() && message.is_none() {
-            anyhow::bail!("nothing to amend — working directory matches the pre-amend state and no new message was supplied");
+            anyhow::bail!(
+                "nothing to amend — working directory matches the pre-amend state and no new message was supplied"
+            );
         }
 
         let new_intent = message.unwrap_or(parent.intent.as_str()).to_string();
@@ -2777,19 +2862,13 @@ impl Repository {
 
         // Build the amended Change with the grandparent's deps (not the old
         // head) so history is rewritten cleanly.
-        let new_change = Change::new(
-            parent.deps.clone(),
-            delta,
-            new_intent,
-            author,
-            signing_key,
-        );
+        let new_change = Change::new(parent.deps.clone(), delta, new_intent, author, signing_key);
         let new_id = new_change.id;
 
         self.store
             .write_change(&new_change)
             .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph.add_change(new_change.clone());
+        self.graph_add_change(new_change.clone());
 
         // Update the Epoch Map: old_head → new_id, so peers transparently graft.
         let epochs_path = self.shared_root.join(".arc").join("epochs");
@@ -2809,7 +2888,12 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
 
         // Record the completed amend in the spacetime log.
-        self.log_operation("amend", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
+        self.log_operation(
+            "amend",
+            &view_name,
+            view.heads.clone(),
+            HashSet::from([new_id]),
+        )?;
 
         // Repoint the view to the new change.
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
@@ -2857,20 +2941,14 @@ impl Repository {
         let (author, signing_key) = self.signing_identity()?;
         let signer = (author.clone(), signing_key.clone());
 
-        let squashed = engine_squash(
-            &self.graph,
-            &self.store,
-            &view.heads,
-            target_id,
-            &signer,
-        )
-        .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
+        let squashed = engine_squash(&self.graph.load_full(), &self.store, &view.heads, target_id, &signer)
+            .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
 
         let new_id = squashed.id;
         self.store
             .write_change(&squashed)
             .map_err(|e| anyhow::anyhow!("failed to write squashed change: {e}"))?;
-        self.graph.add_change(squashed);
+        self.graph_add_change(squashed);
 
         // Record epoch map entry: old head → new squashed id.
         let old_head = *view.heads.iter().next().unwrap();
@@ -2887,7 +2965,12 @@ impl Repository {
         fs::rename(&tmp, &epochs_path)
             .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
 
-        self.log_operation("squash", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
+        self.log_operation(
+            "squash",
+            &view_name,
+            view.heads.clone(),
+            HashSet::from([new_id]),
+        )?;
 
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
         updated_view
@@ -2914,7 +2997,7 @@ impl Repository {
         let target_id = self.resolve_rev(target_rev)?;
 
         // Ensure the change exists in the graph.
-        if self.graph.get(&target_id).is_none() {
+        if self.graph.load().get(&target_id).is_none() {
             anyhow::bail!("change {} not found in graph", _hex(&target_id));
         }
 
@@ -2927,7 +3010,10 @@ impl Repository {
         write_state_to_working_dir(&self.work_root, &self.shared_root, &state)?;
 
         tracing::info!(target = %_hex(&target_id), "diffedit prepare complete");
-        println!("diffedit: working directory set to change {}", &_hex(&target_id)[..12]);
+        println!(
+            "diffedit: working directory set to change {}",
+            &_hex(&target_id)[..12]
+        );
         println!("Edit your files then run `arc diffedit --apply` to record the change.");
         Ok(())
     }
@@ -2945,7 +3031,9 @@ impl Repository {
         self.acquire_lock()?;
         let lock_path = self.shared_root.join(".arc").join("diffedit_target");
         if !lock_path.exists() {
-            anyhow::bail!("no active diffedit session — run `arc diffedit --prepare <change>` first");
+            anyhow::bail!(
+                "no active diffedit session — run `arc diffedit --prepare <change>` first"
+            );
         }
 
         let target_hex = fs::read_to_string(&lock_path)?;
@@ -2955,6 +3043,7 @@ impl Repository {
 
         let target_change = self
             .graph
+            .load()
             .get(&target_id)
             .ok_or_else(|| anyhow::anyhow!("diffedit target change not found in graph"))?
             .clone();
@@ -3024,7 +3113,7 @@ impl Repository {
         self.store
             .write_change(&new_change)
             .map_err(|e| anyhow::anyhow!("failed to write diffedit change: {e}"))?;
-        self.graph.add_change(new_change);
+        self.graph_add_change(new_change);
 
         let view_name = self.current_view_name()?;
         let view = View::load(&self.shared_root, &view_name)
@@ -3044,7 +3133,12 @@ impl Repository {
         fs::rename(&tmp, &epochs_path)
             .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
 
-        self.log_operation("diffedit", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
+        self.log_operation(
+            "diffedit",
+            &view_name,
+            view.heads.clone(),
+            HashSet::from([new_id]),
+        )?;
 
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
         updated_view
@@ -3079,9 +3173,11 @@ impl Repository {
         let (base_str, n) = if let Some(tilde_pos) = query.find('~') {
             let base = &query[..tilde_pos];
             let steps_str = &query[tilde_pos + 1..];
-            let steps: usize = steps_str
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid ancestor count in '{query}': expected an integer after '~'"))?;
+            let steps: usize = steps_str.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "invalid ancestor count in '{query}': expected an integer after '~'"
+                )
+            })?;
             (base, steps)
         } else {
             (query, 0)
@@ -3125,7 +3221,9 @@ impl Repository {
             match matches.len() {
                 0 => anyhow::bail!("no change found matching '{base_str}'"),
                 1 => matches.remove(0),
-                n => anyhow::bail!("ambiguous prefix '{base_str}' matches {n} changes; use more characters"),
+                n => anyhow::bail!(
+                    "ambiguous prefix '{base_str}' matches {n} changes; use more characters"
+                ),
             }
         };
 
@@ -3138,10 +3236,9 @@ impl Repository {
             // Sort deps by hex for deterministic traversal when there are multiple parents.
             let mut sorted_deps: Vec<Blake3Hash> = change.deps.into_iter().collect();
             sorted_deps.sort_by_key(_hex);
-            current = sorted_deps
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("cannot traverse ~{n}: change at step {i} has no ancestors"))?;
+            current = sorted_deps.into_iter().next().ok_or_else(|| {
+                anyhow::anyhow!("cannot traverse ~{n}: change at step {i} has no ancestors")
+            })?;
         }
 
         Ok(current)
@@ -3250,7 +3347,10 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
             at: prepend(at),
             content_hash,
         },
-        Atom::Delete { at, prior_hash } => Atom::Delete { at: prepend(at), prior_hash },
+        Atom::Delete { at, prior_hash } => Atom::Delete {
+            at: prepend(at),
+            prior_hash,
+        },
         Atom::Move { from, to } => Atom::Move {
             from: prepend(from),
             to: prepend(to),
@@ -3475,9 +3575,7 @@ fn load_config_file(toml_path: &Path) -> ArcConfig {
             && fs::write(toml_path, &toml_text).is_ok()
         {
             let _ = fs::remove_file(&json_path);
-            eprintln!(
-                "arc: migrated config.json → config.toml (one-time upgrade)"
-            );
+            eprintln!("arc: migrated config.json → config.toml (one-time upgrade)");
             return migrated;
         }
     }
@@ -3523,10 +3621,18 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     // Local config (overrides global).
     let local_path = shared_root.join(".arc").join("config.toml");
     let local = load_config_file(&local_path);
-    if local.user.name.is_some() { merged.user.name = local.user.name; }
-    if local.user.email.is_some() { merged.user.email = local.user.email; }
-    if local.merge.tool.is_some() { merged.merge.tool = local.merge.tool; }
-    if local.ui.color != "auto" { merged.ui.color = local.ui.color; }
+    if local.user.name.is_some() {
+        merged.user.name = local.user.name;
+    }
+    if local.user.email.is_some() {
+        merged.user.email = local.user.email;
+    }
+    if local.merge.tool.is_some() {
+        merged.merge.tool = local.merge.tool;
+    }
+    if local.ui.color != "auto" {
+        merged.ui.color = local.ui.color;
+    }
     merged.remotes.extend(local.remotes);
     merged.aliases.extend(local.aliases);
     merged.hooks.extend(local.hooks);
@@ -3960,7 +4066,11 @@ mod tests {
 
         // .arc/ai/pending.json must exist — the Ghost Node.
         assert!(
-            repo_path.join(".arc").join("ai").join("pending.json").exists(),
+            repo_path
+                .join(".arc")
+                .join("ai")
+                .join("pending.json")
+                .exists(),
             ".arc/ai/pending.json must exist after resolve_conflict"
         );
 
@@ -3981,14 +4091,20 @@ mod tests {
 
         // Now approve: should write Author::AI change, advance view, clear pending.
         let (approve_author, approve_key) = arc_core::store::author::test_keypair();
-        let merge_id = repo.approve_pending_ai(&approve_author, &approve_key).unwrap();
+        let merge_id = repo
+            .approve_pending_ai(&approve_author, &approve_key)
+            .unwrap();
 
         // The merge change ID should be non-zero.
         assert_ne!(merge_id, [0u8; 32]);
 
         // pending.json must be gone after approval.
         assert!(
-            !repo_path.join(".arc").join("ai").join("pending.json").exists(),
+            !repo_path
+                .join(".arc")
+                .join("ai")
+                .join("pending.json")
+                .exists(),
             ".arc/ai/pending.json must be removed after approve"
         );
 
@@ -3998,7 +4114,10 @@ mod tests {
             .iter()
             .filter(|c| matches!(&c.author, arc_core::store::author::Author::AI { .. }))
             .collect();
-        assert!(!ai_changes.is_empty(), "at least one AI-authored change must be in log");
+        assert!(
+            !ai_changes.is_empty(),
+            "at least one AI-authored change must be in log"
+        );
         assert!(
             ai_changes[0].verify_signature(),
             "AI change must have a valid signature"
@@ -4007,8 +4126,9 @@ mod tests {
 
     #[test]
     fn test_pending_ai_roundtrip() {
-        use crate::ai_pending::{PendingAiChange, clear_pending_ai, has_pending_ai,
-                                load_pending_ai, save_pending_ai};
+        use crate::ai_pending::{
+            PendingAiChange, clear_pending_ai, has_pending_ai, load_pending_ai, save_pending_ai,
+        };
         let dir = tempfile::tempdir().unwrap();
         let repo_root = dir.path();
 
@@ -4025,7 +4145,10 @@ mod tests {
         let loaded = load_pending_ai(repo_root).expect("must be loadable");
         assert_eq!(loaded.intent, "add retry backoff");
         assert_eq!(loaded.model, "gpt-4o-mini");
-        assert!(matches!(loaded.kind, crate::ai_pending::PendingKind::Generate));
+        assert!(matches!(
+            loaded.kind,
+            crate::ai_pending::PendingKind::Generate
+        ));
 
         clear_pending_ai(repo_root);
         assert!(!has_pending_ai(repo_root));
@@ -4231,8 +4354,10 @@ mod tests {
         // The revert change must carry a valid cryptographic signature.
         let rc = repo
             .graph
+            .load()
             .get(&revert_id)
-            .expect("revert change must be present in the graph");
+            .expect("revert change must be present in the graph")
+            .clone();
         assert!(
             rc.verify_signature(),
             "revert change must carry a valid Ed25519 signature"
@@ -4357,7 +4482,8 @@ mod tests {
         );
 
         // Snap must carry a valid cryptographic signature.
-        let change = repo.graph.get(&snap_id).expect("snap must be in graph");
+        let g = repo.graph.load_full();
+        let change = g.get(&snap_id).expect("snap must be in graph");
         assert!(
             change.verify_signature(),
             "blob snap must carry a valid signature"
@@ -4479,7 +4605,10 @@ mod tests {
         primary.workspace_add(&ws_path, None).unwrap();
 
         // The manifest must exist in the workspace directory.
-        assert!(ws_path.join(".arc-workspace").exists(), ".arc-workspace must be written");
+        assert!(
+            ws_path.join(".arc-workspace").exists(),
+            ".arc-workspace must be written"
+        );
 
         // The workspace manifest must point at the primary shared_root.
         let json = fs::read_to_string(ws_path.join(".arc-workspace")).unwrap();
@@ -4494,7 +4623,10 @@ mod tests {
 
         // workspace_list() from the primary must include the workspace dir.
         let list = primary.workspace_list().unwrap();
-        assert!(list.contains(&ws_path), "workspace_list must return ws_path");
+        assert!(
+            list.contains(&ws_path),
+            "workspace_list must return ws_path"
+        );
     }
 
     #[test]
@@ -4525,10 +4657,17 @@ mod tests {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().unwrap().is_dir())
             .collect();
-        assert!(!shards.is_empty(), "CAS must use two-level sharding (at least one shard dir exists)");
+        assert!(
+            !shards.is_empty(),
+            "CAS must use two-level sharding (at least one shard dir exists)"
+        );
         for shard in &shards {
             let name = shard.file_name().to_string_lossy().into_owned();
-            assert_eq!(name.len(), 2, "shard directory '{name}' must be exactly 2 hex chars");
+            assert_eq!(
+                name.len(),
+                2,
+                "shard directory '{name}' must be exactly 2 hex chars"
+            );
             assert!(
                 name.bytes().all(|b| b.is_ascii_hexdigit()),
                 "shard directory '{name}' must be lowercase hex"
@@ -4566,12 +4705,24 @@ mod tests {
         let before_count = fs::read_dir(&blobs_dir).unwrap().count();
 
         let result = repo.gc().unwrap();
-        assert_eq!(result.changes_deleted, 0, "reachable changes must not be deleted");
-        assert!(result.blobs_deleted >= 1, "orphan blob must be deleted by GC");
-        assert!(!orphan_path.exists(), "orphan blob file must be removed from disk");
+        assert_eq!(
+            result.changes_deleted, 0,
+            "reachable changes must not be deleted"
+        );
+        assert!(
+            result.blobs_deleted >= 1,
+            "orphan blob must be deleted by GC"
+        );
+        assert!(
+            !orphan_path.exists(),
+            "orphan blob file must be removed from disk"
+        );
 
         let after_count = fs::read_dir(&blobs_dir).unwrap().count();
-        assert!(after_count < before_count, "blob count must decrease after GC");
+        assert!(
+            after_count < before_count,
+            "blob count must decrease after GC"
+        );
     }
 
     /// DAG Compaction: PO-Log Compaction via a single Genesis Change.
@@ -4615,7 +4766,11 @@ mod tests {
 
         // The view must now point exclusively to the Genesis Change.
         let view = View::load(&repo_path, "main").expect("load main view");
-        assert_eq!(view.heads.len(), 1, "view must have exactly one head after compact");
+        assert_eq!(
+            view.heads.len(),
+            1,
+            "view must have exactly one head after compact"
+        );
         assert!(
             view.heads.contains(&genesis_id),
             "view head must be the genesis change"
@@ -4623,7 +4778,7 @@ mod tests {
 
         // The in-memory graph must contain only the Genesis Change
         // (no ancestors — it has empty deps).
-        let ancestors = repo2.graph.ancestors(&view.heads);
+        let ancestors = repo2.graph.load().ancestors(&view.heads);
         assert_eq!(
             ancestors.len(),
             1,
@@ -4635,7 +4790,9 @@ mod tests {
         );
 
         // Materialising the view must reproduce all three functions.
-        let state = repo2.materialize("main").expect("materialize after compact");
+        let state = repo2
+            .materialize("main")
+            .expect("materialize after compact");
         let all_content: String = state
             .values()
             .filter_map(|v| std::str::from_utf8(v).ok())
@@ -4676,9 +4833,19 @@ mod tests {
 
         // The view must point at the amended change as its sole head.
         let view = View::load(&repo_path, "main").expect("load view");
-        assert_eq!(view.heads.len(), 1, "view must have exactly one head after amend");
-        assert!(view.heads.contains(&new_id), "view head must be the amended change");
-        assert!(!view.heads.contains(&snap_id), "original snap must no longer be a head");
+        assert_eq!(
+            view.heads.len(),
+            1,
+            "view must have exactly one head after amend"
+        );
+        assert!(
+            view.heads.contains(&new_id),
+            "view head must be the amended change"
+        );
+        assert!(
+            !view.heads.contains(&snap_id),
+            "original snap must no longer be a head"
+        );
 
         // Materialising the view must reflect the amended content.
         let state = repo.materialize("main").expect("materialize after amend");

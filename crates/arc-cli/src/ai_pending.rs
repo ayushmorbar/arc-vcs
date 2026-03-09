@@ -63,11 +63,7 @@ pub struct PendingAiChange {
 
 impl PendingAiChange {
     /// Create a new Generate-kind pending change with the current timestamp.
-    pub fn new_generate(
-        model: String,
-        intent: String,
-        affected_files: Vec<PathBuf>,
-    ) -> Self {
+    pub fn new_generate(model: String, intent: String, affected_files: Vec<PathBuf>) -> Self {
         Self {
             kind: PendingKind::Generate,
             model,

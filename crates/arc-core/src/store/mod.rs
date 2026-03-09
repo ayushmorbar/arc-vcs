@@ -2,12 +2,18 @@
 
 /// Author identity and signing-key management.
 pub mod author;
+/// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
+pub mod blake3_hasher;
 /// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
 /// Immutable semantic changes and their dependency metadata.
 pub mod change;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
+/// Signal-safe temporary-file registry.
+pub mod tempfile;
+
+pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 /// Append-only spacetime operation log for O(1) undo.
 pub mod oplog;
 /// Cryptographically-signed immutable tags.

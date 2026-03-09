@@ -25,8 +25,7 @@ impl VectorStore {
     pub fn open(path: &Path) -> Result<Self> {
         // Ensure parent directory exists.
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("failed to create vector store directory")?;
+            std::fs::create_dir_all(parent).context("failed to create vector store directory")?;
         }
 
         let conn = Connection::open(path).context("failed to open vector store database")?;

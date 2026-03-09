@@ -172,7 +172,14 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &insert_change, &store, &Gitignore::empty(), None).unwrap();
+        apply_change(
+            &mut state,
+            &insert_change,
+            &store,
+            &Gitignore::empty(),
+            None,
+        )
+        .unwrap();
         assert_eq!(state.len(), 2);
         assert_eq!(
             state.get(&vec!["fn_main".into(), "body".into()]).unwrap(),
@@ -191,7 +198,14 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &delete_change, &store, &Gitignore::empty(), None).unwrap();
+        apply_change(
+            &mut state,
+            &delete_change,
+            &store,
+            &Gitignore::empty(),
+            None,
+        )
+        .unwrap();
         assert_eq!(state.len(), 1);
         assert!(!state.contains_key(&vec!["fn_main".into(), "ret".into()]));
         drop(dir);
@@ -273,7 +287,13 @@ mod tests {
             ai_author,
             &signing_key,
         );
-        let sentinel_result = apply_change(&mut state, &sentinel_change, &store, &Gitignore::empty(), None);
+        let sentinel_result = apply_change(
+            &mut state,
+            &sentinel_change,
+            &store,
+            &Gitignore::empty(),
+            None,
+        );
         assert!(sentinel_result.is_err());
         assert!(
             sentinel_result.unwrap_err().contains("Security Violation"),
@@ -300,7 +320,10 @@ mod tests {
 
         apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
         let key = vec!["dir".into(), "src/utils".into()];
-        assert!(state.contains_key(&key), "Directory atom must insert an entry at its path");
+        assert!(
+            state.contains_key(&key),
+            "Directory atom must insert an entry at its path"
+        );
         assert_eq!(
             state[&key].as_slice(),
             b"",
@@ -335,7 +358,11 @@ mod tests {
             val.starts_with(b"ARC_BLOB_REF:"),
             "Blob atom must write ARC_BLOB_REF: prefix, got: {val:?}"
         );
-        assert_eq!(&val[13..], &hash, "Blob atom must embed the 32-byte hash after the prefix");
+        assert_eq!(
+            &val[13..],
+            &hash,
+            "Blob atom must embed the 32-byte hash after the prefix"
+        );
         drop(dir);
     }
 
@@ -358,7 +385,10 @@ mod tests {
         );
 
         let result = apply_change(&mut state, &change, &store, &Gitignore::empty(), None);
-        assert!(result.is_err(), "Move atom must return an error (not yet implemented)");
+        assert!(
+            result.is_err(),
+            "Move atom must return an error (not yet implemented)"
+        );
         assert!(
             result.unwrap_err().contains("Move"),
             "error message must mention Move"
@@ -394,7 +424,14 @@ mod tests {
             &signing_key,
         );
 
-        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        apply_change(
+            &mut state,
+            &change,
+            &store,
+            &Gitignore::empty(),
+            Some(&mut blame),
+        )
+        .unwrap();
 
         assert_eq!(
             blame.get(&vec!["fn_a".into()]),
@@ -411,12 +448,22 @@ mod tests {
         let (author2, signing_key2) = crate::store::author::test_keypair();
         let del = Change::new(
             HashSet::from([change.id]),
-            vec![Atom::Delete { at: vec!["fn_a".into()], prior_hash: fn_a_prior }],
+            vec![Atom::Delete {
+                at: vec!["fn_a".into()],
+                prior_hash: fn_a_prior,
+            }],
             "remove a",
             author2,
             &signing_key2,
         );
-        apply_change(&mut state, &del, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        apply_change(
+            &mut state,
+            &del,
+            &store,
+            &Gitignore::empty(),
+            Some(&mut blame),
+        )
+        .unwrap();
         assert!(
             blame.get(&vec!["fn_a".into()]).is_none(),
             "blame must remove fn_a after Delete"

@@ -273,8 +273,14 @@ mod tests {
             &signing_key,
         );
 
-        assert!(with_dep.deps.contains(&dep_id), "deps must be present in the Change");
-        assert!(with_dep.verify_signature(), "change with deps must carry a valid signature");
+        assert!(
+            with_dep.deps.contains(&dep_id),
+            "deps must be present in the Change"
+        );
+        assert!(
+            with_dep.verify_signature(),
+            "change with deps must carry a valid signature"
+        );
 
         // A change with the same atoms/intent/author but no deps must get a different id.
         let no_dep = Change::new(
@@ -306,7 +312,10 @@ mod tests {
                     at: vec!["fn_a".into()],
                     content_hash: [0u8; 32],
                 },
-                Atom::Delete { at: vec!["fn_b".into()], prior_hash: [0u8; 32] },
+                Atom::Delete {
+                    at: vec!["fn_b".into()],
+                    prior_hash: [0u8; 32],
+                },
             ],
             "roundtrip",
             author,
@@ -317,7 +326,10 @@ mod tests {
         let decoded: Change = bincode::deserialize(&bytes).expect("deserialization must succeed");
 
         assert_eq!(original, decoded, "Change must survive a bincode roundtrip");
-        assert!(decoded.verify_signature(), "decoded Change must still verify");
+        assert!(
+            decoded.verify_signature(),
+            "decoded Change must still verify"
+        );
     }
 
     /// `collapsed_from` is excluded from `compute_id`, so setting it on an
@@ -348,10 +360,7 @@ mod tests {
         );
         // Both must still verify: the signature covers the id, not
         // collapsed_from, so setting collapsed_from does not break it.
-        assert!(
-            base.verify_signature(),
-            "base Change must verify"
-        );
+        assert!(base.verify_signature(), "base Change must verify");
         assert!(
             with_link.verify_signature(),
             "Change with collapsed_from set must still verify (provenance field is outside the hash)"

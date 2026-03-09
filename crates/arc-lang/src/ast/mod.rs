@@ -22,12 +22,7 @@ pub trait LanguagePlugin {
     /// Every `Insert` atom's content is written to `store` as a blob, and the
     /// returned atom carries the resulting `content_hash`. Every `Delete` atom
     /// likewise stores the removed node's bytes in `store` as `prior_hash`.
-    fn diff(
-        &self,
-        old_src: &str,
-        new_src: &str,
-        store: &ObjectStore,
-    ) -> Result<Vec<Atom>, String>;
+    fn diff(&self, old_src: &str, new_src: &str, store: &ObjectStore) -> Result<Vec<Atom>, String>;
 
     /// Reconstruct source code for `filepath` from the materialized state.
     ///
