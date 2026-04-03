@@ -20,9 +20,9 @@ use arc_core::store::graph::ChangeGraph;
 use arc_core::store::oplog::{OpLog, Operation};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
-use gix_features::parallel;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
+use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::ai_pending::{
@@ -790,8 +790,7 @@ impl Repository {
                     && existing.starts_with(b"ARC_BLOB_REF:")
                     && existing.len() >= 45
                 {
-                    let old_hash: Blake3Hash =
-                        existing[13..45].try_into().unwrap_or([0u8; 32]);
+                    let old_hash: Blake3Hash = existing[13..45].try_into().unwrap_or([0u8; 32]);
                     if old_hash == new_hash {
                         return Ok(None);
                     }
@@ -2989,8 +2988,14 @@ impl Repository {
         let (author, signing_key) = self.signing_identity()?;
         let signer = (author.clone(), signing_key.clone());
 
-        let squashed = engine_squash(&self.graph.load_full(), &self.store, &view.heads, target_id, &signer)
-            .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
+        let squashed = engine_squash(
+            &self.graph.load_full(),
+            &self.store,
+            &view.heads,
+            target_id,
+            &signer,
+        )
+        .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
 
         let new_id = squashed.id;
         self.store

@@ -24,13 +24,25 @@ pub struct Frame {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "at {}:{}: {}", self.location.file(), self.location.line(), self.error)
+        write!(
+            f,
+            "at {}:{}: {}",
+            self.location.file(),
+            self.location.line(),
+            self.error
+        )
     }
 }
 
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} (at {}:{})", self.error, self.location.file(), self.location.line())
+        write!(
+            f,
+            "{} (at {}:{})",
+            self.error,
+            self.location.file(),
+            self.location.line()
+        )
     }
 }
 

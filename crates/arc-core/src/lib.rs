@@ -25,10 +25,11 @@ pub mod ai;
 pub mod algebra;
 /// Spacetime engine: algebraic history rewriting (squash, diffedit).
 pub mod engine;
+/// Error types for this crate.
+#[allow(missing_docs)]
+pub mod error;
 /// Pure‑Rust Git interoperability bridge for reading legacy repositories.
 pub mod git_bridge;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS).
 pub mod network;
 pub mod store;
-/// Error types for this crate.
-pub mod error;

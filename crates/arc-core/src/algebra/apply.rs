@@ -465,7 +465,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            blame.get(&vec!["fn_a".into()]).is_none(),
+            !blame.contains_key(&vec!["fn_a".into()]),
             "blame must remove fn_a after Delete"
         );
         drop(dir);

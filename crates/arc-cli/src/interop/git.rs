@@ -180,7 +180,11 @@ mod tests {
         import_repo(git_path, &mut arc_repo, &author, &signing_key).unwrap();
 
         // Verify the arc graph has exactly 2 changes.
-        assert_eq!(arc_repo.graph.load().len(), 2, "arc graph must have 2 changes");
+        assert_eq!(
+            arc_repo.graph.load().len(),
+            2,
+            "arc graph must have 2 changes"
+        );
 
         // Discover the branch name that Git created (could be "master" or "main").
         let output = Command::new("git")
