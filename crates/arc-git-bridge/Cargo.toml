@@ -1,0 +1,15 @@
+[package]
+name = "arc-git-bridge"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Network-boundary Git object compiler for arc"
+
+[lib]
+name = "arc_git_bridge"
+path = "src/lib.rs"
+
+[dependencies]
+sha1 = "0.11.0"
+anyhow = "1.0.102"
+arc-core = { path = "../arc-core" }
