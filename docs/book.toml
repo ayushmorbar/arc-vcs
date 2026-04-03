@@ -7,8 +7,8 @@ src = "src"
 [preprocessor.links]
 
 [output.html]
-git-repository-url = "https://github.com/your-org/arc-vcs"
-edit-url-template = "https://github.com/your-org/arc-vcs/edit/main/docs/{path}"
+git-repository-url = "https://github.com/ayushmorbar/arc-vcs"
+edit-url-template = "https://github.com/ayushmorbar/arc-vcs/edit/main/docs/{path}"
 default-theme = "light"
 preferred-dark-theme = "navy"
 
