@@ -87,6 +87,18 @@ pub enum Atom {
         /// View name to check out inside the mounted sub-repository.
         target: String,
     },
+    /// Represents an unresolved N-way conflict as first-class algebra.
+    ///
+    /// `bases` and `sides` reference AST snapshots in CAS by BLAKE3 hash.
+    /// The anchor path identifies where this conflict projects in the tree.
+    Conflict {
+        /// Common ancestor state hashes.
+        bases: Vec<Blake3Hash>,
+        /// Divergent side state hashes.
+        sides: Vec<Blake3Hash>,
+        /// AST path where the conflict is anchored.
+        at: NodePath,
+    },
 }
 
 impl Atom {
@@ -101,6 +113,7 @@ impl Atom {
             Atom::Directory { path } => vec![path],
             Atom::Blob { path, .. } => vec![path],
             Atom::Mount { path, .. } => vec![path],
+            Atom::Conflict { at, .. } => vec![at],
         }
     }
 }

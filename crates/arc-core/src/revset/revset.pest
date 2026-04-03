@@ -1,0 +1,10 @@
+WHITESPACE = _{ " " }
+
+query = { SOI ~ expression ~ EOI }
+expression = { union }
+union = { intersection ~ ("|" ~ intersection)* }
+intersection = { primary ~ ("&" ~ primary)* }
+primary = _{ function_call | symbol | "(" ~ expression ~ ")" }
+function_call = { symbol ~ "(" ~ args? ~ ")" }
+args = { expression ~ ("," ~ expression)* }
+symbol = @{ (ASCII_ALPHANUMERIC | "_" | "@")+ }

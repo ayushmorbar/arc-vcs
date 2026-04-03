@@ -103,7 +103,8 @@ impl LanguagePlugin for RustPlugin {
                 match atom {
                     Atom::Insert { at, .. }
                     | Atom::Delete { at, .. }
-                    | Atom::SemanticsPreserving { at, .. } => at,
+                    | Atom::SemanticsPreserving { at, .. }
+                    | Atom::Conflict { at, .. } => at,
                     Atom::Move { from, .. } => from,
                     Atom::Directory { path } => path,
                     Atom::Blob { path, .. } => path,

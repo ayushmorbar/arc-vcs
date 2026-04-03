@@ -61,6 +61,28 @@ pub struct Change {
 }
 
 impl Change {
+    /// Return a canonicalized atom vector used only for id derivation.
+    ///
+    /// Conflict sides are sorted lexicographically by hash bytes so merge
+    /// order does not affect the resulting content-addressed identity.
+    fn canonicalize_atoms_for_id(atoms: &[Atom]) -> Vec<Atom> {
+        atoms
+            .iter()
+            .map(|atom| match atom {
+                Atom::Conflict { bases, sides, at } => {
+                    let mut canonical_sides = sides.clone();
+                    canonical_sides.sort();
+                    Atom::Conflict {
+                        bases: bases.clone(),
+                        sides: canonical_sides,
+                        at: at.clone(),
+                    }
+                }
+                _ => atom.clone(),
+            })
+            .collect()
+    }
+
     /// Create a new `Change`, computing its content-addressed `id` and
     /// signing it with `signing_key`.
     ///
@@ -156,7 +178,9 @@ impl Change {
         let mut sorted_deps: Vec<&Blake3Hash> = deps.iter().collect();
         sorted_deps.sort();
 
-        let payload = bincode::serialize(&(&sorted_deps, atoms, intent, author))
+        let canonical_atoms = Self::canonicalize_atoms_for_id(atoms);
+
+        let payload = bincode::serialize(&(&sorted_deps, &canonical_atoms, intent, author))
             .expect("bincode serialization is infallible for these types");
 
         *blake3::hash(&payload).as_bytes()

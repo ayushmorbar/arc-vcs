@@ -72,6 +72,22 @@ fn load_ephemeral_session_identity(
     Ok((author, signing_key))
 }
 
+fn load_identity_with_ephemeral_fallback(
+    shared_root: &std::path::Path,
+) -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
+    if std::env::var("ARC_EPHEMERAL_RUNNER").is_ok() {
+        load_ephemeral_session_identity(shared_root)
+    } else {
+        load_identity().map_err(|_| {
+            anyhow::anyhow!(
+                "No cryptographic identity found. \
+                 Run 'arc auth generate' to create one, or set \
+                 ARC_EPHEMERAL_RUNNER for CI/CD pipelines."
+            )
+        })
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "arc", version, about = "Atomic Replayable Changes")]
 struct Cli {
@@ -671,20 +687,7 @@ fn main() -> anyhow::Result<()> {
             use std::io::Write;
 
             let mut repo = Repository::open(".")?;
-            // Ephemeral CI/CD path: ARC_EPHEMERAL_RUNNER bypasses global identity.
-            // Permanent identity path: hard-fail with a clear action message if
-            // the user hasn't run `arc auth generate` yet.
-            let (author, signing_key) = if std::env::var("ARC_EPHEMERAL_RUNNER").is_ok() {
-                load_ephemeral_session_identity(&repo.shared_root)?
-            } else {
-                load_identity().map_err(|_| {
-                    anyhow::anyhow!(
-                        "No cryptographic identity found. \
-                         Run 'arc auth generate' to create one, or set \
-                         ARC_EPHEMERAL_RUNNER for CI/CD pipelines."
-                    )
-                })?
-            };
+            let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
             repo.set_identity(author, signing_key);
 
             let final_message: String = if auto_msg {
@@ -733,20 +736,26 @@ fn main() -> anyhow::Result<()> {
                 message.unwrap_or_else(|| "WIP".to_owned())
             };
 
-            match repo.snap(&final_message, interactive)? {
-                Some(id) => {
-                    let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
-                    println!("snap {hex}");
-                }
-                None => {
-                    println!("Nothing to snap — working directory matches history.");
-                }
+            if interactive {
+                eprintln!(
+                    "arc: --interactive is deprecated in auto-snapshot mode and is currently ignored"
+                );
+            }
+
+            if !repo.snapshot()? {
+                println!("Nothing to snap — working directory matches history.");
+            } else {
+                let id = repo.finalize_snapshot(&final_message)?;
+                let _ = repo.fork_empty_snapshot()?;
+                let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("snap {hex}");
             }
         }
         Command::Log { intent } => {
             let mut repo = Repository::open(".")?;
-            let (author, signing_key) = load_identity()?;
+            let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
             repo.set_identity(author, signing_key);
+            let _ = repo.snapshot()?;
             if let Some(query) = intent {
                 let results = repo.log_semantic(&query, 10)?;
                 if results.is_empty() {
@@ -822,6 +831,9 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Status => {
             let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+            repo.set_identity(author, signing_key);
+            let _ = repo.snapshot()?;
             let view_name = repo.current_view_name()?;
             println!("On view: {}", view_name.cyan().bold());
             let atoms = repo.status()?;
@@ -1314,6 +1326,9 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Diff { semantic } => {
             let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+            repo.set_identity(author, signing_key);
+            let _ = repo.snapshot()?;
             let view_name = repo.current_view_name()?;
             println!("On view: {}", view_name.cyan().bold());
             let (atoms, old_texts) = repo.diff_info()?;
@@ -1575,6 +1590,11 @@ fn atom_display_label(atom: &Atom) -> String {
         Atom::Mount { path, .. } => {
             format!("~~ Mount:   {}", path.last().unwrap_or(&"?".to_string()))
                 .cyan()
+                .to_string()
+        }
+        Atom::Conflict { at, .. } => {
+            format!("!! Conflict: {}", at.last().unwrap_or(&"?".to_string()))
+                .red()
                 .to_string()
         }
     }

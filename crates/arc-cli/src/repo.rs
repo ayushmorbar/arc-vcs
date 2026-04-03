@@ -602,6 +602,147 @@ impl Repository {
         Ok(())
     }
 
+    /// Snapshot the current working directory into an implicit working-copy
+    /// change at the tip of the current view.
+    ///
+    /// Returns `Ok(false)` when there is nothing to snapshot.
+    pub fn snapshot(&mut self) -> anyhow::Result<bool> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+
+        let atoms = self.compute_working_directory_delta(&state)?;
+        if atoms.is_empty() {
+            return Ok(false);
+        }
+
+        let mut view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let before_heads = view.heads.clone();
+        let (author, signing_key) = self.signing_identity()?;
+
+        self.write_blob_atoms(&atoms)?;
+        let change = Change::new(
+            view.heads.clone(),
+            atoms,
+            "snapshot working copy",
+            author.clone(),
+            signing_key,
+        );
+
+        self.store
+            .write_change(&change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph_add_change(change.clone());
+
+        view.heads = HashSet::from([change.id]);
+        view.save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        self.log_operation(
+            "snapshot working copy",
+            &view_name,
+            before_heads,
+            HashSet::from([change.id]),
+        )?;
+
+        Ok(true)
+    }
+
+    /// Finalize the current implicit working-copy change with user-facing
+    /// commit metadata.
+    pub fn finalize_snapshot(&mut self, message: &str) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        let mut view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        if view.heads.len() != 1 {
+            anyhow::bail!(
+                "finalize_snapshot requires exactly one head; view '{}' has {} heads",
+                view_name,
+                view.heads.len()
+            );
+        }
+
+        let old_head = *view.heads.iter().next().unwrap();
+        let old_change = self
+            .graph
+            .load()
+            .get(&old_head)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("change {} missing from graph", _hex(&old_head)))?;
+
+        let (author, signing_key) = self.signing_identity()?;
+        let new_change = Change::new(
+            old_change.deps.clone(),
+            old_change.atoms.clone(),
+            message,
+            author.clone(),
+            signing_key,
+        );
+
+        self.store
+            .write_change(&new_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph_add_change(new_change.clone());
+        let _ = self.try_embed_change(&new_change);
+
+        view.heads = HashSet::from([new_change.id]);
+        view.save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        self.log_operation(
+            "snap",
+            &view_name,
+            HashSet::from([old_head]),
+            HashSet::from([new_change.id]),
+        )?;
+
+        Ok(new_change.id)
+    }
+
+    /// Fork the next empty implicit working-copy change on top of the current
+    /// finalized commit.
+    pub fn fork_empty_snapshot(&mut self) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+
+        let mut view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let before_heads = view.heads.clone();
+        let (author, signing_key) = self.signing_identity()?;
+
+        let wc_change = Change::new(
+            view.heads.clone(),
+            Vec::new(),
+            "snapshot working copy",
+            author.clone(),
+            signing_key,
+        );
+
+        self.store
+            .write_change(&wc_change)
+            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.graph_add_change(wc_change.clone());
+
+        view.heads = HashSet::from([wc_change.id]);
+        view.save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+        self.log_operation(
+            "snapshot working copy",
+            &view_name,
+            before_heads,
+            HashSet::from([wc_change.id]),
+        )?;
+
+        Ok(wc_change.id)
+    }
+
     /// Scan the working directory, diff against the materialized history,
     /// and create a new semantic `Change`.
     ///
@@ -987,6 +1128,11 @@ impl Repository {
             .copied()
             .collect();
 
+        let mut delta_a = delta_a;
+        let mut delta_b = delta_b;
+        delta_a.sort();
+        delta_b.sort();
+
         // Cross-product commutativity check.
         let mut conflicting_pairs = Vec::new();
         let g = self.graph.load_full();
@@ -1005,6 +1151,7 @@ impl Repository {
         }
 
         if !conflicting_pairs.is_empty() {
+            // Preserve legacy metadata for Ghost Node / resolve workflow.
             let conflict = PendingConflict {
                 current_view: current_name.clone(),
                 target_heads: target_heads.clone(),
@@ -1015,19 +1162,108 @@ impl Repository {
                 .map_err(|e| anyhow::anyhow!("failed to serialize conflict: {e}"))?;
             fs::write(&conflict_path, bytes)?;
 
-            let hex_a: String = conflicting_pairs[0]
-                .0
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            let hex_b: String = conflicting_pairs[0]
-                .1
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            anyhow::bail!(
-                "Semantic Conflict detected between {hex_a} and {hex_b}. AI resolution required."
+            // Materialize the three states used to build first-class conflict atoms.
+            let target_state = self.materialize_heads(target_heads)?;
+            let lca_state = if lca_heads.is_empty() {
+                MaterializedState::new()
+            } else {
+                self.materialize_heads(&lca_heads)?
+            };
+
+            let mut conflict_atoms = Vec::new();
+            let mut seen_paths: HashSet<NodePath> = HashSet::new();
+
+            for (id_a, id_b) in &conflicting_pairs {
+                let change_a = g
+                    .get(id_a)
+                    .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?;
+                let change_b = g
+                    .get(id_b)
+                    .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?;
+
+                let overlap = find_overlapping_path(&change_a.atoms, &change_b.atoms)
+                    .ok_or_else(|| anyhow::anyhow!("no overlapping path found for conflict"))?;
+
+                if !seen_paths.insert(overlap.clone()) {
+                    continue;
+                }
+
+                let base_bytes = extract_content_at_path(&lca_state, &overlap);
+                let ours_bytes = extract_content_at_path(&current_state, &overlap);
+                let theirs_bytes = extract_content_at_path(&target_state, &overlap);
+
+                let base_hash = self
+                    .store
+                    .write_blob(&base_bytes)
+                    .map_err(|e| anyhow::anyhow!("failed to write conflict base blob: {e}"))?;
+                let ours_hash = self
+                    .store
+                    .write_blob(&ours_bytes)
+                    .map_err(|e| anyhow::anyhow!("failed to write conflict side blob: {e}"))?;
+                let theirs_hash = self
+                    .store
+                    .write_blob(&theirs_bytes)
+                    .map_err(|e| anyhow::anyhow!("failed to write conflict side blob: {e}"))?;
+
+                let mut bases = vec![base_hash];
+                let mut sides = vec![ours_hash, theirs_hash];
+                bases.sort();
+                sides.sort();
+
+                conflict_atoms.push(Atom::Conflict {
+                    bases,
+                    sides,
+                    at: overlap,
+                });
+            }
+
+            conflict_atoms.sort_by(|a, b| {
+                let a_path = match a {
+                    Atom::Conflict { at, .. } => at,
+                    _ => unreachable!("conflict_atoms only contains Atom::Conflict"),
+                };
+                let b_path = match b {
+                    Atom::Conflict { at, .. } => at,
+                    _ => unreachable!("conflict_atoms only contains Atom::Conflict"),
+                };
+                a_path.cmp(b_path)
+            });
+
+            if conflict_atoms.is_empty() {
+                anyhow::bail!("detected semantic conflict but failed to construct conflict atoms");
+            }
+
+            let (author, signing_key) = self.signing_identity()?;
+            let mut merge_deps = current_view.heads.clone();
+            merge_deps.extend(target_heads);
+            let conflict_change = Change::new(
+                merge_deps,
+                conflict_atoms,
+                format!("merge conflict: {} pair(s)", conflicting_pairs.len()),
+                author.clone(),
+                signing_key,
             );
+
+            self.store
+                .write_change(&conflict_change)
+                .map_err(|e| anyhow::anyhow!("failed to persist conflict change: {e}"))?;
+            self.graph_add_change(conflict_change.clone());
+
+            let prev_heads = current_view.heads.clone();
+            let merged_heads = HashSet::from([conflict_change.id]);
+
+            let updated_view = View::new(&current_name, merged_heads.clone());
+            updated_view
+                .save(&self.shared_root)
+                .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
+
+            self.log_operation("merge", &current_name, prev_heads, merged_heads.clone())?;
+
+            let merged_state = self.materialize_heads(&merged_heads)?;
+            write_state_to_working_dir(&self.work_root, &self.shared_root, &merged_state)?;
+            self.run_hook("post-merge")?;
+            tracing::info!("merge_heads complete (conflict change)");
+            return Ok(());
         }
 
         // All commute — union the heads.
@@ -1117,8 +1353,23 @@ impl Repository {
                 .ok_or_else(|| anyhow::anyhow!("no overlapping path found for conflicting pair"))?;
 
             let base_content = extract_content_at_path(&lca_state, &path);
-            let ours_content = extract_content_at_path(&current_state, &path);
-            let theirs_content = extract_content_at_path(&target_state, &path);
+            let mut ours_content = extract_content_at_path(&current_state, &path);
+            let mut theirs_content = extract_content_at_path(&target_state, &path);
+            let mut base_content = base_content;
+
+            // If current state already contains a conflict projection token,
+            // decode hashes and recover textual sides from CAS blobs.
+            if let Some((bases, sides)) = decode_conflict_projection(&ours_content) {
+                if let Some(base_hash) = bases.first() {
+                    base_content = read_blob_bytes(&self.shared_root, base_hash)?;
+                }
+                if let Some(side_a) = sides.first() {
+                    ours_content = read_blob_bytes(&self.shared_root, side_a)?;
+                }
+                if let Some(side_b) = sides.get(1) {
+                    theirs_content = read_blob_bytes(&self.shared_root, side_b)?;
+                }
+            }
 
             let resolved = resolver
                 .resolve(
@@ -3303,6 +3554,90 @@ fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Prefix used by `arc-core::algebra::apply` to project conflict atoms.
+const ARC_CONFLICT_REF_PREFIX: &[u8] = b"ARC_CONFLICT_REF:";
+
+type ConflictProjection = (Vec<Blake3Hash>, Vec<Blake3Hash>);
+type ConflictProjectionEntry<'a> = (&'a NodePath, ConflictProjection);
+
+/// Decode a projected conflict token into the underlying `Atom::Conflict` data.
+fn decode_conflict_projection(bytes: &[u8]) -> Option<(Vec<Blake3Hash>, Vec<Blake3Hash>)> {
+    let payload = bytes.strip_prefix(ARC_CONFLICT_REF_PREFIX)?;
+    match bincode::deserialize::<Atom>(payload).ok()? {
+        Atom::Conflict { bases, sides, .. } => Some((bases, sides)),
+        _ => None,
+    }
+}
+
+/// Find the first conflict projection for `filepath` in materialized state.
+fn conflict_projection_for_file(
+    state: &MaterializedState,
+    filepath: &str,
+) -> anyhow::Result<Option<ConflictProjection>> {
+    let mut projections: Vec<ConflictProjectionEntry<'_>> = state
+        .iter()
+        .filter_map(|(path, bytes)| {
+            if path.len() >= 2 && path[0] == "file" && path[1] == filepath {
+                decode_conflict_projection(bytes).map(|decoded| (path, decoded))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if projections.is_empty() {
+        return Ok(None);
+    }
+
+    projections.sort_by(|(a, _), (b, _)| a.cmp(b));
+    if projections.len() > 1 {
+        anyhow::bail!(
+            "multiple conflict projections found for '{filepath}'; multi-conflict file rendering is not yet supported"
+        );
+    }
+
+    Ok(projections.pop().map(|(_, decoded)| decoded))
+}
+
+fn read_blob_bytes(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<Vec<u8>> {
+    let blob_path = shared_root.join(".arc").join("blobs").join(_hex(hash));
+    fs::read(&blob_path)
+        .map_err(|e| anyhow::anyhow!("failed to read conflict blob '{}': {e}", blob_path.display()))
+}
+
+fn read_blob_text(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<String> {
+    let data = read_blob_bytes(shared_root, hash)?;
+    Ok(String::from_utf8_lossy(&data).to_string())
+}
+
+/// Render Git-style conflict markers from CAS blob hashes.
+fn render_conflict_markers(
+    shared_root: &Path,
+    bases: &[Blake3Hash],
+    sides: &[Blake3Hash],
+) -> anyhow::Result<String> {
+    // Fetch base content for validation / future strategies even though
+    // standard markers only render the conflicting sides.
+    if let Some(base) = bases.first() {
+        let _ = read_blob_text(shared_root, base)?;
+    }
+
+    let side_a_hash = sides
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("conflict side A missing"))?;
+    let side_b_hash = sides
+        .get(1)
+        .ok_or_else(|| anyhow::anyhow!("conflict side B missing"))?;
+
+    let side_a = read_blob_text(shared_root, side_a_hash)?;
+    let side_b = read_blob_text(shared_root, side_b_hash)?;
+
+    Ok(format!(
+        "<<<<<<< side_a\n{}\n=======\n{}\n>>>>>>> side_b\n",
+        side_a, side_b
+    ))
+}
+
 /// Decode a 64-character hex string to a [`Blake3Hash`] (used by log_semantic).
 fn hex_to_blake3(hex: &str) -> Option<Blake3Hash> {
     _unhex(hex)
@@ -3362,6 +3697,9 @@ fn atom_label(atom: &Atom) -> String {
         }
         Atom::Mount { path, .. } => {
             format!("Mount:    {}", path.last().unwrap_or(&"?".to_string()))
+        }
+        Atom::Conflict { at, .. } => {
+            format!("Conflict: {}", at.last().unwrap_or(&"?".to_string()))
         }
     }
 }
@@ -3423,6 +3761,11 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
             path: prepend(path),
             url,
             target,
+        },
+        Atom::Conflict { bases, sides, at } => Atom::Conflict {
+            bases,
+            sides,
+            at: prepend(at),
         },
     }
 }
@@ -3537,6 +3880,13 @@ fn write_state_to_working_dir(
         }
         let path_key = vec!["file".to_string(), filepath.clone()];
         let content = state.get(&path_key);
+
+        if let Some((bases, sides)) = conflict_projection_for_file(state, &filepath)? {
+            let rendered = render_conflict_markers(shared_root, &bases, &sides)?;
+            fs::write(&full, rendered.as_bytes())?;
+            continue;
+        }
+
         if filepath.ends_with(".rs") {
             // Rust files: reconstruct source from AST atoms via unparse.
             let source = plugin
@@ -4065,19 +4415,39 @@ mod tests {
         fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
         repo.snap("modify shared.rs on main", false).unwrap();
 
-        // Merge should fail — same file modified on both sides.
+        // Merge should succeed by producing a first-class conflict change.
         let result = repo.merge_view("feature");
-        assert!(result.is_err(), "merge of conflicting changes must fail");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("Semantic Conflict"),
-            "error must mention 'Semantic Conflict', got: {err_msg}"
-        );
+        assert!(result.is_ok(), "merge of conflicting changes must yield Ok");
 
-        // Verify .arc/conflict was persisted.
+        // Legacy metadata remains for Ghost Node compatibility.
         assert!(
             repo_path.join(".arc").join("conflict").exists(),
-            ".arc/conflict must exist after a failed merge"
+            ".arc/conflict must exist after conflict-bearing merge"
+        );
+
+        let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
+        assert!(
+            content.contains("<<<<<<< side_a")
+                && content.contains("=======")
+                && content.contains(">>>>>>> side_b"),
+            "working file must contain conflict markers, got: {content}"
+        );
+
+        let main_view = arc_core::store::view::View::load(&repo_path, "main").unwrap();
+        assert_eq!(
+            main_view.heads.len(),
+            1,
+            "conflict-bearing merge should produce one synthetic head"
+        );
+        let head = *main_view.heads.iter().next().unwrap();
+        let graph = repo.graph.load();
+        let change = graph.get(&head).expect("conflict change must exist in graph");
+        assert!(
+            change
+                .atoms
+                .iter()
+                .any(|a| matches!(a, Atom::Conflict { .. })),
+            "merged head must contain Atom::Conflict"
         );
     }
 
@@ -4109,9 +4479,17 @@ mod tests {
         fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
         repo.snap("modify shared.rs on main", false).unwrap();
 
-        // Merge fails — creates .arc/conflict.
+        // Merge succeeds with conflict-bearing change and creates .arc/conflict.
         let result = repo.merge_view("feature");
-        assert!(result.is_err());
+        assert!(result.is_ok());
+
+        let merged = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
+        assert!(
+            merged.contains("<<<<<<< side_a")
+                && merged.contains("=======")
+                && merged.contains(">>>>>>> side_b"),
+            "merged file must contain conflict markers before AI resolution"
+        );
 
         // Resolve via the mock AI resolver (Ghost Node mode).
         let resolver = MockResolver;

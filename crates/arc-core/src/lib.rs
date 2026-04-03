@@ -32,4 +32,6 @@ pub mod error;
 pub mod git_bridge;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS).
 pub mod network;
+/// Revset grammar and parser for DAG query expressions.
+pub mod revset;
 pub mod store;

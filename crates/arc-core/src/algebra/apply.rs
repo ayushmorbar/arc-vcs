@@ -125,6 +125,21 @@ pub fn apply_change(
                     b.insert(path.clone(), change.id);
                 }
             }
+            Atom::Conflict { at, .. } => {
+                // Project unresolved conflicts as an opaque token that the
+                // working-copy writer can render with conflict markers.
+                let token = {
+                    let mut t = b"ARC_CONFLICT_REF:".to_vec();
+                    let payload = bincode::serialize(atom)
+                        .map_err(|e| format!("conflict token serialize failed: {e}"))?;
+                    t.extend_from_slice(&payload);
+                    t
+                };
+                state.insert(at.clone(), token);
+                if let Some(ref mut b) = blame {
+                    b.insert(at.clone(), change.id);
+                }
+            }
         }
     }
     Ok(())
