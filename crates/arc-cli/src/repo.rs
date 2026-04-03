@@ -3547,6 +3547,84 @@ impl Repository {
 
         Ok(current)
     }
+
+    /// Resolve revset symbol references used by the revset compiler.
+    ///
+    /// Supports `@` and concrete view names. Raw 64-char hex hashes are
+    /// handled directly by the revset compiler.
+    pub fn resolve_revset_symbol(&self, symbol: &str) -> anyhow::Result<Option<Blake3Hash>> {
+        if symbol == "@" {
+            return self.resolve_rev("@").map(Some);
+        }
+
+        if View::load(&self.shared_root, symbol).is_ok() {
+            return self.resolve_rev(symbol).map(Some);
+        }
+
+        Ok(None)
+    }
+
+    /// Prepare graph state required for evaluating a revset expression.
+    ///
+    /// This hydrates referenced view heads and full 64-character hash symbols
+    /// so ancestor traversal does not truncate on missing graph nodes.
+    pub fn prepare_revset(
+        &mut self,
+        expr: &arc_core::revset::RevsetExpression,
+    ) -> anyhow::Result<()> {
+        self.prepare_revset_impl(expr)
+    }
+
+    fn prepare_revset_impl(
+        &mut self,
+        expr: &arc_core::revset::RevsetExpression,
+    ) -> anyhow::Result<()> {
+        match expr {
+            arc_core::revset::RevsetExpression::Symbol(symbol) => {
+                if symbol == "@" {
+                    let current = self.current_view_name()?;
+                    self.hydrate(&current)?;
+                    return Ok(());
+                }
+
+                if let Some(hash) = _unhex(symbol)
+                    && symbol.len() == 64
+                {
+                    self.hydrate_heads(&HashSet::from([hash]))?;
+                    return Ok(());
+                }
+
+                if View::load(&self.shared_root, symbol).is_ok() {
+                    self.hydrate(symbol)?;
+                }
+
+                Ok(())
+            }
+            arc_core::revset::RevsetExpression::Function { args, .. } => {
+                for arg in args {
+                    self.prepare_revset_impl(arg)?;
+                }
+                Ok(())
+            }
+            arc_core::revset::RevsetExpression::Intersection(left, right)
+            | arc_core::revset::RevsetExpression::Union(left, right) => {
+                self.prepare_revset_impl(left)?;
+                self.prepare_revset_impl(right)
+            }
+        }
+    }
+
+    /// Return a stable snapshot of the current DAG for lazy revset iteration.
+    pub fn graph_snapshot(&self) -> Arc<ChangeGraph> {
+        self.graph.load_full()
+    }
+
+    /// Read a single change from CAS by id.
+    pub fn read_change(&self, id: &Blake3Hash) -> anyhow::Result<Change> {
+        self.store
+            .read_change(id)
+            .map_err(|e| anyhow::anyhow!("failed to read change {}: {e}", _hex(id)))
+    }
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
@@ -4387,6 +4465,49 @@ mod tests {
             "merged view must have 2 heads, got: {:?}",
             main_view.heads
         );
+    }
+
+    #[test]
+    fn test_revset_log_wiring_hydrates_view_symbols() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("revset_log_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        fs::write(repo_path.join("main.rs"), "fn main() { let a = 1; }").unwrap();
+        let main_head = repo
+            .snap("main head", false)
+            .unwrap()
+            .expect("main snap should create change");
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("feature.rs"), "fn feature() { let b = 2; }").unwrap();
+        let feature_head = repo
+            .snap("feature head", false)
+            .unwrap()
+            .expect("feature snap should create change");
+
+        repo.switch_view("main").unwrap();
+
+        // Re-open to simulate a fresh process where only current-view graph state
+        // is loaded initially; revset preparation must hydrate feature symbols.
+        let mut reopened = Repository::open(&repo_path).unwrap();
+        reopened.set_identity(author, signing_key);
+
+        let expr = arc_core::revset::parse("ancestors(feature)").unwrap();
+        reopened.prepare_revset(&expr).unwrap();
+
+        let graph = reopened.graph_snapshot();
+        let mut resolver = |symbol: &str| reopened.resolve_revset_symbol(symbol);
+        let ids: HashSet<Blake3Hash> = arc_core::revset::compile(&expr, graph, &mut resolver)
+            .unwrap()
+            .collect();
+
+        assert!(ids.contains(&feature_head), "revset must include feature head");
+        assert!(ids.contains(&main_head), "revset must include feature ancestor");
     }
 
     #[test]

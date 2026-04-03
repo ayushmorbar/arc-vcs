@@ -125,6 +125,9 @@ enum Command {
         /// Requires the local embedding model (downloaded on first use).
         #[arg(long)]
         intent: Option<String>,
+        /// Revset query expression used to select which changes to show.
+        #[arg(short = 'r', long, default_value = "ancestors(@)")]
+        revset: String,
     },
     /// Show uncommitted changes as semantic AST atoms.
     Status,
@@ -751,7 +754,7 @@ fn main() -> anyhow::Result<()> {
                 println!("snap {hex}");
             }
         }
-        Command::Log { intent } => {
+        Command::Log { intent, revset } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
             repo.set_identity(author, signing_key);
@@ -792,39 +795,50 @@ fn main() -> anyhow::Result<()> {
                     println!("{table}");
                 }
             } else {
-                let changes = repo.log()?;
-                if changes.is_empty() {
+                let expr = arc_core::revset::parse(&revset)
+                    .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
+                repo.prepare_revset(&expr)?;
+                let graph = repo.graph_snapshot();
+                let mut symbol_resolver = |symbol: &str| repo.resolve_revset_symbol(symbol);
+                let rev_iter = arc_core::revset::compile(&expr, graph, &mut symbol_resolver)?;
+
+                let mut table = Table::new();
+                table.load_preset(presets::NOTHING);
+                let mut printed = 0usize;
+
+                for id in rev_iter {
+                    let change = repo.read_change(&id)?;
+                    let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
+                    let author_str = match &change.author {
+                        Author::Human { name, email, .. } => {
+                            format!("{name} <{email}>")
+                        }
+                        Author::AI {
+                            model,
+                            human_sponsor,
+                        } => {
+                            let sponsor: String =
+                                human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
+                            format!("{model} | sponsor:{}", &sponsor[..8])
+                        }
+                        Author::Server { canonical_id, .. } => {
+                            format!("{canonical_id} [server]")
+                        }
+                        Author::Transient { session_id, .. } => {
+                            format!("{session_id} [transient]")
+                        }
+                    };
+                    table.add_row(vec![
+                        Cell::new(&hex[..8]).fg(Color::Cyan),
+                        Cell::new(&author_str).fg(Color::Magenta),
+                        Cell::new(&change.intent),
+                    ]);
+                    printed += 1;
+                }
+
+                if printed == 0 {
                     println!("No changes yet. Use 'arc snap' to create your first change.");
                 } else {
-                    let mut table = Table::new();
-                    table.load_preset(presets::NOTHING);
-                    for change in changes {
-                        let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
-                        let author_str = match &change.author {
-                            Author::Human { name, email, .. } => {
-                                format!("{name} <{email}>")
-                            }
-                            Author::AI {
-                                model,
-                                human_sponsor,
-                            } => {
-                                let sponsor: String =
-                                    human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
-                                format!("{model} | sponsor:{}", &sponsor[..8])
-                            }
-                            Author::Server { canonical_id, .. } => {
-                                format!("{canonical_id} [server]")
-                            }
-                            Author::Transient { session_id, .. } => {
-                                format!("{session_id} [transient]")
-                            }
-                        };
-                        table.add_row(vec![
-                            Cell::new(&hex[..8]).fg(Color::Cyan),
-                            Cell::new(&author_str).fg(Color::Magenta),
-                            Cell::new(&change.intent),
-                        ]);
-                    }
                     println!("{table}");
                 }
             }
