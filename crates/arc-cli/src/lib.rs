@@ -22,6 +22,8 @@ pub mod bugreport;
 pub mod commands;
 /// `arc generate` — agentic code generation with semantic context.
 pub mod generate;
+/// GitHub governance and CI policy auditing utilities.
+pub mod governance;
 /// ASCII DAG renderer for `arc log` output.
 pub mod graph_render;
 /// Git repository interoperability tools.

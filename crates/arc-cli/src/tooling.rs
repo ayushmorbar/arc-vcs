@@ -228,4 +228,18 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    #[test]
+    fn tooling_audit_current_workspace() {
+        let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = crate_dir
+            .ancestors()
+            .nth(2)
+            .expect("arc workspace root should exist");
+
+        let report = audit_workspace_tooling(repo_root, Vec::new(), Vec::new())
+            .expect("current workspace tooling policy must be valid");
+        assert!(report.codespell_rules > 0);
+        assert_eq!(report.present_required_tasks.len(), 3);
+    }
 }

@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
+use arc_cli::governance::audit_github_governance;
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
@@ -205,6 +206,9 @@ enum Command {
         /// Also validate reproducible workspace tooling policies under `.config/`.
         #[arg(long, default_value_t = false)]
         tooling: bool,
+        /// Also validate GitHub governance and CI policy files under `.github/`.
+        #[arg(long, default_value_t = false)]
+        governance: bool,
     },
     /// Manage arc identity (cryptographic key-pair).
     Auth {
@@ -1190,21 +1194,29 @@ fn main() -> anyhow::Result<()> {
             pull(&mut repo, &remote_path, &view)?;
             println!("Pulled and merged view '{view}' from {remote_path}");
         }
-        Command::Verify { tooling } => {
+        Command::Verify {
+            tooling,
+            governance,
+        } => {
             let mut repo = Repository::open(".")?;
             let name = repo.current_view_name()?;
             repo.hydrate(&name)?;
             repo.verify_graph()?;
             println!("Graph cryptographic provenance verified.");
 
+            let frontier = View::load(&repo.shared_root, &name)?
+                .heads
+                .into_iter()
+                .map(arc_core::store::newtypes::ChangeId::from)
+                .collect::<Vec<_>>();
+            let snapshots = list_snapshot_ids(&repo.shared_root)?;
+
             if tooling {
-                let frontier = View::load(&repo.shared_root, &name)?
-                    .heads
-                    .into_iter()
-                    .map(arc_core::store::newtypes::ChangeId::from)
-                    .collect::<Vec<_>>();
-                let snapshots = list_snapshot_ids(&repo.shared_root)?;
-                let report = audit_workspace_tooling(&repo.shared_root, frontier, snapshots)?;
+                let report = audit_workspace_tooling(
+                    &repo.shared_root,
+                    frontier.clone(),
+                    snapshots.clone(),
+                )?;
                 println!(
                     "Tooling policy verified: {} codespell rules, {} required mise tasks, nextest default timeout {}, ci terminate-after {}.",
                     report.codespell_rules,
@@ -1213,6 +1225,25 @@ fn main() -> anyhow::Result<()> {
                     report
                         .ci_terminate_after
                         .map_or_else(|| "none".to_string(), |v| v.to_string())
+                );
+                println!(
+                    "Typed evidence: {} frontier ChangeId(s), {} SnapshotId(s).",
+                    report.frontier.len(),
+                    report.synthesis_snapshots.len()
+                );
+            }
+
+            if governance {
+                let report = audit_github_governance(
+                    &repo.shared_root,
+                    frontier.clone(),
+                    snapshots.clone(),
+                )?;
+                println!(
+                    "Governance policy verified: {} required workflows, {} pinned action reference(s), dependabot ecosystems [{}].",
+                    report.required_workflows.len(),
+                    report.pinned_action_references,
+                    report.dependabot_ecosystems.join(", ")
                 );
                 println!(
                     "Typed evidence: {} frontier ChangeId(s), {} SnapshotId(s).",
