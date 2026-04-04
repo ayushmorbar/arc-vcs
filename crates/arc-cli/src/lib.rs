@@ -18,6 +18,8 @@
 pub mod ai_pending;
 /// Anonymized DAG telemetry packager for `arc bugreport`.
 pub mod bugreport;
+/// Interactive onboarding commands.
+pub mod commands;
 /// `arc generate` — agentic code generation with semantic context.
 pub mod generate;
 /// Git repository interoperability tools.

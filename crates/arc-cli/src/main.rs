@@ -170,6 +170,8 @@ enum Command {
         #[command(subcommand)]
         source: ImportSource,
     },
+    /// Run an interactive onboarding tour for new arc users.
+    Tour,
     /// Perform native TCP sync handshake with a remote arc peer.
     Sync {
         /// Native sync server address, e.g. 127.0.0.1:9000.
@@ -1097,6 +1099,9 @@ fn main() -> anyhow::Result<()> {
                 println!("Imported Git history from {git_path}");
             }
         },
+        Command::Tour => {
+            arc_cli::commands::tour::run_tour()?;
+        }
         Command::Fetch { remote_path, view } => {
             let mut repo = Repository::open(".")?;
             let heads = fetch(&mut repo, &remote_path, &view)?;
