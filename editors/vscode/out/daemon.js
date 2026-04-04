@@ -68,9 +68,12 @@ class ArcDaemonClient {
             this.rejectAllPending(reason);
         });
     }
-    async getFileStates() {
-        const result = await this.sendRequest("get_file_states", { path: this.workspacePath });
-        return result;
+    async getFileStates(path) {
+        const raw = await this.sendRequest("get_file_states", { path });
+        if (!isFileStateArray(raw)) {
+            throw new Error("arc daemon returned invalid get_file_states payload");
+        }
+        return raw;
     }
     dispose() {
         this.decorationsChangedEmitter.dispose();
@@ -143,7 +146,11 @@ class ArcDaemonClient {
             return;
         }
         if (this.isNotification(parsed) && parsed.method === "arc/fileDecorationsChanged") {
-            this.decorationsChangedEmitter.fire();
+            const notification = parsed;
+            const changedPath = notification.params && typeof notification.params.path === "string"
+                ? notification.params.path
+                : undefined;
+            this.decorationsChangedEmitter.fire(changedPath);
         }
     }
     isResponse(value) {
@@ -169,4 +176,21 @@ class ArcDaemonClient {
     }
 }
 exports.ArcDaemonClient = ArcDaemonClient;
+function isFileStateArray(value) {
+    if (!Array.isArray(value)) {
+        return false;
+    }
+    return value.every((entry) => {
+        if (typeof entry !== "object" || entry === null) {
+            return false;
+        }
+        const candidate = entry;
+        const status = candidate.status;
+        return (typeof candidate.file_path === "string" &&
+            (status === "conflict" ||
+                status === "ai_generated" ||
+                status === "modified" ||
+                status === "untracked"));
+    });
+}
 //# sourceMappingURL=daemon.js.map

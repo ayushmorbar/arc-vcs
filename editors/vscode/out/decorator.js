@@ -56,10 +56,11 @@ class ArcFileDecorator {
     constructor(daemonClient, workspacePath) {
         this.daemonClient = daemonClient;
         this.workspacePath = workspacePath;
-        this.notificationSubscription = this.daemonClient.onDidFileDecorationsChange(() => {
+        this.notificationSubscription = this.daemonClient.onDidFileDecorationsChange((changedPath) => {
+            const changedUri = changedPath ? vscode.Uri.file(changedPath) : undefined;
             void this.refreshStates()
                 .then(() => {
-                this.changedEmitter.fire(undefined);
+                this.changedEmitter.fire(changedUri);
             })
                 .catch((error) => {
                 console.error("[arc-vcs] failed to refresh file decorations", error);
@@ -84,9 +85,9 @@ class ArcFileDecorator {
         }
         switch (status) {
             case "conflict":
-                return new vscode.FileDecoration("C", "Mathematical Conflict", STATUS_COLORS.conflict);
+                return new vscode.FileDecoration("C", "Mathematical Conflict (arc resolve)", STATUS_COLORS.conflict);
             case "ai_generated":
-                return new vscode.FileDecoration("AI", "Signed by Author::AI", STATUS_COLORS.ai_generated);
+                return new vscode.FileDecoration("AI", "Cryptographically Signed by Author::AI", STATUS_COLORS.ai_generated);
             case "modified":
                 return new vscode.FileDecoration("M", "Modified", STATUS_COLORS.modified);
             case "untracked":
@@ -108,7 +109,7 @@ class ArcFileDecorator {
         return this.refreshInFlight;
     }
     async doRefresh() {
-        const states = await this.daemonClient.getFileStates();
+        const states = await this.daemonClient.getFileStates(this.workspacePath);
         this.fileStates.clear();
         for (const state of states) {
             this.fileStates.set(node_path_1.default.normalize(state.file_path), state.status);

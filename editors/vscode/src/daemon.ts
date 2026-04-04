@@ -28,6 +28,10 @@ interface JsonRpcNotification<TParams> {
   readonly params?: TParams;
 }
 
+interface FileDecorationsChangedParams {
+  readonly path?: string;
+}
+
 export interface FileState {
   readonly file_path: string;
   readonly status: "conflict" | "ai_generated" | "modified" | "untracked";
@@ -50,7 +54,8 @@ export class ArcDaemonClient implements vscode.Disposable {
   private readonly pending = new Map<JsonRpcId, PendingRequest>();
   private nextId = 1;
   private stdoutBuffer = "";
-  private readonly decorationsChangedEmitter = new vscode.EventEmitter<void>();
+  private readonly decorationsChangedEmitter =
+    new vscode.EventEmitter<string | undefined>();
 
   public readonly onDidFileDecorationsChange = this.decorationsChangedEmitter.event;
 
@@ -83,12 +88,15 @@ export class ArcDaemonClient implements vscode.Disposable {
     });
   }
 
-  public async getFileStates(): Promise<readonly FileState[]> {
-    const result = await this.sendRequest<GetFileStatesParams, readonly FileState[]>(
+  public async getFileStates(path: string): Promise<readonly FileState[]> {
+    const raw = await this.sendRequest<GetFileStatesParams, unknown>(
       "get_file_states",
-      { path: this.workspacePath }
+      { path }
     );
-    return result;
+    if (!isFileStateArray(raw)) {
+      throw new Error("arc daemon returned invalid get_file_states payload");
+    }
+    return raw;
   }
 
   public dispose(): void {
@@ -176,7 +184,12 @@ export class ArcDaemonClient implements vscode.Disposable {
     }
 
     if (this.isNotification(parsed) && parsed.method === "arc/fileDecorationsChanged") {
-      this.decorationsChangedEmitter.fire();
+      const notification = parsed as JsonRpcNotification<FileDecorationsChangedParams>;
+      const changedPath =
+        notification.params && typeof notification.params.path === "string"
+          ? notification.params.path
+          : undefined;
+      this.decorationsChangedEmitter.fire(changedPath);
     }
   }
 
@@ -203,4 +216,25 @@ export class ArcDaemonClient implements vscode.Disposable {
     }
     this.pending.clear();
   }
+}
+
+function isFileStateArray(value: unknown): value is readonly FileState[] {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.every((entry) => {
+    if (typeof entry !== "object" || entry === null) {
+      return false;
+    }
+    const candidate = entry as Record<string, unknown>;
+    const status = candidate.status;
+    return (
+      typeof candidate.file_path === "string" &&
+      (status === "conflict" ||
+        status === "ai_generated" ||
+        status === "modified" ||
+        status === "untracked")
+    );
+  });
 }
