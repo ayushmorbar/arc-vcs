@@ -1,0 +1,15 @@
+# CI-specific Cargo configuration for arc's Rust components. This file is used in CI environments to optimize build times and ensure consistent build settings across different platforms.
+
+[profile.dev]
+debug = "none"
+incremental = false
+
+# Apply mold to all GNU/Linux targets (instead of duplicating per arch)
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))']
+linker = "clang"
+rustflags = ["-Clink-arg=-fuse-ld=mold"]
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+# Produce standalone .exe without vcruntime dependency
+rustflags = ["-Ctarget-feature=+crt-static"]
