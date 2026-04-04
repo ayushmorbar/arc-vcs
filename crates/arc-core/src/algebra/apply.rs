@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use ignore::gitignore::Gitignore;
 
+use crate::algebra::sparse::SparseMatcher;
 use crate::algebra::{Atom, Blake3Hash, NodePath};
 use crate::store::author::Author;
 use crate::store::cas::ObjectStore;
@@ -43,6 +44,21 @@ pub fn apply_change(
     agent_ignore: &Gitignore,
     mut blame: Option<&mut BlameState>,
 ) -> Result<(), String> {
+    apply_change_scoped(state, change, store, agent_ignore, None, blame.take())
+}
+
+/// Sparse-aware variant of [`apply_change`].
+///
+/// When `sparse` is provided, atoms outside the sparse boundary are skipped
+/// before any CAS blob I/O is attempted.
+pub fn apply_change_scoped(
+    state: &mut MaterializedState,
+    change: &Change,
+    store: &ObjectStore,
+    agent_ignore: &Gitignore,
+    sparse: Option<&SparseMatcher>,
+    mut blame: Option<&mut BlameState>,
+) -> Result<(), String> {
     let is_ai = matches!(change.author, Author::AI { .. });
 
     for atom in &change.atoms {
@@ -59,6 +75,7 @@ pub fn apply_change(
                     continue;
                 };
                 // Zero-trust: AI can never self-modify the permission boundary.
+
                 let is_sentinel = checked_path == ".agentignore";
                 let is_restricted = agent_ignore
                     .matched_path_or_any_parents(checked_path, is_dir)
@@ -70,6 +87,12 @@ pub fn apply_change(
                     ));
                 }
             }
+        }
+
+        if let Some(matcher) = sparse
+            && !matcher.matches_atom(atom)
+        {
+            continue;
         }
 
         match atom {
@@ -382,6 +405,41 @@ mod tests {
     }
 
     /// `Move` atoms must return an error (unimplemented).
+
+    #[test]
+    fn test_apply_change_scoped_skips_out_of_scope_insert() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let blob_hash = store.write_blob(b"let x = 1;").unwrap();
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = crate::store::author::test_keypair();
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["file".into(), "out/main.rs".into(), "fn_main".into()],
+                content_hash: blob_hash,
+            }],
+            "out of scope insert",
+            author,
+            &signing_key,
+        );
+        let sparse = SparseMatcher::from_patterns(&["src".to_string()]);
+
+        apply_change_scoped(
+            &mut state,
+            &change,
+            &store,
+            &Gitignore::empty(),
+            Some(&sparse),
+            None,
+        )
+        .unwrap();
+
+        assert!(
+            state.is_empty(),
+            "out-of-scope insert must be skipped during sparse replay"
+        );
+        drop(dir);
+    }
     #[test]
     fn test_apply_move_atom_returns_error() {
         let (dir, store, _) = make_store_and_hash(b"placeholder");

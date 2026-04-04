@@ -13,6 +13,7 @@ use arc_core::ai::embedding::{EmbeddingProvider, HybridProvider};
 use arc_core::ai::vector_store::VectorStore;
 use arc_core::algebra::apply::{BlameState, MaterializedState, apply_change};
 use arc_core::algebra::commute::commutes;
+use arc_core::algebra::sparse::SparseMatcher;
 use arc_core::algebra::{Atom, Blake3Hash, NodePath};
 use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
 use arc_core::store::cas::ObjectStore;
@@ -907,11 +908,15 @@ impl Repository {
         state: &MaterializedState,
     ) -> anyhow::Result<Vec<Atom>> {
         let plugin = RustPlugin::new();
+        let sparse_matcher = sparse_matcher_for_root(&self.work_root);
         let arcignore = load_arcignore(&self.work_root);
         let rs_files = collect_rs_files(&self.work_root, &arcignore)?;
         let mut atoms: Vec<Atom> = Vec::new();
 
         for filepath in &rs_files {
+            if !sparse_matcher.matches_file_path(filepath) {
+                continue;
+            }
             let new_src = fs::read_to_string(self.work_root.join(filepath))?;
             let old_src = plugin.unparse(state, filepath).unwrap_or_default();
             if old_src == new_src {
@@ -937,6 +942,7 @@ impl Repository {
             .collect();
         let non_rs_files: Vec<String> = all_files
             .into_iter()
+            .filter(|f| sparse_matcher.matches_file_path(f))
             .filter(|f| !f.ends_with(".rs"))
             .filter(|f| tracked_files.contains(f.as_str()) || !is_implicitly_ignored(Path::new(f)))
             .collect();
@@ -972,15 +978,9 @@ impl Repository {
 
         // Deleted files.
         let state_filepaths = extract_filepaths_from_state(state);
-        let sparse_patterns = load_sparse_patterns(&self.work_root);
-        let is_sparse = !sparse_patterns.is_empty();
         for filepath in &state_filepaths {
             // Sparse Safety Law: do not emit Delete for files hidden by sparse cone.
-            if is_sparse
-                && !sparse_patterns
-                    .iter()
-                    .any(|p| filepath.starts_with(p.as_str()))
-            {
+            if !sparse_matcher.matches_file_path(filepath) {
                 continue;
             }
             if !self.work_root.join(filepath).exists() {
@@ -1006,9 +1006,13 @@ impl Repository {
         let existing_dirs: HashSet<String> = state
             .keys()
             .filter(|k| k.len() == 2 && k[0] == "dir")
+            .filter(|k| sparse_matcher.matches_file_path(&k[1]))
             .map(|k| k[1].clone())
             .collect();
         for rel_dir in collect_empty_dirs(&self.work_root, &arcignore)? {
+            if !sparse_matcher.matches_file_path(&rel_dir) {
+                continue;
+            }
             if !existing_dirs.contains(&rel_dir) {
                 atoms.push(Atom::Directory {
                     path: dir_key(&rel_dir),
@@ -2714,6 +2718,9 @@ impl Repository {
     pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
         self.acquire_lock()?;
         let sparse_path = self.work_root.join(".arc").join("sparse.json");
+        let arcignore = load_arcignore(&self.work_root);
+        validate_sparse_patterns(patterns, &arcignore)?;
+        let new_matcher = SparseMatcher::from_patterns(patterns);
 
         // Step 1: remove stale files that are outside the new cone.
         let view_name = self.current_view_name()?;
@@ -2721,7 +2728,7 @@ impl Repository {
         let state = self.materialize(&view_name)?;
         if !patterns.is_empty() {
             for filepath in extract_filepaths_from_state(&state) {
-                if !patterns.iter().any(|p| filepath.starts_with(p.as_str())) {
+                if !new_matcher.matches_file_path(&filepath) {
                     let full = self.work_root.join(&filepath);
                     if full.exists() {
                         let _ = fs::remove_file(&full);
@@ -4140,17 +4147,13 @@ fn write_state_to_working_dir(
     state: &MaterializedState,
 ) -> anyhow::Result<()> {
     tracing::debug!(work_root = ?work_root, "writing state to working directory");
-    let sparse_patterns = load_sparse_patterns(work_root);
-    let is_sparse = !sparse_patterns.is_empty();
-    let in_sparse = |fp: &str| -> bool {
-        !is_sparse || sparse_patterns.iter().any(|p| fp.starts_with(p.as_str()))
-    };
+    let sparse_matcher = sparse_matcher_for_root(work_root);
 
     // Remove existing .rs files, tolerating NotFound.
     let arcignore = load_arcignore(work_root);
     let existing = collect_rs_files(work_root, &arcignore)?;
     for filepath in &existing {
-        if !in_sparse(filepath) {
+        if !sparse_matcher.matches_file_path(filepath) {
             continue; // outside sparse cone — leave as already-absent
         }
         let full = work_root.join(filepath);
@@ -4164,7 +4167,7 @@ fn write_state_to_working_dir(
     // Reconstruct all tracked files from the materialized state.
     let plugin = RustPlugin::new();
     for filepath in extract_filepaths_from_state(state) {
-        if !in_sparse(&filepath) {
+        if !sparse_matcher.matches_file_path(&filepath) {
             continue; // outside sparse cone — skip projection to disk
         }
         let full = work_root.join(&filepath);
@@ -4216,7 +4219,7 @@ fn write_state_to_working_dir(
 
     // Re-create tracked empty directories.
     for key in state.keys() {
-        if key.len() == 2 && key[0] == "dir" {
+        if key.len() == 2 && key[0] == "dir" && sparse_matcher.matches_file_path(&key[1]) {
             fs::create_dir_all(work_root.join(&key[1]))?;
         }
     }
@@ -4238,6 +4241,29 @@ fn load_sparse_patterns(root: &Path) -> Vec<String> {
         Err(_) => return vec![],
     };
     serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()
+}
+
+fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
+    SparseMatcher::from_patterns(&load_sparse_patterns(root))
+}
+
+fn validate_sparse_patterns(patterns: &[String], arcignore: &Gitignore) -> anyhow::Result<()> {
+    for pattern in patterns {
+        let normalized = pattern.trim().trim_matches('/');
+        if normalized.is_empty() {
+            continue;
+        }
+        if arcignore
+            .matched_path_or_any_parents(normalized, true)
+            .is_ignore()
+        {
+            anyhow::bail!(
+                "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose a different sparse path",
+                pattern
+            );
+        }
+    }
+    Ok(())
 }
 
 // ── config helpers ────────────────────────────────────────────────────
@@ -5556,6 +5582,42 @@ mod tests {
         assert!(
             atoms.is_empty(),
             "status must return no false Delete atoms for files hidden by sparse cone; got: {atoms:?}"
+        );
+    }
+
+    #[test]
+    fn test_sparse_to_full_restores_tracked_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("sparse_full_restore_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
+        fs::create_dir_all(repo_path.join("b")).unwrap();
+        fs::write(repo_path.join("b").join("c.rs"), "fn c() {}").unwrap();
+        repo.snap("add files", false).unwrap().expect("snap must produce a change");
+
+        repo.apply_sparse(&["b/".to_string()]).unwrap();
+        assert!(!repo_path.join("a.rs").exists());
+        assert!(repo_path.join("b").join("c.rs").exists());
+
+        repo.apply_sparse(&[]).unwrap();
+
+        assert!(
+            repo_path.join("a.rs").exists(),
+            "a.rs must be restored when sparse is cleared"
+        );
+        assert!(
+            repo_path.join("b").join("c.rs").exists(),
+            "b/c.rs must remain present after returning to full checkout"
+        );
+
+        let atoms = repo.status().unwrap();
+        assert!(
+            atoms.is_empty(),
+            "status must remain clean after sparse->full restoration; got: {atoms:?}"
         );
     }
 

@@ -4,6 +4,8 @@ pub mod apply;
 pub mod commute;
 /// Inversion algebra: producing the semantic inverse of a [`Change`].
 pub mod inverse;
+/// Sparse matcher primitives for AST-aware materialization boundaries.
+pub mod sparse;
 
 use serde::{Deserialize, Serialize};
 
