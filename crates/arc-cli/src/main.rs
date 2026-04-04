@@ -6,7 +6,8 @@ use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::governance::audit_github_governance;
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
-    ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
+    ArcConfig, Repository, global_config_file_path, load_merged_config, local_config_file_path,
+    save_global_config, save_local_config,
 };
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
@@ -566,14 +567,23 @@ enum BookmarkAction {
 
 #[derive(Subcommand)]
 enum SparseAction {
-    /// Set the sparse cone to the given path prefixes (e.g. `frontend/`).
-    ///
-    /// Files outside the cone are removed from disk; the DAG is unaffected.
+    /// Set or mutate sparse cone path prefixes.
     Set {
-        /// One or more path prefixes to include in the sparse cone.
-        #[arg(required = true)]
+        /// Replace sparse patterns with these path prefixes.
+        #[arg(value_name = "PATH")]
         paths: Vec<String>,
+        /// Add one or more path prefixes to the existing sparse cone.
+        #[arg(long, value_name = "PATH")]
+        add: Vec<String>,
+        /// Remove one or more path prefixes from the existing sparse cone.
+        #[arg(long, value_name = "PATH")]
+        remove: Vec<String>,
+        /// Clear all sparse prefixes before applying `--add` values.
+        #[arg(long, default_value_t = false)]
+        clear: bool,
     },
+    /// Edit sparse cone patterns in your configured text editor.
+    Edit,
     /// List the active sparse cone patterns.
     List,
     /// Remove the sparse filter and restore the full working directory.
@@ -643,6 +653,10 @@ enum ConfigAction {
         /// Dot-separated config key to remove.
         key: String,
     },
+    /// Print the path to the target configuration file.
+    Path,
+    /// Edit the target configuration file in your text editor.
+    Edit,
     /// Print all configuration values (global + local merged).
     List,
 }
@@ -1569,10 +1583,51 @@ fn main() -> anyhow::Result<()> {
             }
         },
         Command::Sparse { action } => match action {
-            SparseAction::Set { paths } => {
+            SparseAction::Set {
+                paths,
+                add,
+                remove,
+                clear,
+            } => {
                 let mut repo = Repository::open(".")?;
-                repo.apply_sparse(&paths)?;
-                println!("Sparse cone set to: {}", paths.join(", "));
+                anyhow::ensure!(
+                    !paths.is_empty() || clear || !add.is_empty() || !remove.is_empty(),
+                    "sparse set requires either PATHS, --add/--remove, or --clear"
+                );
+
+                let replace_mode = !paths.is_empty();
+                let mut next = if replace_mode {
+                    anyhow::ensure!(
+                        add.is_empty() && remove.is_empty() && !clear,
+                        "PATHS cannot be combined with --add/--remove/--clear"
+                    );
+                    paths
+                } else if clear {
+                    Vec::new()
+                } else {
+                    repo.read_sparse_patterns()
+                };
+
+                if !replace_mode {
+                    let mut set: std::collections::BTreeSet<String> = next.into_iter().collect();
+                    for path in remove {
+                        set.remove(&path);
+                    }
+                    for path in add {
+                        set.insert(path);
+                    }
+                    next = set.into_iter().collect();
+                }
+
+                repo.apply_sparse(&next)?;
+                println!("Sparse cone updated ({} pattern(s)).", next.len());
+            }
+            SparseAction::Edit => {
+                let mut repo = Repository::open(".")?;
+                let current = repo.read_sparse_patterns();
+                let edited = edit_lines_in_editor("sparse patterns", ".arcsparse", &current)?;
+                repo.apply_sparse(&edited)?;
+                println!("Sparse cone updated ({} pattern(s)).", edited.len());
             }
             SparseAction::List => {
                 let repo = Repository::open(".")?;
@@ -1873,6 +1928,54 @@ fn main() -> anyhow::Result<()> {
                 save_local_config(&local, shared_root)?;
                 println!("Unset {key}.");
             }
+            ConfigAction::Path => {
+                let shared_root = std::path::Path::new(".");
+                let path = if global {
+                    global_config_file_path()?
+                } else {
+                    local_config_file_path(shared_root)
+                };
+                println!("{}", path.display());
+            }
+            ConfigAction::Edit => {
+                let shared_root = std::path::Path::new(".");
+                let path = if global {
+                    global_config_file_path()?
+                } else {
+                    local_config_file_path(shared_root)
+                };
+
+                if !path.exists() {
+                    let empty = ArcConfig::default();
+                    if global {
+                        save_global_config(&empty)?;
+                    } else {
+                        save_local_config(&empty, shared_root)?;
+                    }
+                }
+
+                println!("Editing file: {}", path.display());
+                let previous = std::fs::read_to_string(&path).unwrap_or_default();
+                loop {
+                    run_editor_on_path(&path)?;
+                    let text = std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow::anyhow!("failed to read edited config: {e}"))?;
+                    match toml::from_str::<ArcConfig>(&text) {
+                        Ok(_) => break,
+                        Err(err) => {
+                            eprintln!("Config parse error: {err}");
+                            if !prompt_yes_no(
+                                "Keep editing config? If not, previous config will be restored",
+                            )? {
+                                std::fs::write(&path, previous.as_bytes()).map_err(|e| {
+                                    anyhow::anyhow!("failed to restore previous config: {e}")
+                                })?;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             ConfigAction::List => {
                 let config = load_merged_config(std::path::Path::new("."))?;
                 println!("[user]");
@@ -1980,6 +2083,84 @@ fn run_daemon_subprocess() -> anyhow::Result<()> {
 
     anyhow::ensure!(status.success(), "arc-daemon exited with status {status}");
     Ok(())
+}
+
+#[tracing::instrument(skip_all, fields(label = %label))]
+fn edit_lines_in_editor(
+    label: &str,
+    extension: &str,
+    current_lines: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut content = String::new();
+    for line in current_lines {
+        content.push_str(line);
+        content.push('\n');
+    }
+
+    let mut temp = tempfile::Builder::new()
+        .prefix("arc-")
+        .suffix(extension)
+        .tempfile()
+        .map_err(|e| anyhow::anyhow!("failed to create temporary editor file: {e}"))?;
+    use std::io::Write as _;
+    temp.write_all(content.as_bytes())
+        .map_err(|e| anyhow::anyhow!("failed to write temporary editor file: {e}"))?;
+
+    let temp_path = temp.path().to_path_buf();
+
+    run_editor_on_path(&temp_path)?;
+    let edited = std::fs::read_to_string(&temp_path)
+        .map_err(|e| anyhow::anyhow!("failed to read temporary editor file: {e}"))?;
+    drop(temp);
+
+    let mut out: Vec<String> = edited
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(ToOwned::to_owned)
+        .collect();
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+fn run_editor_on_path(path: &std::path::Path) -> anyhow::Result<()> {
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            "notepad".to_string()
+        } else {
+            "vi".to_string()
+        }
+    });
+
+    let mut parts = shlex::split(&editor)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse EDITOR command: {editor}"))?;
+    let bin = parts
+        .drain(..1)
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("EDITOR command is empty"))?;
+    let status = std::process::Command::new(bin)
+        .args(parts)
+        .arg(path)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to launch editor: {e}"))?;
+    anyhow::ensure!(status.success(), "editor exited with status {status}");
+    Ok(())
+}
+
+fn prompt_yes_no(prompt: &str) -> anyhow::Result<bool> {
+    use std::io::Write as _;
+    print!("{prompt} [Y/n]: ");
+    std::io::stdout()
+        .flush()
+        .map_err(|e| anyhow::anyhow!("failed to flush stdout: {e}"))?;
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| anyhow::anyhow!("failed to read prompt input: {e}"))?;
+    let trimmed = input.trim().to_ascii_lowercase();
+    Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
 
 /// Get a typed config value by dot-separated key.

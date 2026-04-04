@@ -4778,6 +4778,16 @@ fn global_config_path() -> anyhow::Result<std::path::PathBuf> {
     Ok(proj.config_dir().join("config.toml"))
 }
 
+/// Return the OS-level global `config.toml` path used by arc.
+pub fn global_config_file_path() -> anyhow::Result<std::path::PathBuf> {
+    global_config_path()
+}
+
+/// Return the local `.arc/config.toml` path for `shared_root`.
+pub fn local_config_file_path(shared_root: &Path) -> std::path::PathBuf {
+    shared_root.join(".arc").join("config.toml")
+}
+
 /// Load the merged `ArcConfig` for a shared-root repository.
 ///
 /// The global config (`~/.config/arc/config.toml`) is loaded first, then
