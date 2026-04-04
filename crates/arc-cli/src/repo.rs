@@ -778,9 +778,6 @@ impl Repository {
     /// The resulting atoms are prefixed with `["file", filepath]` so that
     /// `unparse()` can later reconstruct source per file.
     pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
-        load_identity().map_err(|_| anyhow::anyhow!(
-            "Identity not configured. Please run:\n  arc identity --name \"Your Name\" --email \"your@email.com\"\nbefore snapping changes."
-        ))?;
         // Guard: refuse to snap while a diffedit is in progress.
         let diffedit_lock = self.shared_root.join(".arc").join("diffedit_target");
         if diffedit_lock.exists() {
@@ -815,35 +812,20 @@ impl Repository {
         // Interactive staging: filter atoms the user does not want to stage.
         // Deletion / directory atoms are always kept to avoid ghost-file state.
         let all_atoms: Vec<Atom> = if interactive {
-            use std::io::Write;
-            let mut accepted: Vec<Atom> = Vec::new();
-            let mut current_file: Option<String> = None;
-            for atom in raw_atoms {
-                // Only AST diff atoms (Insert / Delete file nodes) are interactive.
-                // Directory atoms and whole-file deletions are always staged.
-                let is_file_ast = matches!(&atom,
-                    Atom::Insert { at, .. } | Atom::Delete { at, .. } if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 2
-                );
-                if !is_file_ast {
-                    accepted.push(atom);
-                    continue;
-                }
-                // Print per-file header once.
-                let filepath = atom.paths()[0].get(1).cloned().unwrap_or_default();
-                if current_file.as_deref() != Some(&filepath) {
+            let mut last_file: Option<String> = None;
+            select_atoms_interactively(raw_atoms, |filepath, label| {
+                use std::io::Write;
+
+                if last_file.as_deref() != Some(filepath) {
                     println!("-- {filepath} --");
-                    current_file = Some(filepath.clone());
+                    last_file = Some(filepath.to_string());
                 }
-                let label = atom_label(&atom);
                 print!("  {label}\n  Stage this change? [y/N] ");
                 std::io::stdout().flush().ok();
                 let mut line = String::new();
                 std::io::stdin().read_line(&mut line).ok();
-                if line.trim().eq_ignore_ascii_case("y") {
-                    accepted.push(atom);
-                }
-            }
-            accepted
+                line.trim().eq_ignore_ascii_case("y")
+            })
         } else {
             raw_atoms
         };
@@ -4298,6 +4280,46 @@ fn _unhex(s: &str) -> Option<Blake3Hash> {
     Some(out)
 }
 
+fn is_interactive_file_atom(atom: &Atom) -> bool {
+    matches!(atom,
+        Atom::Insert { at, .. } | Atom::Delete { at, .. }
+            if at.first().map(|s| s == "file").unwrap_or(false) && at.len() > 2
+    )
+}
+
+fn atom_file_path(atom: &Atom) -> Option<&str> {
+    atom.paths().first()?.get(1).map(String::as_str)
+}
+
+fn select_atoms_interactively<F>(raw_atoms: Vec<Atom>, mut prompt: F) -> Vec<Atom>
+where
+    F: FnMut(&str, &str) -> bool,
+{
+    let mut accepted: Vec<Atom> = Vec::new();
+    let mut current_file: Option<String> = None;
+
+    for atom in raw_atoms {
+        // Only AST diff atoms (Insert / Delete file nodes) are interactive.
+        // Directory atoms and whole-file deletions are always staged.
+        if !is_interactive_file_atom(&atom) {
+            accepted.push(atom);
+            continue;
+        }
+
+        let filepath = atom_file_path(&atom).unwrap_or_default().to_string();
+        let label = atom_label(&atom);
+        if current_file.as_deref() != Some(filepath.as_str()) {
+            current_file = Some(filepath.clone());
+        }
+
+        if prompt(&filepath, &label) {
+            accepted.push(atom);
+        }
+    }
+
+    accepted
+}
+
 /// Return a human-readable label for an atom, used in interactive staging.
 fn atom_label(atom: &Atom) -> String {
     match atom {
@@ -6314,5 +6336,53 @@ mod tests {
             Some(new_hex.as_str()),
             "epoch map must redirect old snap ID to amended ID"
         );
+    }
+
+    #[test]
+    fn interactive_selector_keeps_non_ast_atoms() {
+        let interactive_insert = Atom::Insert {
+            at: vec![
+                "file".to_string(),
+                "src/main.rs".to_string(),
+                "fn_new".to_string(),
+            ],
+            content_hash: [7u8; 32],
+        };
+        let non_interactive_dir = Atom::Directory {
+            path: vec!["dir".to_string(), "src".to_string()],
+        };
+
+        let selected = select_atoms_interactively(
+            vec![interactive_insert.clone(), non_interactive_dir.clone()],
+            |_filepath, _label| false,
+        );
+
+        assert_eq!(selected, vec![non_interactive_dir]);
+    }
+
+    #[test]
+    fn interactive_selector_can_accept_ast_atoms() {
+        let keep = Atom::Insert {
+            at: vec![
+                "file".to_string(),
+                "src/lib.rs".to_string(),
+                "fn_keep".to_string(),
+            ],
+            content_hash: [1u8; 32],
+        };
+        let drop = Atom::Delete {
+            at: vec![
+                "file".to_string(),
+                "src/lib.rs".to_string(),
+                "fn_drop".to_string(),
+            ],
+            prior_hash: [2u8; 32],
+        };
+
+        let selected = select_atoms_interactively(vec![keep.clone(), drop], |_filepath, label| {
+            label.contains("fn_keep")
+        });
+
+        assert_eq!(selected, vec![keep]);
     }
 }

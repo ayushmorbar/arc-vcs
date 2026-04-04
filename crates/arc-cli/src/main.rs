@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use arc_cli::graph_render::{GraphDecorations, GraphRenderer};
+use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
@@ -140,6 +140,11 @@ enum Command {
         /// Revset query expression used to select which changes to show.
         #[arg(short = 'r', long, default_value = "ancestors(@)")]
         revset: String,
+        /// Row template for non-semantic log output.
+        /// Supported placeholders: {id}, {id_short}, {author}, {intent},
+        /// {state_badges}, {ref_badges}, {badges}
+        #[arg(long)]
+        template: Option<String>,
     },
     /// Show uncommitted changes as semantic AST atoms.
     Status,
@@ -905,22 +910,18 @@ fn main() -> anyhow::Result<()> {
                 message.unwrap_or_else(|| "WIP".to_owned())
             };
 
-            if interactive {
-                eprintln!(
-                    "arc: --interactive is deprecated in auto-snapshot mode and is currently ignored"
-                );
-            }
-
-            if !repo.snapshot()? {
-                println!("Nothing to snap — working directory matches history.");
-            } else {
-                let id = repo.finalize_snapshot(&final_message)?;
-                let _ = repo.fork_empty_snapshot()?;
+            if let Some(id) = repo.snap(&final_message, interactive)? {
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                 println!("snap {hex}");
+            } else {
+                println!("Nothing to snap — working directory matches history.");
             }
         }
-        Command::Log { intent, revset } => {
+        Command::Log {
+            intent,
+            revset,
+            template,
+        } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
             repo.set_identity(author, signing_key);
@@ -966,6 +967,13 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     repo.log_revset(&revset)?
                 };
+                let parsed_template = if let Some(raw_template) = template.as_deref() {
+                    Some(LogTemplate::parse(raw_template).map_err(|msg| {
+                        anyhow::anyhow!("invalid --template value: {msg}")
+                    })?)
+                } else {
+                    None
+                };
                 if changes.is_empty() {
                     println!("No changes yet. Use 'arc snap' to create your first change.");
                 } else {
@@ -974,7 +982,11 @@ fn main() -> anyhow::Result<()> {
                         remotes: repo.remote_branch_decorations()?,
                     };
                     let renderer = GraphRenderer::new();
-                    for line in renderer.render_with_decorations(&changes, &decorations) {
+                    for line in renderer.render_with_decorations_and_template(
+                        &changes,
+                        &decorations,
+                        parsed_template.as_ref(),
+                    ) {
                         println!("{line}");
                     }
                 }

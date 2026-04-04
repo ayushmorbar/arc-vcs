@@ -21,6 +21,123 @@ pub struct GraphDecorations {
     pub remotes: BTreeMap<ChangeId, Vec<String>>,
 }
 
+/// Parsed user template for `arc log` row labels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogTemplate {
+    parts: Vec<TemplatePart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TemplatePart {
+    Literal(String),
+    Field(TemplateField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TemplateField {
+    Id,
+    IdShort,
+    Author,
+    Intent,
+    StateBadges,
+    RefBadges,
+    Badges,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TemplateContext<'a> {
+    id: &'a str,
+    id_short: &'a str,
+    author: &'a str,
+    intent: &'a str,
+    state_badges: &'a str,
+    ref_badges: &'a str,
+    badges: &'a str,
+}
+
+impl LogTemplate {
+    /// Parse a KISS placeholder template (e.g. `{id_short} {author} | {intent}`).
+    pub fn parse(input: &str) -> Result<Self, String> {
+        let mut parts = Vec::new();
+        let mut literal = String::new();
+        let mut chars = input.chars();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                if !literal.is_empty() {
+                    parts.push(TemplatePart::Literal(std::mem::take(&mut literal)));
+                }
+                let mut field_name = String::new();
+                let mut closed = false;
+                for c in chars.by_ref() {
+                    if c == '}' {
+                        closed = true;
+                        break;
+                    }
+                    field_name.push(c);
+                }
+                if !closed {
+                    return Err("template contains an unclosed '{'".to_string());
+                }
+
+                let field = TemplateField::parse(field_name.trim())?;
+                parts.push(TemplatePart::Field(field));
+            } else if ch == '}' {
+                return Err("template contains an unmatched '}'".to_string());
+            } else {
+                literal.push(ch);
+            }
+        }
+
+        if !literal.is_empty() {
+            parts.push(TemplatePart::Literal(literal));
+        }
+
+        Ok(Self { parts })
+    }
+
+    fn render(&self, ctx: TemplateContext<'_>) -> String {
+        let mut rendered = String::new();
+        for part in &self.parts {
+            match part {
+                TemplatePart::Literal(text) => rendered.push_str(text),
+                TemplatePart::Field(field) => rendered.push_str(field.render(ctx)),
+            }
+        }
+        rendered
+    }
+}
+
+impl TemplateField {
+    fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "id" => Ok(Self::Id),
+            "id_short" => Ok(Self::IdShort),
+            "author" => Ok(Self::Author),
+            "intent" => Ok(Self::Intent),
+            "state_badges" => Ok(Self::StateBadges),
+            "ref_badges" => Ok(Self::RefBadges),
+            "badges" => Ok(Self::Badges),
+            "" => Err("template contains an empty placeholder '{}'".to_string()),
+            _ => Err(format!(
+                "unsupported template field '{name}'. Supported fields: id, id_short, author, intent, state_badges, ref_badges, badges"
+            )),
+        }
+    }
+
+    fn render(self, ctx: TemplateContext<'_>) -> &str {
+        match self {
+            Self::Id => ctx.id,
+            Self::IdShort => ctx.id_short,
+            Self::Author => ctx.author,
+            Self::Intent => ctx.intent,
+            Self::StateBadges => ctx.state_badges,
+            Self::RefBadges => ctx.ref_badges,
+            Self::Badges => ctx.badges,
+        }
+    }
+}
+
 impl Default for GraphRenderer {
     fn default() -> Self {
         Self { use_color: true }
@@ -48,6 +165,16 @@ impl GraphRenderer {
         &self,
         changes: &[Change],
         decorations: &GraphDecorations,
+    ) -> Vec<String> {
+        self.render_with_decorations_and_template(changes, decorations, None)
+    }
+
+    /// Render `changes` with optional reference decorations and a row template.
+    pub fn render_with_decorations_and_template(
+        &self,
+        changes: &[Change],
+        decorations: &GraphDecorations,
+        template: Option<&LogTemplate>,
     ) -> Vec<String> {
         let visible: HashSet<ChangeId> = changes.iter().map(|c| ChangeId::from(c.id)).collect();
         let mut active: Vec<ChangeId> = Vec::new();
@@ -92,6 +219,7 @@ impl GraphRenderer {
                     change_is_ai(change),
                     change_has_conflict(change),
                     decorations,
+                    template,
                 )
             ));
 
@@ -170,8 +298,10 @@ impl GraphRenderer {
         is_ai: bool,
         has_conflict: bool,
         decorations: &GraphDecorations,
+        template: Option<&LogTemplate>,
     ) -> String {
         let change_id = ChangeId::from(change.id);
+        let full_id = change_id.to_hex();
         let short_id = change_id.to_hex()[..8].to_string();
         let author = author_label(&change.author);
         let mut state_badges = Vec::new();
@@ -203,24 +333,34 @@ impl GraphRenderer {
             }
         }
 
+        let state_badges_text = state_badges.join("");
+        let ref_badges_text = ref_badges.join(" ");
+
         let mut badge_chunks = Vec::new();
-        if !state_badges.is_empty() {
-            badge_chunks.push(state_badges.join(""));
+        if !state_badges_text.is_empty() {
+            badge_chunks.push(state_badges_text.clone());
         }
-        if !ref_badges.is_empty() {
-            badge_chunks.push(ref_badges.join(" "));
+        if !ref_badges_text.is_empty() {
+            badge_chunks.push(ref_badges_text.clone());
+        }
+        let badges_text = badge_chunks.join(" ");
+
+        if let Some(log_template) = template {
+            return log_template.render(TemplateContext {
+                id: full_id.as_str(),
+                id_short: short_id.as_str(),
+                author: author.as_str(),
+                intent: change.intent.as_str(),
+                state_badges: state_badges_text.as_str(),
+                ref_badges: ref_badges_text.as_str(),
+                badges: badges_text.as_str(),
+            });
         }
 
-        if badge_chunks.is_empty() {
+        if badges_text.is_empty() {
             format!("{} {} | {}", short_id, author, change.intent)
         } else {
-            format!(
-                "{} {} {} | {}",
-                short_id,
-                badge_chunks.join(" "),
-                author,
-                change.intent
-            )
+            format!("{} {} {} | {}", short_id, badges_text, author, change.intent)
         }
     }
 
@@ -277,7 +417,7 @@ mod tests {
     use arc_core::store::change::Change;
     use arc_core::store::newtypes::ChangeId;
 
-    use super::{GraphDecorations, GraphRenderer};
+    use super::{GraphDecorations, GraphRenderer, LogTemplate};
 
     fn mk_change(deps: HashSet<[u8; 32]>, label: &str, with_conflict: bool, ai: bool) -> Change {
         let (author, key) = test_keypair();
@@ -360,5 +500,27 @@ mod tests {
         let lines = GraphRenderer::monochrome().render_with_decorations(&[head, root], &decorations);
         assert!(lines.iter().any(|line| line.contains("[v1.0.0]")));
         assert!(lines.iter().any(|line| line.contains("[origin/main]")));
+    }
+
+    #[test]
+    fn supports_custom_row_template() {
+        let root = mk_change(HashSet::new(), "root", false, false);
+        let head = mk_change(HashSet::from([root.id]), "head", false, false);
+        let template = LogTemplate::parse("{id_short} {author} => {intent}").unwrap();
+
+        let lines = GraphRenderer::monochrome().render_with_decorations_and_template(
+            &[head, root],
+            &GraphDecorations::default(),
+            Some(&template),
+        );
+
+        assert!(lines[0].contains("=> head"));
+        assert!(!lines[0].contains(" | "));
+    }
+
+    #[test]
+    fn rejects_unknown_template_field() {
+        let err = LogTemplate::parse("{unknown}").unwrap_err();
+        assert!(err.contains("unsupported template field"));
     }
 }
