@@ -24,6 +24,9 @@
 
 # Design
 
+- [ADR 001 - Change Algebra](design/ADR-001-Change-Algebra.md)
+- [ADR 002 - Jujutsu Workflow](design/ADR-002-Jujutsu-Workflow.md)
+- [ADR 003 - Git Bridge](design/ADR-003-Git-Bridge.md)
 - [Patch Theory](design/patch_theory.md)
 - [CRDT Network Sync](design/crdt_sync.md)
 - [AST Diffing](design/ast_diffing.md)

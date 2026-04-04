@@ -34,7 +34,9 @@ arc init
 arc creates a `.arc/` directory containing:
 - `blobs/` — the content-addressable object store
 - `views/` — named head sets (like branches, but algebraic)
-- `config.json` — your per-repo configuration
+- `HEAD` — the active view pointer
+
+Configuration is created on first write (for example when you run `arc remote add` or `arc config set`).
 
 ---
 
@@ -62,6 +64,8 @@ arc compares the current working directory against the (empty) materialised stat
 ---
 
 ## Step 5 — Record Your First Change
+
+No explicit staging step is required. In arc, the working copy is implicitly tracked and auto-amended as you iterate, so there is no `arc add` command in the happy path.
 
 ```sh
 arc snap -m "feat: initial hello world"
@@ -96,7 +100,19 @@ arc log
 
 ---
 
-## Step 8 — Explore Views
+## Step 8 — Undo the Last View Mutation
+
+If you want to instantly move your active view frontier back, use:
+
+```sh
+arc undo
+```
+
+`arc undo` is powered by the operation log and restores the prior head set in O(1) pointer-swap semantics.
+
+---
+
+## Step 9 — Explore Views
 
 arc Views are not Git branches. A View is a **named set of DAG heads** — a continuous stream of semantic intents, not a pointer to a single snapshot:
 
@@ -109,6 +125,22 @@ arc merge feature/experiment
 ```
 
 Because all changes are algebraically checked for commutativity before the merge, there is no "rebase hell". See [Migrating from Git](git-migration.md) for the full conceptual explainer.
+
+---
+
+## Step 10 — Push to a Git Remote
+
+arc can push directly to Git-hosting Smart HTTP endpoints through the on-the-wire translation bridge:
+
+```sh
+arc push https://github.com/<org>/<repo>.git
+```
+
+You can also push a specific view:
+
+```sh
+arc push https://github.com/<org>/<repo>.git feature/experiment
+```
 
 ---
 

@@ -6,10 +6,10 @@ Complete reference for all `arc` commands. Run `arc <command> --help` for inline
 
 ## Global Options
 
-| Flag | Description |
-|---|---|
+| Flag        | Description                    |
+| ----------- | ------------------------------ |
 | `--version` | Print the arc version and exit |
-| `--help` | Print help for a command |
+| `--help`    | Print help for a command       |
 
 Telemetry is controlled via environment variables, not flags. See [Configuration](config.md).
 
@@ -70,10 +70,10 @@ arc snap --interactive -m <message>
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-m`, `--message <msg>` | Commit message (required) |
-| `-i`, `--interactive` | Stage individual AST atoms interactively |
+| Flag                    | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `-m`, `--message <msg>` | Commit message (required)                |
+| `-i`, `--interactive`   | Stage individual AST atoms interactively |
 
 Returns the BLAKE3 hash of the new `Change`. Exits with no output if the working directory is clean (nothing to snap).
 
@@ -107,9 +107,9 @@ Prints added, modified, and deleted atoms. Respects `.arcignore` and sparse chec
 
 ## `arc diff`
 
-Show uncommitted working-directory changes.  Two complementary views are
+Show uncommitted working-directory changes. Two complementary views are
 available: the default **text diff** (Micro view) and the `--semantic` **AST
-diff** (Macro view).  Use them together for a complete picture of every change.
+diff** (Macro view). Use them together for a complete picture of every change.
 
 ```sh
 arc diff              # text diff — verify execution
@@ -122,7 +122,7 @@ The plain `arc diff` view re-projects AST atoms back into text and applies
 four layers of improvement over a raw `git diff`:
 
 1. **Refactoring intent annotation** — [`Move`] and [`SemanticsPreserving`]
-   atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines *before*
+   atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines _before_
    the text hunks so reviewers grasp intent at a glance.
 
 2. **Sesame syntactic alignment** — structural newlines are injected before
@@ -154,7 +154,7 @@ diff --arc a/src/widget.rs b/src/widget.rs
 ### `--semantic`: Structural AST Diff
 
 Passes `--semantic` to render each pending atom as a named structural
-operation (the "Macro" view).  Instead of line-level `+`/`-` noise, the output
+operation (the "Macro" view). Instead of line-level `+`/`-` noise, the output
 describes architectural intent in plain English:
 
 ```sh
@@ -164,14 +164,14 @@ arc diff --semantic
 Each atom is labelled by its type and the AST node it targets, using the
 `<kind>_<name>` convention in arc NodePaths:
 
-| Atom | Output |
-|------|--------|
-| `Insert { at: ["file", "lib.rs", "fn_parse"] }` | `[+] Insert function: 'fn_parse'` |
-| `Delete { at: ["file", "lib.rs", "field_id"] }` | `[-] Delete field: 'field_id'` |
-| `Move { from, to }` | `[~] Move 'fn_render' → fn_paint` |
-| `SemanticsPreserving { description }` | `[≈] Refactor variable 'obj': renamed to 'item'` |
+| Atom                                            | Output                                           |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `Insert { at: ["file", "lib.rs", "fn_parse"] }` | `[+] Insert function: 'fn_parse'`                |
+| `Delete { at: ["file", "lib.rs", "field_id"] }` | `[-] Delete field: 'field_id'`                   |
+| `Move { from, to }`                             | `[~] Move 'fn_render' → fn_paint`                |
+| `SemanticsPreserving { description }`           | `[≈] Refactor variable 'obj': renamed to 'item'` |
 
-Cross-file moves show the destination filename in parentheses.  Multi-mappings
+Cross-file moves show the destination filename in parentheses. Multi-mappings
 (three deletion sites → one extracted method) appear as separate `[-]` lines
 linking to the same extracted target.
 
@@ -218,14 +218,14 @@ arc op log
 
 Displays a table of every view-mutating operation recorded in `.arc/oplog.json` — most recent first.
 
-| Column | Description |
-|---|---|
-| `ID` | 8-character BLAKE3 operation ID |
-| `Time` | Wall-clock timestamp (`YYYY-MM-DD HH:MM:SS`) |
-| `View` | Name of the view that was mutated |
-| `Agent` | `👤 Human` or `🤖 AI` |
-| `Command` | Operation type (`snap`, `merge`, `cherry-pick`, `revert`, `restore`, `mount add`, `amend`) |
-| `Before→After` | 8-char hex of the DAG frontier before and after the operation |
+| Column         | Description                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `ID`           | 8-character BLAKE3 operation ID                                                            |
+| `Time`         | Wall-clock timestamp (`YYYY-MM-DD HH:MM:SS`)                                               |
+| `View`         | Name of the view that was mutated                                                          |
+| `Agent`        | `👤 Human` or `🤖 AI`                                                                      |
+| `Command`      | Operation type (`snap`, `merge`, `cherry-pick`, `revert`, `restore`, `mount add`, `amend`) |
+| `Before→After` | 8-char hex of the DAG frontier before and after the operation                              |
 
 The log is local-only and is never pushed or fetched. It is bounded at **1 000 entries** via a sliding-window compaction policy (oldest entries are evicted first).
 
@@ -352,14 +352,22 @@ arc pull origin main
 Push local changes to a remote.
 
 ```sh
-arc push <remote> <view>
-arc push origin main
+arc push <remote-or-url>
+arc push <remote-or-url> <view>
+arc push https://github.com/<org>/<repo>.git
 ```
 
-`remote` is a named remote alias (registered with `arc remote add`) or a direct URL / local path.
-`view` is the name of the view to push.
+`remote-or-url` may be:
 
-arc computes the minimal DAG delta — the set of Changes the remote is missing — then bundles all referenced CAS blobs into a single `DeltaPayload` envelope and delivers it in one shot.  The remote server verifies every Ed25519 signature before writing to its CAS (zero-trust SLSA L4 ingress), then advances its view with a CRDT set-union.
+- a named remote alias (registered with `arc remote add`),
+- a direct filesystem path,
+- or a direct Smart HTTP Git URL.
+
+`view` is optional and defaults to the current view.
+
+For Smart HTTP Git URLs, arc uses a just-in-time translation bridge during push: it materializes the selected view, compiles ephemeral Git tree/commit objects, pack-encodes them, and pushes over `git-receive-pack` without creating a local `.git` object store.
+
+If the resolved remote value is HTTP/HTTPS, arc uses the Git translation bridge. Otherwise, arc uses the native arc sync transport.
 
 ---
 
@@ -374,8 +382,8 @@ arc squash --into HEAD~3    # collapse the top 3 changes
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag           | Description                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- |
 | `--into <rev>` | Target revision; the linear spine from `HEAD` down to `<rev>` (exclusive) is squashed |
 
 Walks the linear spine from `HEAD` toward `<rev>`, verifies it is a straight line (no merges), assembles the full atom sequence, and rewrites history as a single new Change with the combined intent of all squashed changes.
@@ -398,12 +406,12 @@ arc diffedit --apply
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag              | Description                                                            |
+| ----------------- | ---------------------------------------------------------------------- |
 | `--prepare <rev>` | Materialise change `<rev>` to `.arc/diffedit_target` and lock the repo |
-| `--apply` | Read the edited file, build a new Change, and unlock the repo |
+| `--apply`         | Read the edited file, build a new Change, and unlock the repo          |
 
-The lockfile (`.arc/diffedit_session`) prevents `arc snap` during an active edit session.  If `--apply` fails, run `arc diffedit --apply` again after correcting the file.
+The lockfile (`.arc/diffedit_session`) prevents `arc snap` during an active edit session. If `--apply` fails, run `arc diffedit --apply` again after correcting the file.
 
 ---
 

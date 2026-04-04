@@ -5,14 +5,18 @@
 [![Crates.io](https://img.shields.io/crates/v/arc-cli.svg)](https://crates.io/crates/arc-cli)
 [![Docs](https://img.shields.io/badge/docs-arc--book-orange)](https://ayushmorbar.github.io/arc-vcs/)
 
-**arc eliminates textual merge conflicts — mathematically.** Rather than comparing text line-by-line the way Git has since 2005, arc records every code mutation as a typed algebraic _Atom_ and proves — via a formal commutativity predicate — whether two changes can coexist or structurally conflict. If they commute, the merge is automatic and exact. If they don't, the conflict is precise, semantic, and AI-resolvable. Separately, arc handles 50 GB binary files instantly via zero-copy `memmap2` I/O: the file is never loaded into memory; the Blake3 hash is computed directly from the OS page cache.
+## What is arc?
+
+`arc` is an AI-native, AST-aware version control system. It provides the next-generation workflow of Jujutsu (no staging area, global undo, first-class conflicts) with the cryptographic security of BLAKE3 and Ed25519. It natively pushes to GitHub via a JIT Git-translation bridge.
+
+arc models change as typed semantic atoms, not text hunks. That lets it reason about commutativity mathematically, surface precise structural conflicts, and keep local history cryptographically signed while still interoperating with legacy Git remotes at the network boundary.
 
 ## arc vs. the world
 
 | Capability               | Git                                   | jj (Jujutsu)         | **arc**                                                                        |
 | ------------------------ | ------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
 | Conflict detection       | Line-based heuristic                  | Line-based heuristic | **Algebraic commutativity**                                                    |
-| Diff granularity         | Lines                                 | Lines                | **AST atoms (Rust today; multi-lang roadmap)**                                 |
+| Diff granularity         | Lines                                 | Lines                | **AST atoms**                                                                   |
 | Sparse checkouts         | Path globs                            | Path globs           | **Semantic `Atom::Mount` directives**                                          |
 | Large binary I/O         | Pack files (copy-on-read)             | Pack files           | **Zero-copy `memmap2`**                                                        |
 | Cryptographic provenance | SHA-1 (legacy)                        | SHA-256              | **BLAKE3 + Ed25519 per-change signatures; SLSA L4 zero-trust ingress on push** |
@@ -57,8 +61,8 @@ arc diffedit --prepare HEAD~2
 # (edit the materialised file, then:)
 arc diffedit --apply
 
-# Push to a registered remote
-arc push origin main
+# Push to a Git Smart HTTP remote via the JIT translation bridge
+arc push https://github.com/<org>/<repo>.git
 
 # Views are not branches — they are named sets of DAG heads
 arc view create feature/my-work

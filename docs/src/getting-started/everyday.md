@@ -15,6 +15,8 @@ arc status          # see what has changed since the last snap
 
 ## Recording Changes
 
+There is no required staging command (`arc add`) in the default flow. Edit files, inspect, then `arc snap` to finalize intent.
+
 ```sh
 # Record everything in the working directory
 arc snap -m "feat: add widget factory"
@@ -45,7 +47,7 @@ arc undo            # pop the last operation from the OpLog
 arc restore src/widget.rs    # revert a single file to its last-snapped state
 ```
 
-`arc undo` is safe — it replays the inverse operation atomically. It does **not** rewrite history; it creates a new reverse change.
+`arc undo` is safe — it restores the previous view frontier from the operation log using an O(1) pointer swap.
 
 ---
 
@@ -98,7 +100,10 @@ arc config get aliases
 arc remote add origin http://arc-server:8080
 arc fetch origin
 arc pull origin main
-arc push origin main
+arc push https://github.com/<org>/<repo>.git
+
+# Optional explicit view argument
+arc push https://github.com/<org>/<repo>.git feature/my-work
 ```
 
 ---
