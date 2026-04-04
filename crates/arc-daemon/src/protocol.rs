@@ -87,6 +87,22 @@ where
     pub params: Option<T>,
 }
 
+/// Parameters for the `get_file_states` RPC method.
+#[derive(Debug, Deserialize)]
+pub struct GetFileStatesParams {
+    /// Repository path.
+    pub path: String,
+}
+
+/// IDE decoration state for one file.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileState {
+    /// Repository-relative file path.
+    pub file_path: String,
+    /// Decoration status: `modified`, `untracked`, `conflict`, or `ai_generated`.
+    pub status: String,
+}
+
 /// Serialize and emit a JSON-RPC response as one stdout line.
 pub fn send_response<T>(response: &RpcResponse<T>) -> anyhow::Result<()>
 where
