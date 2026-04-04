@@ -1,5 +1,9 @@
 use sha1::{Digest, Sha1};
 
+pub const GIT_OBJECT_COMMIT: u8 = 1;
+pub const GIT_OBJECT_TREE: u8 = 2;
+pub const GIT_OBJECT_BLOB: u8 = 3;
+
 /// 20-byte SHA-1 object id used by Git objects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct GitSha1(pub [u8; 20]);
@@ -31,14 +35,15 @@ impl GitSha1 {
 /// Hash raw content as a Git blob object.
 ///
 /// Git blob bytes are: `blob <len>\0<content>`.
-pub fn hash_blob(content: &[u8]) -> GitSha1 {
-    hash_object("blob", content)
+pub fn hash_blob(content: &[u8]) -> (GitSha1, Vec<u8>) {
+    let payload = content.to_vec();
+    (hash_object("blob", &payload), payload)
 }
 
 /// Hash a Git tree from `(name, object_id, mode)` entries.
 ///
 /// Each entry is encoded as: `<mode-octal> <name>\0<20-byte object id>`.
-pub fn hash_tree(entries: &[(String, GitSha1, u32)]) -> GitSha1 {
+pub fn hash_tree(entries: &[(String, GitSha1, u32)]) -> (GitSha1, Vec<u8>) {
     let mut sorted = entries.to_vec();
     sorted.sort_by(|(name_a, _, mode_a), (name_b, _, mode_b)| {
         tree_compare_key(name_a, *mode_a).cmp(&tree_compare_key(name_b, *mode_b))
@@ -52,7 +57,7 @@ pub fn hash_tree(entries: &[(String, GitSha1, u32)]) -> GitSha1 {
         body.extend_from_slice(&id.0);
     }
 
-    hash_object("tree", &body)
+    (hash_object("tree", &body), body)
 }
 
 /// Identity line used by Git commit objects.
@@ -82,7 +87,7 @@ pub fn hash_commit(
     author: &GitIdentity,
     committer: &GitIdentity,
     message: &str,
-) -> GitSha1 {
+) -> (GitSha1, Vec<u8>) {
     let mut body = String::new();
     body.push_str(&format!("tree {}\n", tree.to_hex()));
     for parent in parents {
@@ -101,7 +106,8 @@ pub fn hash_commit(
         message
     ));
 
-    hash_object("commit", body.as_bytes())
+    let payload = body.into_bytes();
+    (hash_object("commit", &payload), payload)
 }
 
 fn tree_compare_key(name: &str, mode: u32) -> Vec<u8> {
@@ -130,11 +136,12 @@ mod tests {
 
     #[test]
     fn hash_blob_matches_known_git_sha1() {
-        let id = hash_blob(b"hello world\n");
+        let (id, payload) = hash_blob(b"hello world\n");
         assert_eq!(
             id,
             GitSha1::from_hex("3b18e512dba79e4c8300dd08aeb37f8e728b8dad").unwrap()
         );
+        assert_eq!(payload, b"hello world\n");
     }
 
     #[test]
@@ -151,7 +158,9 @@ mod tests {
             ("foo.bar".to_string(), file, 0o100644),
         ];
 
-        assert_eq!(hash_tree(&entries_a), hash_tree(&entries_b));
+        let (a, _) = hash_tree(&entries_a);
+        let (b, _) = hash_tree(&entries_b);
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -166,9 +175,13 @@ mod tests {
             timezone: "+0000".to_string(),
         };
 
-        let root = hash_commit(tree, &[], &ident, &ident, "root");
-        let merge = hash_commit(tree, &[p1, p2], &ident, &ident, "merge");
+        let (root, root_payload) = hash_commit(tree, &[], &ident, &ident, "root");
+        let (merge, merge_payload) = hash_commit(tree, &[p1, p2], &ident, &ident, "merge");
 
         assert_ne!(root, merge);
+        let root_message = String::from_utf8(root_payload).expect("utf8 payload");
+        let merge_message = String::from_utf8(merge_payload).expect("utf8 payload");
+        assert!(!root_message.contains("parent"));
+        assert!(merge_message.contains("parent"));
     }
 }

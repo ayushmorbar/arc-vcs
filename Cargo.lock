@@ -186,6 +186,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-core",
+ "flate2",
  "sha1",
 ]
 

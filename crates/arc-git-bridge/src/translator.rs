@@ -5,23 +5,25 @@ use arc_core::algebra::{Atom, Blake3Hash};
 use arc_core::store::author::Author;
 use arc_core::store::change::Change;
 
-use crate::object::{GitIdentity, GitSha1, hash_blob, hash_commit, hash_tree};
+use crate::object::{
+    GIT_OBJECT_BLOB, GIT_OBJECT_COMMIT, GIT_OBJECT_TREE, GitIdentity, GitSha1, hash_blob,
+    hash_commit, hash_tree,
+};
 
-const CONFLICT_EXPORT_ERROR: &str =
-    "Cannot translate unresolved mathematical conflicts to legacy Git snapshots. Please resolve the conflict in arc before exporting.";
+const CONFLICT_EXPORT_ERROR: &str = "Cannot translate unresolved mathematical conflicts to legacy Git snapshots. Please resolve the conflict in arc before exporting.";
 
 /// In-memory object database containing raw Git object bytes keyed by SHA-1.
 #[derive(Debug, Default)]
 pub struct GitOdb {
-    objects: HashMap<GitSha1, Vec<u8>>,
+    objects: HashMap<GitSha1, (u8, Vec<u8>)>,
 }
 
 impl GitOdb {
-    pub fn insert(&mut self, id: GitSha1, bytes: Vec<u8>) {
-        self.objects.insert(id, bytes);
+    pub fn insert(&mut self, id: GitSha1, kind: u8, payload: Vec<u8>) {
+        self.objects.insert(id, (kind, payload));
     }
 
-    pub fn get(&self, id: &GitSha1) -> Option<&Vec<u8>> {
+    pub fn get(&self, id: &GitSha1) -> Option<&(u8, Vec<u8>)> {
         self.objects.get(id)
     }
 
@@ -103,8 +105,8 @@ fn compile_dir(node: &DirNode, odb: &mut GitOdb) -> GitSha1 {
 
     for (name, content) in &node.files {
         let content_bytes = content.as_bytes();
-        let blob_id = hash_blob(content_bytes);
-        odb.insert(blob_id, git_object_bytes("blob", content_bytes));
+        let (blob_id, payload) = hash_blob(content_bytes);
+        odb.insert(blob_id, GIT_OBJECT_BLOB, payload);
         entries.push((name.clone(), blob_id, 0o100644));
     }
 
@@ -113,8 +115,8 @@ fn compile_dir(node: &DirNode, odb: &mut GitOdb) -> GitSha1 {
         entries.push((name.clone(), tree_id, 0o040000));
     }
 
-    let tree_id = hash_tree(&entries);
-    odb.insert(tree_id, tree_object_bytes(&entries));
+    let (tree_id, payload) = hash_tree(&entries);
+    odb.insert(tree_id, GIT_OBJECT_TREE, payload);
     tree_id
 }
 
@@ -151,22 +153,14 @@ pub fn compile_commit(
         signature_hex(&change.signature.0),
     );
 
-    let commit_id = hash_commit(
+    let (commit_id, payload) = hash_commit(
         input.root_tree,
         input.parent_commits,
         input.author,
         input.committer,
         &trailer_message,
     );
-    let commit_body = commit_body(
-        input.root_tree,
-        input.parent_commits,
-        input.author,
-        input.committer,
-        &trailer_message,
-    );
-
-    odb.insert(commit_id, git_object_bytes("commit", commit_body.as_bytes()));
+    odb.insert(commit_id, GIT_OBJECT_COMMIT, payload);
     map.insert(change.id, commit_id);
     Ok(commit_id)
 }
@@ -178,66 +172,6 @@ fn arc_author_type(author: &Author) -> &'static str {
         Author::Server { .. } => "Server",
         Author::Transient { .. } => "Transient",
     }
-}
-
-fn tree_object_bytes(entries: &[(String, GitSha1, u32)]) -> Vec<u8> {
-    let mut sorted = entries.to_vec();
-    sorted.sort_by(|(name_a, _, mode_a), (name_b, _, mode_b)| {
-        tree_compare_key(name_a, *mode_a).cmp(&tree_compare_key(name_b, *mode_b))
-    });
-
-    let mut body = Vec::new();
-    for (name, id, mode) in sorted {
-        body.extend_from_slice(format!("{:o} ", mode).as_bytes());
-        body.extend_from_slice(name.as_bytes());
-        body.push(0);
-        body.extend_from_slice(&id.0);
-    }
-
-    git_object_bytes("tree", &body)
-}
-
-fn tree_compare_key(name: &str, mode: u32) -> Vec<u8> {
-    let mut key = name.as_bytes().to_vec();
-    if mode == 0o040000 {
-        key.push(b'/');
-    }
-    key
-}
-
-fn git_object_bytes(kind: &str, body: &[u8]) -> Vec<u8> {
-    let mut object = Vec::new();
-    object.extend_from_slice(format!("{kind} {}", body.len()).as_bytes());
-    object.push(0);
-    object.extend_from_slice(body);
-    object
-}
-
-fn commit_body(
-    tree: GitSha1,
-    parents: &[GitSha1],
-    author: &GitIdentity,
-    committer: &GitIdentity,
-    message: &str,
-) -> String {
-    let mut body = String::new();
-    body.push_str(&format!("tree {}\n", tree.to_hex()));
-    for parent in parents {
-        body.push_str(&format!("parent {}\n", parent.to_hex()));
-    }
-    body.push_str(&format!(
-        "author {} <{}> {} {}\ncommitter {} <{}> {} {}\n\n{}",
-        author.name,
-        author.email,
-        author.timestamp,
-        author.timezone,
-        committer.name,
-        committer.email,
-        committer.timestamp,
-        committer.timezone,
-        message
-    ));
-    body
 }
 
 fn blake3_hex(hash: &Blake3Hash) -> String {
@@ -304,8 +238,12 @@ mod tests {
         assert_eq!(odb.len(), 5, "2 blobs + 2 trees + 1 commit expected");
         assert_eq!(map.get(&change.id), Some(commit_id));
 
-        let commit_obj = odb.get(&commit_id).expect("commit object must exist");
-        let commit_body = String::from_utf8_lossy(commit_obj);
+        let (tree_kind, _) = odb.get(&root_tree).expect("tree object must exist");
+        assert_eq!(*tree_kind, GIT_OBJECT_TREE);
+
+        let (commit_kind, commit_payload) = odb.get(&commit_id).expect("commit object must exist");
+        assert_eq!(*commit_kind, GIT_OBJECT_COMMIT);
+        let commit_body = String::from_utf8_lossy(commit_payload);
         assert!(commit_body.contains("Arc-Change-Id: blake3:"));
         assert!(commit_body.contains("Arc-Author-Type: Human"));
         assert!(commit_body.contains("Arc-Signature:"));
