@@ -3,8 +3,8 @@ use arc_cli::repo::Repository;
 use arc_core::algebra::{Atom, Blake3Hash};
 use arc_core::store::author::Author;
 use arc_core::store::author::load_identity;
+use arc_core::store::newtypes::ChangeId;
 use arc_core::store::oplog::OpLog;
-use arc_core::store::oplog::Operation;
 use arc_core::store::view::View;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -194,22 +194,17 @@ async fn get_oplog(params: Option<serde_json::Value>) -> Result<Vec<OplogEntry>,
     let join = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<OplogEntry>> {
         let repo = Repository::open(&path)?;
         let arc_dir = repo.shared_root.join(".arc");
-        let oplog_dir = arc_dir.join("oplog");
-        let entries = if oplog_dir.is_dir() {
-            read_oplog_directory(&oplog_dir)?
-        } else {
-            let oplog = OpLog::new(&arc_dir);
-            oplog.read_reversed()?
-        };
+        let oplog = OpLog::new(&arc_dir);
+        let entries = oplog.read_reversed()?;
 
         let result = entries
             .into_iter()
             .take(10)
             .map(|entry| {
                 let view_hash = if !entry.after_heads.is_empty() {
-                    select_head_hash(&entry.after_heads)
+                    select_change_head_hash(&entry.after_heads)
                 } else {
-                    select_head_hash(&entry.before_heads)
+                    select_change_head_hash(&entry.before_heads)
                 };
                 OplogEntry {
                     action: entry.command,
@@ -275,25 +270,6 @@ async fn get_file_states(
     .map_err(|e| RpcDispatchError::Internal(anyhow::anyhow!("file_states task join error: {e}")))?;
 
     join.map_err(RpcDispatchError::Internal)
-}
-
-fn read_oplog_directory(oplog_dir: &std::path::Path) -> anyhow::Result<Vec<Operation>> {
-    let mut entries = Vec::new();
-    for item in std::fs::read_dir(oplog_dir)? {
-        let entry = item?;
-        let file_type = entry.file_type()?;
-        if !file_type.is_file() {
-            continue;
-        }
-
-        let data = std::fs::read_to_string(entry.path())?;
-        let op: Operation = serde_json::from_str(&data)
-            .with_context(|| format!("failed to parse oplog entry {}", entry.path().display()))?;
-        entries.push(op);
-    }
-
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(entries)
 }
 
 fn parse_path(params: Option<serde_json::Value>) -> Result<std::path::PathBuf, RpcDispatchError> {
@@ -393,6 +369,12 @@ fn file_attribution_from_history(
 
 fn select_head_hash(heads: &std::collections::HashSet<Blake3Hash>) -> Option<String> {
     let mut hashes: Vec<String> = heads.iter().map(hash_to_hex).collect();
+    hashes.sort();
+    hashes.into_iter().next()
+}
+
+fn select_change_head_hash(heads: &std::collections::BTreeSet<ChangeId>) -> Option<String> {
+    let mut hashes: Vec<String> = heads.iter().map(|id| hash_to_hex(&id.0)).collect();
     hashes.sort();
     hashes.into_iter().next()
 }

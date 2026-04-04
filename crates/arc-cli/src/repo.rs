@@ -18,6 +18,7 @@ use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
+use arc_core::store::newtypes::ChangeId;
 use arc_core::store::oplog::{OpLog, Operation};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
@@ -2613,7 +2614,12 @@ impl Repository {
         before_heads: HashSet<Blake3Hash>,
         after_heads: HashSet<Blake3Hash>,
     ) -> anyhow::Result<()> {
-        let op = Operation::new(command, view, before_heads, after_heads);
+        let op = Operation::new(
+            command,
+            view,
+            hashes_to_change_ids(&before_heads),
+            hashes_to_change_ids(&after_heads),
+        );
         OpLog::new(&self.shared_root.join(".arc")).append(&op)
     }
 
@@ -2645,17 +2651,18 @@ impl Repository {
         };
 
         // Restore the view to its pre-operation heads.
-        let restored_view = View::new(&op.view, op.before_heads.clone());
+        let restored_heads = change_ids_to_hashes(&op.before_heads);
+        let restored_view = View::new(&op.view, restored_heads.clone());
         restored_view
             .save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", op.view))?;
 
         // Materialise the restored state.
-        self.hydrate_heads(&op.before_heads)?;
-        let restored_state = if op.before_heads.is_empty() {
+        self.hydrate_heads(&restored_heads)?;
+        let restored_state = if restored_heads.is_empty() {
             MaterializedState::new()
         } else {
-            self.materialize_heads(&op.before_heads)?
+            self.materialize_heads(&restored_heads)?
         };
 
         // Remove non-RS blob files that exist now but shouldn't after the undo.
@@ -2955,8 +2962,8 @@ impl Repository {
         // OpLog protection: every before_heads and after_heads in the log.
         if let Ok(ops) = OpLog::new(&self.shared_root.join(".arc")).read_all() {
             for op in &ops {
-                root_set.extend(op.before_heads.iter().copied());
-                root_set.extend(op.after_heads.iter().copied());
+                root_set.extend(op.before_heads.iter().map(|id| id.0));
+                root_set.extend(op.after_heads.iter().map(|id| id.0));
             }
         }
 
@@ -3826,6 +3833,14 @@ impl Repository {
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
 fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hashes_to_change_ids(input: &HashSet<Blake3Hash>) -> std::collections::BTreeSet<ChangeId> {
+    input.iter().copied().map(ChangeId::from).collect()
+}
+
+fn change_ids_to_hashes(input: &std::collections::BTreeSet<ChangeId>) -> HashSet<Blake3Hash> {
+    input.iter().copied().map(Blake3Hash::from).collect()
 }
 
 /// Prefix used by `arc-core::algebra::apply` to project conflict atoms.

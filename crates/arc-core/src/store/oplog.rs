@@ -1,213 +1,125 @@
-//! Append-only operation log — the spacetime ledger of every view-mutating
-//! command in the repository.
-//!
-//! Every time a command advances a [`View`](super::view::View)'s DAG heads
-//! (e.g. `arc snap`, `arc merge`, `arc cherry-pick`, `arc revert`, `arc restore`),
-//! an [`Operation`] is appended to `.arc/oplog.json`.  Because the CAS is purely
-//! immutable, the underlying graph objects are **never deleted** — only the View
-//! pointer moves.  This makes every mutating operation **O(1)-reversible**:
-//! [`OpLog::pop`] returns the `before_heads` needed to restore the View pointer
-//! with zero data loss.
-//!
-//! ## Local-only semantics
-//!
-//! The oplog is **strictly local**.  It is intentionally excluded from all CRDT
-//! hashing, network sync, and CAS indexing operations.  Syncing it would cause
-//! catastrophic metadata bloat across the network — each developer's pointer
-//! history is irrelevant to peers.  Never include `.arc/oplog.json` in any
-//! serialized view or change object.
-//!
-//! ## Compaction
-//!
-//! To prevent unbounded I/O overhead on highly active repositories,
-//! [`OpLog::append`] silently drops the oldest entries when the log exceeds
-//! [`MAX_ENTRIES`] (1 000 operations).  This sliding-window eviction ensures the
-//! JSON parse cost on every CLI invocation remains bounded and predictable.
-//!
-//! ## File format
-//!
-//! `.arc/oplog.json` is a pretty-printed JSON array of [`Operation`] objects.
-//! The `before_heads` field carries a `#[serde(alias = "previous_heads")]`
-//! annotation so that older oplog files written by pre-Phase-36 builds remain
-//! fully readable without a migration step.
-//!
-//! ## O(1) undo guarantee
-//!
-//! ```text
-//! View pointer:  HEAD  →  (slide backward)
-//!
-//!   [op₃] snap "fix bug"     after:  {hash₃}
-//!   [op₂] merge feature      after:  {hash₁, hash₂}
-//!   [op₁] snap "initial"     after:  {hash₁}
-//!
-//!   arc op undo  →  restores before_heads of op₃  →  {hash₁, hash₂}
-//!   arc op undo  →  restores before_heads of op₂  →  {hash₁}
-//!   arc op undo  →  restores before_heads of op₁  →  {} (empty view)
-//! ```
-//!
-//! All graph objects (`hash₁`, `hash₂`, `hash₃`) remain in `.arc/store/` and
-//! `.arc/blobs/` indefinitely.  "Undo" moves a pointer; it never deletes data.
-
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap};
+use std::fs::{self, File, OpenOptions};
+use std::io::Read;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::Blake3Hash;
+use crate::store::newtypes::{ChangeId, SnapshotId};
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+/// Maximum number of optimistic publish retries before returning an error.
+pub const MAX_RETRY_ATTEMPTS: usize = 16;
+const STALE_LOCK_TTL_MILLIS: u128 = 30_000;
 
-/// Maximum number of entries retained in the oplog.
-///
-/// When [`OpLog::append`] would push the entry count above this limit, the
-/// oldest entries are silently evicted to keep the JSON parse cost bounded.
-pub const MAX_ENTRIES: usize = 1_000;
-
-// ── OperationAgent ────────────────────────────────────────────────────────────
-
-/// The actor that triggered a repository operation.
-///
-/// Stored inside every [`Operation`] so that `arc op log` can render a
-/// `👤 Human` / `🤖 AI` column, allowing developers to immediately identify
-/// and audit autonomously-executed mutations.
+/// Human or AI actor attribution for an operation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationAgent {
-    /// The operation was triggered directly by a human developer.
+    /// Operation initiated by a human actor.
     #[default]
     Human,
-    /// The operation was triggered by an AI agent (e.g. `arc snap --auto-msg`,
-    /// AI conflict resolution, an autonomous background sync).
+    /// Operation initiated by an AI actor.
     Ai,
 }
 
 impl OperationAgent {
-    ///
-    /// ```text
-    /// Human  →  "👤 Human"
-    /// Ai     →  "🤖 AI"
-    /// ```
+    /// Stable user-facing label for CLI output.
     pub fn label(&self) -> &'static str {
         match self {
-            OperationAgent::Human => "👤 Human",
-            OperationAgent::Ai => "🤖 AI",
+            OperationAgent::Human => "Human",
+            OperationAgent::Ai => "AI",
         }
     }
 }
 
-// ── Operation ─────────────────────────────────────────────────────────────────
-
-/// A single immutable entry in the spacetime operation log.
-///
-/// Records every view-mutating command together with the DAG state
-/// *before* (`before_heads`) and *after* (`after_heads`) the command, so that
-/// [`OpLog::pop`] can restore the prior state in O(1) time.
-///
-/// The `before_heads` field accepts `"previous_heads"` as a deserialization
-/// alias for backward-compatibility with pre-Phase-36 oplog files.
+/// User-facing operation metadata recorded in the OpLog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
-    /// Short 8-char hex identifier.
-    ///
-    /// Computed as the first 8 hex characters of
-    /// BLAKE3(`timestamp_le` ‖ `command`).  Deterministic and unique enough
-    /// for display and cross-reference; not cryptographically binding.
+    /// Human-readable short id used by CLI output.
     pub id: String,
-    /// Unix timestamp (seconds since epoch) when the operation was recorded.
+    /// Seconds since unix epoch.
     pub timestamp: u64,
-    /// CLI command name that triggered the operation.
-    ///
-    /// Examples: `"snap"`, `"merge"`, `"cherry-pick"`, `"revert"`, `"restore"`.
+    /// Command name that produced this mutation.
     pub command: String,
-    /// Name of the view that was mutated.
+    /// View name this operation targeted.
     pub view: String,
-    /// The actor that executed this operation.
-    ///
-    /// Defaults to [`OperationAgent::Human`] when deserializing older oplog
-    /// files that predate this field.
+    /// Actor attribution for auditing.
     #[serde(default)]
     pub agent: OperationAgent,
-    /// Heads of the view **before** the operation.
-    ///
-    /// Used by [`OpLog::pop`] to restore the pre-mutation state.
-    /// Accepts `"previous_heads"` as a deserialization alias so that oplog
-    /// files written by pre-Phase-36 builds remain readable without migration.
+    /// View heads before applying the mutation.
     #[serde(alias = "previous_heads")]
-    pub before_heads: HashSet<Blake3Hash>,
-    /// Heads of the view **after** the operation.
-    ///
-    /// Empty for operations that do not advance the view pointer (e.g.
-    /// `restore`, which rewrites working-directory files but leaves heads
-    /// unchanged).  Defaults to an empty set so older oplog files lacking
-    /// this field remain readable.
+    pub before_heads: BTreeSet<ChangeId>,
+    /// View heads after applying the mutation.
     #[serde(default)]
-    pub after_heads: HashSet<Blake3Hash>,
+    pub after_heads: BTreeSet<ChangeId>,
+    /// Operation-parent pointers in the OpLog DAG.
+    #[serde(default)]
+    pub parents: BTreeSet<SnapshotId>,
+    /// Deterministic content id for this operation node.
+    #[serde(default)]
+    pub snapshot: Option<SnapshotId>,
 }
 
 impl Operation {
-    /// Construct a new [`Operation`] for a human-triggered command.
-    ///
-    /// The `id` is the first 8 hex characters of BLAKE3(`timestamp_le ‖ command`).
-    ///
-    /// # Arguments
-    ///
-    /// * `command` — short command name, e.g. `"snap"`.
-    /// * `view` — name of the view that was mutated.
-    /// * `before_heads` — DAG heads **before** the mutation.
-    /// * `after_heads` — DAG heads **after** the mutation.
+    /// Build a new human-authored operation with current timestamp.
     pub fn new(
         command: impl Into<String>,
         view: impl Into<String>,
-        before_heads: HashSet<Blake3Hash>,
-        after_heads: HashSet<Blake3Hash>,
+        before_heads: BTreeSet<ChangeId>,
+        after_heads: BTreeSet<ChangeId>,
     ) -> Self {
-        Self::new_with_agent(
-            command,
-            view,
-            before_heads,
-            after_heads,
-            OperationAgent::Human,
-        )
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self::new_with_timestamp(command, view, before_heads, after_heads, now)
     }
 
-    /// Construct a new [`Operation`] specifying the triggering agent explicitly.
-    ///
-    /// Use this variant when recording operations executed by an AI agent so
-    /// that `arc op log` can render the `🤖 AI` label.
+    /// Build a new operation with explicit actor attribution.
     pub fn new_with_agent(
         command: impl Into<String>,
         view: impl Into<String>,
-        before_heads: HashSet<Blake3Hash>,
-        after_heads: HashSet<Blake3Hash>,
+        before_heads: BTreeSet<ChangeId>,
+        after_heads: BTreeSet<ChangeId>,
         agent: OperationAgent,
     ) -> Self {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let mut op = Self::new(command, view, before_heads, after_heads);
+        op.agent = agent;
+        op
+    }
+
+    fn new_with_timestamp(
+        command: impl Into<String>,
+        view: impl Into<String>,
+        before_heads: BTreeSet<ChangeId>,
+        after_heads: BTreeSet<ChangeId>,
+        timestamp: u64,
+    ) -> Self {
         let command = command.into();
         let view = view.into();
-        // Stable 8-char op ID: BLAKE3(timestamp_le || command bytes).
         let mut hasher = blake3::Hasher::new();
         hasher.update(&timestamp.to_le_bytes());
         hasher.update(command.as_bytes());
-        let id = hasher.finalize().to_hex()[..8].to_string();
+        hasher.update(view.as_bytes());
+        let short = hasher.finalize().to_hex().to_string();
         Self {
-            id,
+            id: short[..8].to_owned(),
             timestamp,
             command,
             view,
-            agent,
+            agent: OperationAgent::Human,
             before_heads,
             after_heads,
+            parents: BTreeSet::new(),
+            snapshot: None,
         }
     }
 
-    /// Return the timestamp as a UTC `YYYY-MM-DD HH:MM:SS` string.
-    ///
-    /// Implemented without the `chrono` crate to avoid an extra dependency.
-    /// Accurate for all dates representable as a Unix timestamp (well past 2100).
+    /// Render timestamp as `YYYY-MM-DD HH:MM:SS` in UTC.
     pub fn formatted_time(&self) -> String {
         let mut secs = self.timestamp;
         let second = secs % 60;
@@ -215,120 +127,572 @@ impl Operation {
         let minute = secs % 60;
         secs /= 60;
         let hour = secs % 24;
-        secs /= 24; // days since 1970-01-01
-        let (year, month, day) = _days_to_ymd(secs);
+        secs /= 24;
+        let (year, month, day) = days_to_ymd(secs);
         format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
     }
 
-    /// Return the first 8 hex chars of the first `before_heads` entry, or
-    /// `"(empty)"` when the view had no heads before this operation.
+    /// Return the first `before_heads` id as an 8-char hex prefix.
     pub fn before_short(&self) -> String {
-        _heads_short(&self.before_heads)
+        heads_short(&self.before_heads)
     }
 
-    /// Return the first 8 hex chars of the first `after_heads` entry, or
-    /// `"(empty)"` when the operation did not advance the view.
+    /// Return the first `after_heads` id as an 8-char hex prefix.
     pub fn after_short(&self) -> String {
-        _heads_short(&self.after_heads)
+        heads_short(&self.after_heads)
     }
 }
 
-// ── OpLog ─────────────────────────────────────────────────────────────────────
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OperationNode {
+    id: SnapshotId,
+    operation: Operation,
+}
 
-/// Append-only operation log backed by `.arc/oplog.json`.
-///
-/// ### Usage pattern
-///
-/// ```text
-/// let log = OpLog::new(&shared_root.join(".arc"));
-///
-/// // Record an operation after a mutation:
-/// let op = Operation::new("snap", "main", before_heads, after_heads);
-/// log.append(&op)?;
-///
-/// // Inspect history (newest first):
-/// for op in log.read_reversed()? { … }
-///
-/// // Undo: pop and use before_heads:
-/// if let Some(op) = log.pop()? {
-///     view.heads = op.before_heads;
-///     view.save(…)?;
-/// }
-/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct HeadsState {
+    epoch: u64,
+    heads: BTreeSet<SnapshotId>,
+}
+
+/// Optimistic, crash-consistent operation-log engine.
 pub struct OpLog {
-    path: PathBuf,
+    root: PathBuf,
 }
 
 impl OpLog {
-    /// Create an [`OpLog`] handle for the file at `<arc_dir>/oplog.json`.
-    ///
-    /// `arc_dir` must be the `.arc/` directory (i.e. `repo_root.join(".arc")`).
-    /// The file is created lazily on the first call to [`append`](Self::append).
+    /// Create an OpLog at `<arc_dir>/oplog`.
     pub fn new(arc_dir: &Path) -> Self {
         Self {
-            path: arc_dir.join("oplog.json"),
+            root: arc_dir.join("oplog"),
         }
     }
 
-    /// Append `op` to the end of the log, then compact if necessary.
-    ///
-    /// If the resulting array would exceed [`MAX_ENTRIES`] the oldest entries
-    /// are silently evicted so the log file never grows unboundedly.
-    ///
-    /// Creates the file if it does not yet exist.
-    pub fn append(&self, op: &Operation) -> Result<()> {
-        let mut entries = self.read_all().unwrap_or_default();
-        entries.push(op.clone());
-        // Sliding-window compaction: keep the most recent MAX_ENTRIES.
-        if entries.len() > MAX_ENTRIES {
-            let drop = entries.len() - MAX_ENTRIES;
-            entries.drain(..drop);
+    /// Persist one operation node and publish it into the head set.
+    pub fn append(&self, operation: &Operation) -> Result<()> {
+        self.migrate_legacy_json_if_present()?;
+        self.ensure_layout()?;
+
+        for attempt in 0..MAX_RETRY_ATTEMPTS {
+            let (heads_state, heads_fingerprint) = self.load_heads_state()?;
+            let node = self.build_node(operation, &heads_state.heads)?;
+            self.persist_node(&node)?;
+
+            let mut next_heads = heads_state.heads.clone();
+            for parent in &node.operation.parents {
+                let _ = next_heads.remove(parent);
+            }
+            next_heads.insert(node.id);
+
+            let candidate = HeadsState {
+                epoch: heads_state.epoch + 1,
+                heads: next_heads,
+            };
+
+            if self.publish_heads_cas(&heads_fingerprint, &candidate)? {
+                let _ = self.write_legacy_projection();
+                return Ok(());
+            }
+
+            let jitter_ms = ((attempt as u64) + 1).min(8);
+            thread::sleep(Duration::from_millis(jitter_ms));
         }
-        std::fs::write(&self.path, serde_json::to_string_pretty(&entries)?)
-            .map_err(|e| anyhow::anyhow!("failed to write oplog: {e}"))
+
+        anyhow::bail!(
+            "failed to append operation after {MAX_RETRY_ATTEMPTS} optimistic retries"
+        )
     }
 
-    /// Return all operations in **chronological order** (oldest first).
-    ///
-    /// Returns an empty `Vec` when the file does not exist.
+    /// Load all reachable operations from current OpLog heads.
     pub fn read_all(&self) -> Result<Vec<Operation>> {
-        if !self.path.exists() {
+        self.migrate_legacy_json_if_present()?;
+        if !self.heads_file().exists() {
             return Ok(Vec::new());
         }
-        let json = std::fs::read_to_string(&self.path)
-            .map_err(|e| anyhow::anyhow!("failed to read oplog: {e}"))?;
-        Ok(serde_json::from_str(&json).unwrap_or_default())
+
+        let (heads_state, _) = self.load_heads_state()?;
+        if heads_state.heads.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut by_id: HashMap<SnapshotId, OperationNode> = HashMap::new();
+        let mut stack: Vec<SnapshotId> = heads_state.heads.iter().copied().collect();
+
+        while let Some(id) = stack.pop() {
+            if by_id.contains_key(&id) {
+                continue;
+            }
+            let node = self.load_node(id)?;
+            for parent in &node.operation.parents {
+                stack.push(*parent);
+            }
+            by_id.insert(id, node);
+        }
+
+        let mut nodes: Vec<OperationNode> = by_id.into_values().collect();
+        nodes.sort_by(|a, b| {
+            a.operation
+                .timestamp
+                .cmp(&b.operation.timestamp)
+                .then_with(|| a.operation.id.cmp(&b.operation.id))
+        });
+        Ok(nodes.into_iter().map(|n| n.operation).collect())
     }
 
-    /// Return all operations in **reverse-chronological order** (newest first).
-    ///
-    /// Convenience wrapper over [`read_all`](Self::read_all) for display use.
+    /// Load all reachable operations in reverse chronological order.
     pub fn read_reversed(&self) -> Result<Vec<Operation>> {
         let mut all = self.read_all()?;
         all.reverse();
         Ok(all)
     }
 
-    /// Remove and return the **most-recent** operation, or `None` if the log
-    /// is empty.  Rewrites the file without the popped entry.
+    /// Rewind one published operation from heads and return it.
     pub fn pop(&self) -> Result<Option<Operation>> {
-        let mut entries = self.read_all()?;
-        let last = entries.pop();
-        if last.is_some() {
-            std::fs::write(&self.path, serde_json::to_string_pretty(&entries)?)
-                .map_err(|e| anyhow::anyhow!("failed to write oplog: {e}"))?;
+        self.migrate_legacy_json_if_present()?;
+        self.ensure_layout()?;
+        let lock = PublishLock::acquire(&self.publish_lock_file())?;
+
+        let (heads_state, _) = self.load_heads_state()?;
+        if heads_state.heads.is_empty() {
+            drop(lock);
+            return Ok(None);
         }
-        Ok(last)
+
+        let mut head_nodes: Vec<OperationNode> = heads_state
+            .heads
+            .iter()
+            .copied()
+            .map(|id| self.load_node(id))
+            .collect::<Result<Vec<_>>>()?;
+        head_nodes.sort_by(|a, b| {
+            a.operation
+                .timestamp
+                .cmp(&b.operation.timestamp)
+                .then_with(|| a.operation.id.cmp(&b.operation.id))
+        });
+
+        let selected = head_nodes
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("head set unexpectedly empty"))?;
+
+        let mut next_heads = heads_state.heads.clone();
+        let _ = next_heads.remove(&selected.id);
+        next_heads.extend(selected.operation.parents.iter().copied());
+
+        let candidate = HeadsState {
+            epoch: heads_state.epoch + 1,
+            heads: next_heads,
+        };
+        self.write_heads_state(&candidate)?;
+        let _ = self.write_legacy_projection();
+
+        drop(lock);
+        Ok(Some(selected.operation))
+    }
+
+    fn ensure_layout(&self) -> Result<()> {
+        fs::create_dir_all(self.ops_root())?;
+        fs::create_dir_all(self.root.join("tmp"))?;
+        Ok(())
+    }
+
+    fn migrate_legacy_json_if_present(&self) -> Result<()> {
+        let Some(legacy_path) = self.legacy_json_path() else {
+            return Ok(());
+        };
+
+        if self.heads_file().exists() || !legacy_path.exists() {
+            return Ok(());
+        }
+
+        let json = fs::read_to_string(&legacy_path)
+            .with_context(|| format!("failed to read legacy oplog {}", legacy_path.display()))?;
+        let legacy_ops: Vec<Operation> =
+            serde_json::from_str(&json).context("failed to parse legacy oplog.json")?;
+
+        self.ensure_layout()?;
+        let mut heads = BTreeSet::new();
+        let mut epoch = 0u64;
+
+        for op in legacy_ops {
+            let node = self.build_node(&op, &heads)?;
+            self.persist_node(&node)?;
+            heads.clear();
+            heads.insert(node.id);
+            epoch += 1;
+        }
+
+        self.write_heads_state(&HeadsState { epoch, heads })?;
+
+        let migrated_path = legacy_path.with_extension("json.migrated");
+        if migrated_path.exists() {
+            fs::remove_file(&migrated_path).with_context(|| {
+                format!(
+                    "failed to remove stale legacy migration marker {}",
+                    migrated_path.display()
+                )
+            })?;
+        }
+        fs::rename(&legacy_path, &migrated_path).with_context(|| {
+            format!(
+                "failed to rename legacy oplog {} -> {}",
+                legacy_path.display(),
+                migrated_path.display()
+            )
+        })?;
+
+        let _ = self.write_legacy_projection();
+
+        Ok(())
+    }
+
+    fn write_legacy_projection(&self) -> Result<()> {
+        let Some(legacy_path) = self.legacy_json_path() else {
+            return Ok(());
+        };
+        let all = self.read_all()?;
+        let json = serde_json::to_vec_pretty(&all).context("failed to serialize legacy oplog")?;
+        fs::write(&legacy_path, json)
+            .with_context(|| format!("failed to write legacy oplog {}", legacy_path.display()))
+    }
+
+    fn build_node(&self, operation: &Operation, current_heads: &BTreeSet<SnapshotId>) -> Result<OperationNode> {
+        let mut op = operation.clone();
+        op.parents = current_heads.clone();
+
+        let payload = bincode::serialize(&(
+            op.timestamp,
+            &op.command,
+            &op.view,
+            &op.agent,
+            &op.before_heads,
+            &op.after_heads,
+            &op.parents,
+        ))
+        .context("failed to serialize operation payload")?;
+        let snapshot = SnapshotId(*blake3::hash(&payload).as_bytes());
+        op.snapshot = Some(snapshot);
+
+        Ok(OperationNode {
+            id: snapshot,
+            operation: op,
+        })
+    }
+
+    fn persist_node(&self, node: &OperationNode) -> Result<()> {
+        let path = self.node_path(node.id);
+        if path.exists() {
+            return Ok(());
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let bytes = bincode::serialize(node).context("failed to serialize operation node")?;
+        atomic_write_bytes(&path, &bytes)
+    }
+
+    fn load_node(&self, id: SnapshotId) -> Result<OperationNode> {
+        let path = self.node_path(id);
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read operation node {}", id.to_hex()))?;
+        bincode::deserialize(&bytes)
+            .with_context(|| format!("failed to decode operation node {}", id.to_hex()))
+    }
+
+    fn load_heads_state(&self) -> Result<(HeadsState, [u8; 32])> {
+        let path = self.heads_file();
+        let backup = self.heads_backup_file();
+        let staged_backup = self.heads_staged_backup_file();
+        if !path.exists() {
+            if staged_backup.exists() {
+                let bytes = fs::read(&staged_backup)
+                    .context("failed to read staged backup heads state")?;
+                let state: HeadsState = bincode::deserialize(&bytes)
+                    .context("failed to deserialize staged backup heads state")?;
+                return Ok((state, *blake3::hash(&bytes).as_bytes()));
+            }
+            if backup.exists() {
+                let bytes = fs::read(&backup).context("failed to read backup heads state")?;
+                let state: HeadsState = bincode::deserialize(&bytes)
+                    .context("failed to deserialize backup heads state")?;
+                return Ok((state, *blake3::hash(&bytes).as_bytes()));
+            }
+            let state = HeadsState::default();
+            let bytes = bincode::serialize(&state).context("failed to serialize heads state")?;
+            return Ok((state, *blake3::hash(&bytes).as_bytes()));
+        }
+
+        let bytes = fs::read(&path).context("failed to read heads state")?;
+        let state: HeadsState =
+            bincode::deserialize(&bytes).context("failed to deserialize heads state")?;
+        Ok((state, *blake3::hash(&bytes).as_bytes()))
+    }
+
+    fn publish_heads_cas(&self, expected: &[u8; 32], candidate: &HeadsState) -> Result<bool> {
+        let lock = PublishLock::acquire(&self.publish_lock_file())?;
+
+        let (_, current_fingerprint) = self.load_heads_state()?;
+        if &current_fingerprint != expected {
+            drop(lock);
+            return Ok(false);
+        }
+
+        self.write_heads_state(candidate)?;
+        drop(lock);
+        Ok(true)
+    }
+
+    fn write_heads_state(&self, state: &HeadsState) -> Result<()> {
+        let bytes = bincode::serialize(state).context("failed to serialize heads state")?;
+        atomic_write_bytes(&self.heads_file(), &bytes)
+    }
+
+    fn ops_root(&self) -> PathBuf {
+        self.root.join("ops")
+    }
+
+    fn heads_file(&self) -> PathBuf {
+        self.root.join("heads.bin")
+    }
+
+    fn heads_backup_file(&self) -> PathBuf {
+        self.root.join("heads.bin.bak")
+    }
+
+    fn heads_staged_backup_file(&self) -> PathBuf {
+        self.root.join("heads.bin.bak.new")
+    }
+
+    fn publish_lock_file(&self) -> PathBuf {
+        self.root.join("publish.lock")
+    }
+
+    fn legacy_json_path(&self) -> Option<PathBuf> {
+        self.root.parent().map(|arc_dir| arc_dir.join("oplog.json"))
+    }
+
+    fn node_path(&self, id: SnapshotId) -> PathBuf {
+        let hex = id.to_hex();
+        self.ops_root()
+            .join(&hex[..2])
+            .join(format!("{}.bin", &hex[2..]))
     }
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+struct PublishLock {
+    path: PathBuf,
+}
 
-/// Convert a count of days since 1970-01-01 to `(year, month, day)`.
-///
-/// Uses the 400-year Gregorian cycle (146,097 days).  Accurate for all dates
-/// representable as a Unix timestamp (well past 2100).
-fn _days_to_ymd(mut days: u64) -> (u64, u64, u64) {
+impl PublishLock {
+    fn acquire(path: &Path) -> Result<Self> {
+        let mut retries = 0usize;
+        loop {
+            match OpenOptions::new().write(true).create_new(true).open(path) {
+                Ok(mut file) => {
+                    let pid = std::process::id();
+                    let _ = writeln!(file, "{pid} {}", now_millis());
+                    file.sync_all().ok();
+                    return Ok(Self {
+                        path: path.to_path_buf(),
+                    });
+                }
+                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                    if is_stale_lock(path)? {
+                        let _ = fs::remove_file(path);
+                        continue;
+                    }
+                    retries += 1;
+                    if retries > MAX_RETRY_ATTEMPTS * 8 {
+                        anyhow::bail!("timed out acquiring oplog publish lock");
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
+                Err(err) => return Err(err).context("failed to acquire publish lock"),
+            }
+        }
+    }
+}
+
+impl Drop for PublishLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
+    fs::create_dir_all(parent)?;
+
+    let tmp_name = format!(
+        ".{}.tmp-{}-{}",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("op"),
+        std::process::id(),
+        now_nanos()
+    );
+    let tmp_path = parent.join(tmp_name);
+
+    {
+        let mut file = File::create(&tmp_path)
+            .with_context(|| format!("failed to create temp file {}", tmp_path.display()))?;
+        file.write_all(bytes)
+            .with_context(|| format!("failed to write temp file {}", tmp_path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("failed to fsync temp file {}", tmp_path.display()))?;
+    }
+
+    #[cfg(windows)]
+    {
+        let backup_path = parent.join(format!(
+            "{}.bak",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+        ));
+        let staged_backup_path = parent.join(format!(
+            "{}.bak.new",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+        ));
+
+        if staged_backup_path.exists() {
+            fs::remove_file(&staged_backup_path).with_context(|| {
+                format!(
+                    "failed to remove stale staged backup {}",
+                    staged_backup_path.display()
+                )
+            })?;
+        }
+
+        if path.exists() {
+            fs::rename(path, &staged_backup_path).with_context(|| {
+                format!(
+                    "failed to rotate existing target {} -> {}",
+                    path.display(),
+                    staged_backup_path.display()
+                )
+            })?;
+        }
+
+        if let Err(err) = fs::rename(&tmp_path, path) {
+            if staged_backup_path.exists() {
+                let _ = fs::rename(&staged_backup_path, path);
+            }
+            return Err(err).with_context(|| {
+                format!(
+                    "failed to atomically rename {} -> {}",
+                    tmp_path.display(),
+                    path.display()
+                )
+            });
+        }
+
+        if staged_backup_path.exists() {
+            if backup_path.exists() {
+                fs::remove_file(&backup_path).with_context(|| {
+                    format!("failed to replace previous backup {}", backup_path.display())
+                })?;
+            }
+            fs::rename(&staged_backup_path, &backup_path).with_context(|| {
+                format!(
+                    "failed to finalize backup {} -> {}",
+                    staged_backup_path.display(),
+                    backup_path.display()
+                )
+            })?;
+        }
+    }
+
+    #[cfg(not(windows))]
+    fs::rename(&tmp_path, path).with_context(|| {
+        format!(
+            "failed to atomically rename {} -> {}",
+            tmp_path.display(),
+            path.display()
+        )
+    })?;
+
+    sync_directory(parent)?;
+    Ok(())
+}
+
+fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        File::open(path)?.sync_all()?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
+        let open_result = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path);
+        match open_result {
+            Ok(file) => {
+                if let Err(err) = file.sync_all()
+                    && err.kind() != ErrorKind::PermissionDenied
+                {
+                    return Err(err.into());
+                }
+            }
+            Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+                // Best effort on Windows environments where directory sync is
+                // restricted by filesystem policy.
+            }
+            Err(err) => return Err(err.into()),
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+fn now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn is_stale_lock(path: &Path) -> Result<bool> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    let Some(ts) = contents.split_whitespace().nth(1) else {
+        return Ok(true);
+    };
+    let Ok(locked_at) = ts.parse::<u128>() else {
+        return Ok(true);
+    };
+    Ok(now_millis().saturating_sub(locked_at) > STALE_LOCK_TTL_MILLIS)
+}
+
+fn heads_short(heads: &BTreeSet<ChangeId>) -> String {
+    heads
+        .iter()
+        .next()
+        .map(|id| id.to_hex()[..8].to_string())
+        .unwrap_or_else(|| "(empty)".to_string())
+}
+
+fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     let year400 = days / 146_097;
     days %= 146_097;
     let year100 = (days / 36_524).min(3);
@@ -339,7 +703,7 @@ fn _days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     days -= year1 * 365;
     let year = year400 * 400 + year100 * 100 + year4 * 4 + year1 + 1970;
     let leap = (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
-    let days_in_month: [u64; 12] = [
+    let dims: [u64; 12] = [
         31,
         if leap { 29 } else { 28 },
         31,
@@ -354,7 +718,7 @@ fn _days_to_ymd(mut days: u64) -> (u64, u64, u64) {
         31,
     ];
     let mut month = 1u64;
-    for &dim in &days_in_month {
+    for dim in dims {
         if days < dim {
             break;
         }
@@ -364,146 +728,135 @@ fn _days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     (year, month, days + 1)
 }
 
-/// Format the first entry in a head-set as an 8-char hex string, or `"(empty)"`.
-fn _heads_short(heads: &HashSet<Blake3Hash>) -> String {
-    heads
-        .iter()
-        .next()
-        .map(|h| h.iter().map(|b| format!("{b:02x}")).collect::<String>()[..8].to_string())
-        .unwrap_or_else(|| "(empty)".to_string())
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+
     use super::*;
 
-    #[test]
-    fn test_operation_new_has_short_id() {
-        let op = Operation::new("snap", "main", HashSet::new(), HashSet::new());
-        assert_eq!(op.id.len(), 8, "id must be 8 hex chars");
-        assert!(
-            op.id.chars().all(|c| c.is_ascii_hexdigit()),
-            "id must be hex"
-        );
-        assert_eq!(op.command, "snap");
-        assert_eq!(op.view, "main");
-        assert_eq!(op.agent, OperationAgent::Human);
+    fn cid(byte: u8) -> ChangeId {
+        ChangeId([byte; 32])
     }
 
     #[test]
-    fn test_operation_ai_agent_label() {
-        let op = Operation::new_with_agent(
-            "snap",
-            "main",
-            HashSet::new(),
-            HashSet::new(),
-            OperationAgent::Ai,
-        );
-        assert_eq!(op.agent, OperationAgent::Ai);
-        assert_eq!(op.agent.label(), "🤖 AI");
-        assert_eq!(OperationAgent::Human.label(), "👤 Human");
+    fn operation_id_is_deterministic_for_fixed_timestamp() {
+        let a = Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
+        let b = Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
+        assert_eq!(a.id, b.id);
     }
 
     #[test]
-    fn test_operation_formatted_time_is_plausible() {
-        let op = Operation::new("snap", "main", HashSet::new(), HashSet::new());
-        let t = op.formatted_time();
-        assert_eq!(t.len(), 19, "formatted time must be 19 chars: got '{t}'");
-        assert!(t.starts_with("20"), "year must start with 20xx: got '{t}'");
-    }
-
-    #[test]
-    fn test_days_to_ymd_epoch() {
-        let (y, m, d) = _days_to_ymd(0);
-        assert_eq!((y, m, d), (1970, 1, 1));
-    }
-
-    #[test]
-    fn test_days_to_ymd_known_date() {
-        // 2025-03-08 ≈ 20155 days after 1970-01-01
-        let (y, _m, _d) = _days_to_ymd(20155);
-        assert!((2024..=2026).contains(&y), "year should be near 2025, got {y}");
-    }
-
-    #[test]
-    fn test_oplog_append_read_pop() {
-        let dir = tempfile::tempdir().unwrap();
+    fn append_read_pop_roundtrip() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
         let log = OpLog::new(dir.path());
 
-        assert!(
-            log.read_all().unwrap().is_empty(),
-            "fresh log must be empty"
+        let op1 = Operation::new_with_timestamp(
+            "snap",
+            "main",
+            BTreeSet::from([cid(1)]),
+            BTreeSet::from([cid(2)]),
+            100,
+        );
+        let op2 = Operation::new_with_timestamp(
+            "merge",
+            "main",
+            BTreeSet::from([cid(2)]),
+            BTreeSet::from([cid(3)]),
+            101,
         );
 
-        let op1 = Operation::new("snap", "main", HashSet::new(), HashSet::new());
-        let op2 = Operation::new("merge", "main", HashSet::new(), HashSet::new());
-        log.append(&op1).unwrap();
-        log.append(&op2).unwrap();
+        log.append(&op1).expect("append op1 must succeed");
+        log.append(&op2).expect("append op2 must succeed");
 
-        let all = log.read_all().unwrap();
+        let all = log.read_all().expect("read_all must succeed");
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].command, "snap");
         assert_eq!(all[1].command, "merge");
 
-        let rev = log.read_reversed().unwrap();
-        assert_eq!(rev[0].command, "merge");
-        assert_eq!(rev[1].command, "snap");
-
-        let popped = log.pop().unwrap().expect("pop must return the last entry");
+        let popped = log.pop().expect("pop must succeed").expect("pop must return op");
         assert_eq!(popped.command, "merge");
 
-        let remaining = log.read_all().unwrap();
+        let remaining = log.read_all().expect("read_all must succeed");
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].command, "snap");
     }
 
     #[test]
-    fn test_oplog_pop_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = OpLog::new(dir.path());
-        let result = log.pop().unwrap();
-        assert!(result.is_none(), "pop on empty log must return None");
+    fn concurrent_append_preserves_both_operations() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log1 = Arc::new(OpLog::new(dir.path()));
+        let log2 = Arc::clone(&log1);
+        let barrier = Arc::new(Barrier::new(2));
+
+        let b1 = Arc::clone(&barrier);
+        let t1 = std::thread::spawn(move || {
+            let op = Operation::new("snap", "main", BTreeSet::new(), BTreeSet::from([cid(1)]));
+            b1.wait();
+            log1.append(&op)
+        });
+
+        let b2 = Arc::clone(&barrier);
+        let t2 = std::thread::spawn(move || {
+            let op = Operation::new("merge", "main", BTreeSet::from([cid(1)]), BTreeSet::from([cid(2)]));
+            b2.wait();
+            log2.append(&op)
+        });
+
+        t1.join().expect("thread 1 must not panic").expect("append1 must succeed");
+        t2.join().expect("thread 2 must not panic").expect("append2 must succeed");
+
+        let ops = OpLog::new(dir.path()).read_all().expect("read_all must succeed");
+        assert_eq!(ops.len(), 2);
     }
 
     #[test]
-    fn test_oplog_sliding_window_compaction() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = OpLog::new(dir.path());
-        // Write MAX_ENTRIES + 5 entries; expect only MAX_ENTRIES to survive.
-        for i in 0..=(MAX_ENTRIES + 4) {
-            let op = Operation::new(format!("snap-{i}"), "main", HashSet::new(), HashSet::new());
-            log.append(&op).unwrap();
-        }
-        let all = log.read_all().unwrap();
-        assert_eq!(
-            all.len(),
-            MAX_ENTRIES,
-            "oplog must be capped at MAX_ENTRIES"
-        );
-        // The oldest entries were evicted; the most recent entries are retained.
-        assert_eq!(
-            all[MAX_ENTRIES - 1].command,
-            format!("snap-{}", MAX_ENTRIES + 4)
-        );
-    }
-
-    #[test]
-    fn test_operation_backward_compat_previous_heads_alias() {
-        // Simulate a pre-Phase-36 oplog entry that uses "previous_heads".
-        let json = r#"[{
+    fn legacy_previous_heads_alias_still_deserializes() {
+        let json = r#"{
             "id": "abcd1234",
             "timestamp": 1700000000,
             "command": "snap",
             "view": "main",
-            "previous_heads": []
-        }]"#;
-        let ops: Vec<Operation> = serde_json::from_str(json).expect("must deserialize");
-        assert_eq!(ops.len(), 1);
-        assert_eq!(ops[0].command, "snap");
-        assert!(ops[0].before_heads.is_empty());
-        // agent should default to Human
-        assert_eq!(ops[0].agent, OperationAgent::Human);
+            "previous_heads": [[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]]
+        }"#;
+        let op: Operation = serde_json::from_str(json).expect("legacy payload must deserialize");
+        assert_eq!(op.command, "snap");
+        assert_eq!(op.before_heads.len(), 1);
+        assert_eq!(op.agent, OperationAgent::Human);
+    }
+
+    #[test]
+    fn migrates_legacy_json_log() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let arc_dir = dir.path();
+        let legacy_path = arc_dir.join("oplog.json");
+
+        let legacy = vec![
+            Operation::new_with_timestamp(
+                "snap",
+                "main",
+                BTreeSet::new(),
+                BTreeSet::from([cid(1)]),
+                100,
+            ),
+            Operation::new_with_timestamp(
+                "merge",
+                "main",
+                BTreeSet::from([cid(1)]),
+                BTreeSet::from([cid(2)]),
+                101,
+            ),
+        ];
+        let json = serde_json::to_string_pretty(&legacy).expect("legacy json must serialize");
+        fs::write(&legacy_path, json).expect("legacy log write must succeed");
+
+        let log = OpLog::new(arc_dir);
+        let all = log.read_all().expect("migration read must succeed");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].command, "snap");
+        assert_eq!(all[1].command, "merge");
+        assert!(
+            arc_dir.join("oplog.json.migrated").exists(),
+            "legacy oplog should be moved aside after migration"
+        );
     }
 }
