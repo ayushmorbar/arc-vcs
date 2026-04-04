@@ -1,6 +1,6 @@
 # Governance
 
-arc follows a **benevolent-dictator-for-now** model during the pre-1.0 period, transitioning to a **maintainer council** model after the 1.0 stable release.
+arc follows a **benevolent-dictator-for-now** model during the pre-1.0 period, transitioning to a **maintainer council** model after the 1.0 stable release or soon.
 
 ---
 

@@ -12,7 +12,7 @@
     "SCM Providers"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -74,8 +74,8 @@
     "watch": "tsc -watch -p ."
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "@types/vscode": "^1.90.0",
-    "typescript": "^5.7.2"
+    "@types/node": "^25.5.2",
+    "@types/vscode": "^1.110.0",
+    "typescript": "^6.0.2"
   }
 }

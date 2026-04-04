@@ -1,29 +1,24 @@
 # Tutorial: Zero to First Snap
 
-This tutorial takes you from an empty directory to a working arc repository with a recorded change history in about five minutes. No prior experience with arc is required.
-
----
+Status: Stable
+Audience: New to Arc
+Time: 5-10 minutes
 
 ## Prerequisites
 
-- `arc` installed (`cargo install --path crates/arc-cli`)
-- A directory with at least one Rust `.rs` file (or create one below)
+- Arc installed (`cargo install --path crates/arc-cli`)
+- A writable local directory
 
----
-
-## Step 1 — Set Up Your Identity
-
-arc signs every change with an Ed25519 keypair. Set it up once:
+## Step 1: Set Identity (One-Time)
 
 ```sh
 arc auth login --name "Your Name" --email "you@example.com"
 ```
 
-Your keypair is stored in the platform config directory (`~/.config/arc/` on Linux/macOS, `%APPDATA%\arc\` on Windows). It is never transmitted without your permission.
+Why this exists:
+Every change is signed. Arc uses your configured identity to produce verifiable provenance.
 
----
-
-## Step 2 — Initialise a Repository
+## Step 2: Initialize Repository
 
 ```sh
 mkdir my-project
@@ -31,121 +26,83 @@ cd my-project
 arc init
 ```
 
-arc creates a `.arc/` directory containing:
-- `blobs/` — the content-addressable object store
-- `views/` — named head sets (like branches, but algebraic)
-- `HEAD` — the active view pointer
+Arc creates `.arc/` metadata and sets up the default view state.
 
-Configuration is created on first write (for example when you run `arc remote add` or `arc config set`).
+## Step 3: Add Code
 
----
+Shell note:
+Examples below use a POSIX shell style heredoc. If you use PowerShell/cmd, create the file with your editor instead.
 
-## Step 3 — Write Some Code
+If you do not already have a Rust file, create one now:
 
 ```sh
 mkdir src
 cat > src/main.rs << 'EOF'
 fn main() {
-    println!("Hello from arc!");
+    println!("hello from arc");
 }
 EOF
 ```
 
----
-
-## Step 4 — Check Status
+## Step 4: Inspect Pending Work
 
 ```sh
 arc status
 ```
 
-arc compares the current working directory against the (empty) materialised state and shows every new AST atom detected.
+Mental model:
+`status` compares current working files against the materialized state of your current view and reports pending semantic changes.
 
----
-
-## Step 5 — Record Your First Change
-
-No explicit staging step is required. In arc, the working copy is implicitly tracked and auto-amended as you iterate, so there is no `arc add` command in the happy path.
+## Step 5: Record First Change
 
 ```sh
 arc snap -m "feat: initial hello world"
 ```
 
-arc:
-1. Parses `src/main.rs` with the Tree-sitter Rust plugin
-2. Computes the AST delta as a set of `Atom::Insert` operations
-3. Wraps them in a `Change` with your Ed25519 signature and BLAKE3 hash
-4. Advances the `main` view's head pointer
+What happens:
 
----
+1. Arc derives semantic atoms from your current files.
+2. It creates a signed `Change` object.
+3. The change is content-addressed and persisted.
+4. Current view heads advance.
 
-## Step 6 — View History
+## Step 6: Read History
 
 ```sh
 arc log
 ```
 
-You will see your change listed with its short hash, author, timestamp, and message.
+You should see your new change hash, author identity, and intent message.
 
----
-
-## Step 7 — Make Another Change
-
-Edit `src/main.rs`, then:
-
-```sh
-arc snap -m "feat: update greeting"
-arc log
-```
-
----
-
-## Step 8 — Undo the Last View Mutation
-
-If you want to instantly move your active view frontier back, use:
-
-```sh
-arc undo
-```
-
-`arc undo` is powered by the operation log and restores the prior head set in O(1) pointer-swap semantics.
-
----
-
-## Step 9 — Explore Views
-
-arc Views are not Git branches. A View is a **named set of DAG heads** — a continuous stream of semantic intents, not a pointer to a single snapshot:
+## Step 7: Try Views and Merge
 
 ```sh
 arc view create feature/experiment
-arc switch feature/experiment
-# make changes, snap…
-arc switch main
-arc merge feature/experiment
+arc view switch feature/experiment
+# edit files and snap
+arc checkout main
+arc view merge feature/experiment
 ```
 
-Because all changes are algebraically checked for commutativity before the merge, there is no "rebase hell". See [Migrating from Git](git-migration.md) for the full conceptual explainer.
+Mental model:
+A view is a named head set over the graph, not a single branch pointer.
 
----
-
-## Step 10 — Push to a Git Remote
-
-arc can push directly to Git-hosting Smart HTTP endpoints through the on-the-wire translation bridge:
+## Step 8: Push (Interop Boundary)
 
 ```sh
 arc push https://github.com/<org>/<repo>.git
 ```
 
-You can also push a specific view:
+Arc uses the Git bridge at push/import boundaries while preserving Arc-native local semantics.
 
-```sh
-arc push https://github.com/<org>/<repo>.git feature/experiment
-```
+## Progressive Disclosure: Useful Next Commands
 
----
+- `arc undo`: rollback last view-mutating operation.
+- `arc diff`: inspect uncommitted working-tree differences.
+- `arc verify`: verify graph provenance.
 
-## What's Next?
+## Next Reads
 
-- [Everyday Workflow](everyday.md) — the commands you'll use every day
-- [CLI Reference](../reference/cli-reference.md) — full synopsis and options for all commands
-- [Patch Theory](../design/patch_theory.md) — the mathematics behind arc's conflict detection
+- [Everyday Workflow](everyday.md)
+- [CLI Reference](../reference/cli-reference.md)
+- [Architecture Overview](../architecture/overview.md)
