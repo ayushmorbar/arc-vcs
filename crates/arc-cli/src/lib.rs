@@ -33,3 +33,5 @@ pub mod repo;
 pub mod semantic_diff;
 /// Fetch and pull synchronization primitives.
 pub mod sync;
+/// Typed workspace tooling policy audit utilities.
+pub mod tooling;

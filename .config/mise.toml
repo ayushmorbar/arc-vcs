@@ -1,0 +1,30 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[vars]
+rust_version = "1.89"
+cargo_nextest_version = "0.9.113"
+uv_version = "0.8.13"
+
+[settings]
+windows_default_inline_shell_args = "pwsh -Command"
+
+[tools]
+rust = "{{vars.rust_version}}"
+"cargo:cargo-nextest" = "{{vars.cargo_nextest_version}}"
+uv = "{{vars.uv_version}}"
+
+[tasks."check:test"]
+description = "Run workspace tests via nextest"
+run = "cargo nextest run --workspace"
+
+[tasks."check:clippy"]
+description = "Run clippy with warnings denied"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks."check:format"]
+description = "Check formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks."check:codespell"]
+description = "Check spelling in tracked files"
+run = "uv run codespell -D .config/codespell-additional-dict $(git ls-files)"

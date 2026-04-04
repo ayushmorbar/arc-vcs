@@ -8,6 +8,7 @@ use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
 };
 use arc_cli::sync::{fetch, pull};
+use arc_cli::tooling::audit_workspace_tooling;
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
@@ -200,7 +201,11 @@ enum Command {
         view: String,
     },
     /// Verify cryptographic provenance of all changes in the graph.
-    Verify,
+    Verify {
+        /// Also validate reproducible workspace tooling policies under `.config/`.
+        #[arg(long, default_value_t = false)]
+        tooling: bool,
+    },
     /// Manage arc identity (cryptographic key-pair).
     Auth {
         #[command(subcommand)]
@@ -1185,12 +1190,36 @@ fn main() -> anyhow::Result<()> {
             pull(&mut repo, &remote_path, &view)?;
             println!("Pulled and merged view '{view}' from {remote_path}");
         }
-        Command::Verify => {
+        Command::Verify { tooling } => {
             let mut repo = Repository::open(".")?;
             let name = repo.current_view_name()?;
             repo.hydrate(&name)?;
             repo.verify_graph()?;
             println!("Graph cryptographic provenance verified.");
+
+            if tooling {
+                let frontier = View::load(&repo.shared_root, &name)?
+                    .heads
+                    .into_iter()
+                    .map(arc_core::store::newtypes::ChangeId::from)
+                    .collect::<Vec<_>>();
+                let snapshots = list_snapshot_ids(&repo.shared_root)?;
+                let report = audit_workspace_tooling(&repo.shared_root, frontier, snapshots)?;
+                println!(
+                    "Tooling policy verified: {} codespell rules, {} required mise tasks, nextest default timeout {}, ci terminate-after {}.",
+                    report.codespell_rules,
+                    report.present_required_tasks.len(),
+                    report.default_slow_timeout_period,
+                    report
+                        .ci_terminate_after
+                        .map_or_else(|| "none".to_string(), |v| v.to_string())
+                );
+                println!(
+                    "Typed evidence: {} frontier ChangeId(s), {} SnapshotId(s).",
+                    report.frontier.len(),
+                    report.synthesis_snapshots.len()
+                );
+            }
         }
         Command::Auth { action } => match action {
             AuthAction::Login { name, email } => {
