@@ -14,7 +14,8 @@ pub fn run_tour() -> Result<()> {
     thread::sleep(Duration::from_millis(500));
 
     let temp = tempfile::tempdir().context("failed to create temporary tour directory")?;
-    let previous_cwd = std::env::current_dir().context("failed to read current working directory")?;
+    let previous_cwd =
+        std::env::current_dir().context("failed to read current working directory")?;
     std::env::set_current_dir(temp.path()).context("failed to switch into tour directory")?;
     let _cwd_guard = CwdGuard::new(previous_cwd);
 
@@ -70,7 +71,9 @@ pub fn run_tour() -> Result<()> {
         );
 
         let current_contents = std::fs::read_to_string("math.rs").unwrap_or_default();
-        println!("\nCurrent file content:\n---------------------\n{current_contents}\n---------------------");
+        println!(
+            "\nCurrent file content:\n---------------------\n{current_contents}\n---------------------"
+        );
         println!(
             "In arc, conflicts are mathematical states, not broken text. Type 'arc resolve' to let the AI fix this."
         );
@@ -99,7 +102,9 @@ pub fn run_tour() -> Result<()> {
         }
 
         let merged_contents = std::fs::read_to_string("math.rs").unwrap_or_default();
-        println!("\nAI merged result:\n---------------------\n{merged_contents}\n---------------------");
+        println!(
+            "\nAI merged result:\n---------------------\n{merged_contents}\n---------------------"
+        );
         println!("Tour complete. You just experienced arc conflict resolution.");
 
         Ok(())

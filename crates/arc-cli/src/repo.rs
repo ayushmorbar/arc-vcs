@@ -937,9 +937,7 @@ impl Repository {
         let non_rs_files: Vec<String> = all_files
             .into_iter()
             .filter(|f| !f.ends_with(".rs"))
-            .filter(|f| {
-                tracked_files.contains(f.as_str()) || !is_implicitly_ignored(Path::new(f))
-            })
+            .filter(|f| tracked_files.contains(f.as_str()) || !is_implicitly_ignored(Path::new(f)))
             .collect();
         let work_root: &std::path::Path = &self.work_root;
         let blob_atoms = parallel::in_parallel(

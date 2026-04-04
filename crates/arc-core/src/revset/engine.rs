@@ -48,7 +48,9 @@ where
                 left_iter.filter(move |hash| right_set.contains(hash)),
             ))
         }
-        RevsetExpression::Function { name, args } => compile_function(name, args, graph, resolve_symbol),
+        RevsetExpression::Function { name, args } => {
+            compile_function(name, args, graph, resolve_symbol)
+        }
     }
 }
 

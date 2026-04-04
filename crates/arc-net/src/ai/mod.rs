@@ -29,7 +29,8 @@ pub struct AnthropicProvider {
 impl AnthropicProvider {
     /// Construct a new Anthropic provider.
     pub fn new(model: String, endpoint: Option<String>, api_key: String) -> Self {
-        let endpoint = endpoint.unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
+        let endpoint =
+            endpoint.unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
@@ -156,9 +157,19 @@ impl AiProvider for OpenAiCompatibleProvider {
             }))
             .send()
             .await
-            .with_context(|| format!("failed to call OpenAI-compatible endpoint {}", self.endpoint))?
+            .with_context(|| {
+                format!(
+                    "failed to call OpenAI-compatible endpoint {}",
+                    self.endpoint
+                )
+            })?
             .error_for_status()
-            .with_context(|| format!("OpenAI-compatible endpoint returned error {}", self.endpoint))?;
+            .with_context(|| {
+                format!(
+                    "OpenAI-compatible endpoint returned error {}",
+                    self.endpoint
+                )
+            })?;
 
         let payload: serde_json::Value = response
             .json()
@@ -168,7 +179,11 @@ impl AiProvider for OpenAiCompatibleProvider {
         let content = payload["choices"][0]["message"]["content"]
             .as_str()
             .map(str::trim)
-            .ok_or_else(|| anyhow::anyhow!("OpenAI-compatible response did not contain choices[0].message.content"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "OpenAI-compatible response did not contain choices[0].message.content"
+                )
+            })?;
 
         Ok(strip_code_fence(content))
     }
@@ -192,7 +207,9 @@ pub fn build_provider(
             endpoint,
             api_key,
         ))),
-        other => bail!("unsupported ai.provider '{other}', expected 'anthropic' or 'openai-compatible'"),
+        other => {
+            bail!("unsupported ai.provider '{other}', expected 'anthropic' or 'openai-compatible'")
+        }
     }
 }
 

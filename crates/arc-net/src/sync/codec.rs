@@ -83,9 +83,9 @@ impl Decoder for ArcSyncCodec {
             ));
         }
 
-        let frame_len = 5usize.checked_add(length).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "frame length overflow")
-        })?;
+        let frame_len = 5usize
+            .checked_add(length)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "frame length overflow"))?;
 
         if src.len() < frame_len {
             return Ok(None);
@@ -167,9 +167,7 @@ mod tests {
     fn decoder_rejects_unknown_message_type() {
         let mut codec = ArcSyncCodec;
         let mut src = BytesMut::from(&[0x7f, 0, 0, 0, 0][..]);
-        let err = codec
-            .decode(&mut src)
-            .expect_err("unknown type must error");
+        let err = codec.decode(&mut src).expect_err("unknown type must error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 

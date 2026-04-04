@@ -15,7 +15,10 @@ pub async fn discover_refs(url: &str) -> Result<HashMap<String, String>> {
         .with_context(|| format!("failed to GET {endpoint}"))?
         .error_for_status()
         .with_context(|| format!("remote returned error for {endpoint}"))?;
-    let body = response.bytes().await.context("failed to read refs response")?;
+    let body = response
+        .bytes()
+        .await
+        .context("failed to read refs response")?;
     parse_info_refs_response(&body)
 }
 

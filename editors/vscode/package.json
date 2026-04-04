@@ -1,0 +1,81 @@
+{
+  "name": "arc-vcs",
+  "displayName": "arc-vcs",
+  "description": "Spacetime DAG and AI attribution decorations for arc repositories",
+  "version": "0.0.1",
+  "publisher": "arc",
+  "author": "ayush morbar",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "colors": [
+      {
+        "id": "arc.decorations.conflictForeground",
+        "description": "Badge color for mathematical conflict files.",
+        "defaults": {
+          "dark": "#ff5f56",
+          "light": "#d73a49",
+          "highContrast": "#ff0000",
+          "highContrastLight": "#ff0000"
+        }
+      },
+      {
+        "id": "arc.decorations.aiForeground",
+        "description": "Badge color for AI-authored files.",
+        "defaults": {
+          "dark": "#c084fc",
+          "light": "#7c3aed",
+          "highContrast": "#a855f7",
+          "highContrastLight": "#6d28d9"
+        }
+      },
+      {
+        "id": "arc.decorations.modifiedForeground",
+        "description": "Badge color for modified files.",
+        "defaults": {
+          "dark": "#58a6ff",
+          "light": "#0969da",
+          "highContrast": "#3b82f6",
+          "highContrastLight": "#1d4ed8"
+        }
+      },
+      {
+        "id": "arc.decorations.untrackedForeground",
+        "description": "Badge color for untracked files.",
+        "defaults": {
+          "dark": "#3fb950",
+          "light": "#1f883d",
+          "highContrast": "#22c55e",
+          "highContrastLight": "#166534"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "arc-vcs",
+      "properties": {
+        "arcVcs.arcCommand": {
+          "type": "string",
+          "default": "arc",
+          "description": "Path or command used to launch arc daemon. Defaults to PATH lookup of 'arc'."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.7.2"
+  }
+}
