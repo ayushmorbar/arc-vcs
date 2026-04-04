@@ -6,12 +6,13 @@ license = "MIT OR Apache-2.0"
 description = "JSON-RPC daemon backend for IDE integrations"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0"
+tokio = { version = "1.51.0", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+anyhow = "1.0.102"
 arc-core = { path = "../arc-core" }
 arc-cli = { path = "../arc-cli" }
+notify = "8.2.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -5,11 +5,13 @@ use arc_core::store::author::load_identity;
 use arc_core::store::oplog::OpLog;
 use arc_core::store::oplog::Operation;
 use arc_core::store::view::View;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::json;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::time::{Duration, timeout};
 
-use crate::protocol::{RpcRequest, RpcResponse};
+use crate::protocol::{RpcRequest, RpcResponse, send_notification, send_response};
 
 #[derive(Serialize)]
 struct StatusResult {
@@ -56,10 +58,19 @@ impl RpcDispatchError {
 
 /// Run the JSON-RPC 2.0 server loop over stdin/stdout.
 pub async fn run() -> anyhow::Result<()> {
+    if let Ok(repo) = Repository::open(".") {
+        let arc_dir = repo.shared_root.join(".arc");
+        tokio::spawn(async move {
+            if let Err(err) = spawn_repo_watcher(arc_dir).await {
+                eprintln!("[arc-daemon] watcher stopped: {err}");
+            }
+        });
+    } else {
+        eprintln!("[arc-daemon] repository not found in current directory; watcher disabled");
+    }
+
     let stdin = io::stdin();
-    let stdout = io::stdout();
     let mut reader = BufReader::new(stdin).lines();
-    let mut writer = io::BufWriter::new(stdout);
 
     while let Some(line) = reader.next_line().await? {
         if line.trim().is_empty() {
@@ -71,10 +82,46 @@ pub async fn run() -> anyhow::Result<()> {
             Err(err) => RpcResponse::err(0, -32700, format!("parse error: {err}")),
         };
 
-        let payload = serde_json::to_string(&response)?;
-        writer.write_all(payload.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
+        send_response(&response)?;
+    }
+
+    Ok(())
+}
+
+async fn spawn_repo_watcher(arc_dir: std::path::PathBuf) -> anyhow::Result<()> {
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let callback_tx = event_tx.clone();
+
+    let mut watcher = RecommendedWatcher::new(
+        move |event: notify::Result<notify::Event>| match event {
+            Ok(_) => {
+                // Coalescing signal: if one event is already pending, drop extras.
+                let _ = callback_tx.try_send(());
+            }
+            Err(err) => {
+                eprintln!("[arc-daemon] watcher event error: {err}");
+            }
+        },
+        notify::Config::default(),
+    )
+    .context("failed to create filesystem watcher")?;
+
+    watcher
+        .watch(&arc_dir, RecursiveMode::Recursive)
+        .with_context(|| format!("failed to watch {}", arc_dir.display()))?;
+
+    while event_rx.recv().await.is_some() {
+        loop {
+            match timeout(Duration::from_millis(100), event_rx.recv()).await {
+                Ok(Some(_)) => continue,
+                Ok(None) => return Ok(()),
+                Err(_) => break,
+            }
+        }
+
+        if let Err(err) = send_notification("arc/stateChanged", None::<serde_json::Value>) {
+            eprintln!("[arc-daemon] failed to send notification: {err}");
+        }
     }
 
     Ok(())
