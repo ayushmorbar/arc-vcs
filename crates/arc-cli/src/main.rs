@@ -1,9 +1,9 @@
 use anyhow::Context as _;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::governance::audit_github_governance;
+use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
     ArcConfig, Repository, global_config_file_path, load_merged_config, local_config_file_path,
@@ -242,6 +242,29 @@ enum Command {
     },
     /// List all tags in the repository.
     Tags,
+    /// Create or move one or more tags to a target revision.
+    TagSet {
+        /// Allow moving existing tags.
+        #[arg(long, default_value_t = false)]
+        allow_move: bool,
+        /// Target revision to point tags to.
+        #[arg(long, short = 'r', default_value = "@")]
+        rev: String,
+        /// Tag names to create or update.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Delete tags matching one or more glob-like patterns.
+    TagDelete {
+        /// Tag name patterns (`*` and `?` supported).
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// List tags optionally filtered by glob-like patterns.
+    TagList {
+        /// Optional tag name patterns (`*` and `?` supported).
+        names: Vec<String>,
+    },
     /// Manage mutable bookmarks pointing at change heads.
     Bookmark {
         #[command(subcommand)]
@@ -296,6 +319,11 @@ enum Command {
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
+    },
+    /// Infrequently used utility commands.
+    Util {
+        #[command(subcommand)]
+        action: UtilAction,
     },
     /// Run garbage collection to reclaim unreachable CAS objects.
     Gc {
@@ -620,6 +648,68 @@ enum WorkspaceAction {
     },
     /// List all workspaces sharing this repository's CAS.
     List,
+    /// Stop tracking a workspace by removing its link manifest.
+    Forget {
+        /// Workspace directory to forget.
+        path: String,
+    },
+    /// Rename a workspace directory on disk.
+    Rename {
+        /// Existing workspace directory.
+        old_path: String,
+        /// New workspace directory.
+        new_path: String,
+    },
+    /// Print canonical root path of the current or named workspace directory.
+    Root {
+        /// Optional workspace directory path (defaults to current workspace).
+        path: Option<String>,
+    },
+    /// Refresh the workspace state if stale by taking a snapshot.
+    UpdateStale,
+}
+
+#[derive(Subcommand)]
+enum UtilAction {
+    /// Print shell completion scripts for arc.
+    Completion {
+        /// Target shell.
+        shell: ShellCompletion,
+    },
+    /// Snapshot the working copy if needed.
+    Snapshot,
+    /// Execute an external command with ARC_WORKSPACE_ROOT in the environment.
+    Exec {
+        /// External command to execute.
+        command: String,
+        /// Arguments to pass to the external command.
+        args: Vec<String>,
+    },
+    /// Print a JSON schema for arc config keys.
+    ConfigSchema,
+    /// Install arc man pages into the provided root directory.
+    InstallManPages {
+        /// Path where `man1` should be created.
+        path: std::path::PathBuf,
+    },
+    /// Print CLI help for all subcommands in Markdown.
+    MarkdownHelp,
+    /// Run utility garbage collection (alias for repository GC).
+    Gc {
+        /// Time threshold. Currently only `now` is supported.
+        #[arg(long)]
+        expire: Option<String>,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ShellCompletion {
+    Bash,
+    Elvish,
+    Fish,
+    Nushell,
+    PowerShell,
+    Zsh,
 }
 
 #[derive(Subcommand)]
@@ -1037,9 +1127,10 @@ fn main() -> anyhow::Result<()> {
                     repo.log_revset(&revset)?
                 };
                 let parsed_template = if let Some(raw_template) = template.as_deref() {
-                    Some(LogTemplate::parse(raw_template).map_err(|msg| {
-                        anyhow::anyhow!("invalid --template value: {msg}")
-                    })?)
+                    Some(
+                        LogTemplate::parse(raw_template)
+                            .map_err(|msg| anyhow::anyhow!("invalid --template value: {msg}"))?,
+                    )
                 } else {
                     None
                 };
@@ -1314,11 +1405,8 @@ fn main() -> anyhow::Result<()> {
             }
 
             if workspace_policy {
-                let report = audit_workspace_policy(
-                    &repo.shared_root,
-                    frontier.clone(),
-                    snapshots.clone(),
-                )?;
+                let report =
+                    audit_workspace_policy(&repo.shared_root, frontier.clone(), snapshots.clone())?;
                 println!(
                     "Workspace policy verified: {} policy files, {} gitignore patterns.",
                     report.policy_files.len(),
@@ -1419,6 +1507,65 @@ fn main() -> anyhow::Result<()> {
         Command::Tags => {
             let repo = Repository::open(".")?;
             let tags = repo.list_tags()?;
+            if tags.is_empty() {
+                println!("No tags.");
+            } else {
+                for t in &tags {
+                    let h: String = t.target.iter().map(|b| format!("{b:02x}")).collect();
+                    let sig = if t.verify() {
+                        "[verified]"
+                    } else {
+                        "[UNVERIFIED]"
+                    };
+                    println!("{} {} {sig}", t.name, &h[..8]);
+                }
+            }
+        }
+        Command::TagSet {
+            allow_move,
+            rev,
+            names,
+        } => {
+            let repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            let mut writable = Repository::open(".")?;
+            writable.set_identity(author, signing_key);
+            let target = repo.resolve_rev(&rev)?;
+
+            let existing = repo
+                .list_tags()?
+                .into_iter()
+                .map(|t| (t.name, t.target))
+                .collect::<std::collections::HashMap<_, _>>();
+            let plan = plan_tag_set_updates(existing, target, names);
+
+            for update in &plan.updates {
+                if update.needs_write {
+                    writable.set_tag(&update.name, &target, allow_move)?;
+                }
+            }
+            if plan.created > 0 {
+                println!("Created {} tag(s).", plan.created);
+            }
+            if plan.moved > 0 {
+                println!("Moved {} tag(s).", plan.moved);
+            }
+            if plan.created == 0 && plan.moved == 0 {
+                println!("Nothing changed.");
+            }
+        }
+        Command::TagDelete { names } => {
+            let repo = Repository::open(".")?;
+            let deleted = repo.delete_tags_matching(&names)?;
+            if deleted.is_empty() {
+                println!("No tags to delete.");
+            } else {
+                println!("Deleted {} tag(s): {}", deleted.len(), deleted.join(", "));
+            }
+        }
+        Command::TagList { names } => {
+            let repo = Repository::open(".")?;
+            let tags = repo.list_tags_matching(&names)?;
             if tags.is_empty() {
                 println!("No tags.");
             } else {
@@ -1676,6 +1823,161 @@ fn main() -> anyhow::Result<()> {
                         println!("{}", ws.display());
                     }
                 }
+            }
+            WorkspaceAction::Forget { path } => {
+                let repo = Repository::open(".")?;
+                repo.workspace_forget(std::path::Path::new(&path))?;
+                println!("Forgot workspace at '{path}'");
+            }
+            WorkspaceAction::Rename { old_path, new_path } => {
+                let repo = Repository::open(".")?;
+                repo.workspace_rename(
+                    std::path::Path::new(&old_path),
+                    std::path::Path::new(&new_path),
+                )?;
+                println!("Renamed workspace '{}' -> '{}'", old_path, new_path);
+            }
+            WorkspaceAction::Root { path } => {
+                let repo = Repository::open(".")?;
+                let root = repo.workspace_root(path.as_deref().map(std::path::Path::new))?;
+                println!("{}", root.display());
+            }
+            WorkspaceAction::UpdateStale => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) =
+                    load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+                repo.set_identity(author, signing_key);
+                let changed = repo.snapshot()?;
+                if changed {
+                    println!("Snapshot complete.");
+                } else {
+                    println!("No snapshot needed.");
+                }
+            }
+        },
+        Command::Util { action } => match action {
+            UtilAction::Completion { shell } => {
+                use clap_complete::Shell;
+                use clap_complete::generate;
+                use clap_complete_nushell::Nushell;
+
+                let mut cmd = Cli::command();
+                let mut buf = Vec::new();
+                let bin_name = "arc";
+                match shell {
+                    ShellCompletion::Bash => generate(Shell::Bash, &mut cmd, bin_name, &mut buf),
+                    ShellCompletion::Elvish => {
+                        generate(Shell::Elvish, &mut cmd, bin_name, &mut buf)
+                    }
+                    ShellCompletion::Fish => generate(Shell::Fish, &mut cmd, bin_name, &mut buf),
+                    ShellCompletion::Nushell => generate(Nushell, &mut cmd, bin_name, &mut buf),
+                    ShellCompletion::PowerShell => {
+                        generate(Shell::PowerShell, &mut cmd, bin_name, &mut buf)
+                    }
+                    ShellCompletion::Zsh => generate(Shell::Zsh, &mut cmd, bin_name, &mut buf),
+                }
+                std::io::Write::write_all(&mut std::io::stdout(), &buf)
+                    .map_err(|e| anyhow::anyhow!("failed to write completion script: {e}"))?;
+            }
+            UtilAction::Snapshot => {
+                let mut repo = Repository::open(".")?;
+                let (author, signing_key) =
+                    load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+                repo.set_identity(author, signing_key);
+                let changed = repo.snapshot()?;
+                if changed {
+                    println!("Snapshot complete.");
+                } else {
+                    println!("No snapshot needed.");
+                }
+            }
+            UtilAction::Exec { command, args } => {
+                let repo = Repository::open(".")?;
+                let status = std::process::Command::new(&command)
+                    .args(&args)
+                    .env("ARC_WORKSPACE_ROOT", &repo.work_root)
+                    .status()
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to execute external command '{}': {e}", command)
+                    })?;
+                if let Some(code) = status.code() {
+                    std::process::exit(code);
+                }
+                anyhow::ensure!(
+                    status.success(),
+                    "external command terminated by signal: {status}"
+                );
+            }
+            UtilAction::ConfigSchema => {
+                let schema = serde_json::json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "arc config schema",
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "email": {"type": "string"}
+                            }
+                        },
+                        "ui": {
+                            "type": "object",
+                            "properties": {
+                                "color": {"type": "string", "enum": ["auto", "always", "never"]}
+                            }
+                        },
+                        "merge": {
+                            "type": "object",
+                            "properties": {
+                                "tool": {"type": "string"}
+                            }
+                        },
+                        "ai": {
+                            "type": "object",
+                            "properties": {
+                                "provider": {"type": "string", "enum": ["anthropic", "openai-compatible"]},
+                                "model": {"type": "string"},
+                                "endpoint": {"type": "string"}
+                            }
+                        },
+                        "remotes": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "aliases": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "hooks": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        }
+                    }
+                });
+                println!("{}", serde_json::to_string_pretty(&schema)?);
+            }
+            UtilAction::InstallManPages { path } => {
+                let man1_dir = path.join("man1");
+                std::fs::create_dir_all(&man1_dir).map_err(|e| {
+                    anyhow::anyhow!("failed to create man dir '{}': {e}", man1_dir.display())
+                })?;
+                let app = Cli::command();
+                clap_mangen::generate_to(app, man1_dir)
+                    .map_err(|e| anyhow::anyhow!("failed to generate man pages: {e}"))?;
+            }
+            UtilAction::MarkdownHelp => {
+                let markdown = clap_markdown::help_markdown_command(&Cli::command());
+                std::io::Write::write_all(&mut std::io::stdout(), markdown.as_bytes())
+                    .map_err(|e| anyhow::anyhow!("failed to write markdown help: {e}"))?;
+            }
+            UtilAction::Gc { expire } => {
+                if !matches!(expire.as_deref(), None | Some("now")) {
+                    anyhow::bail!("--expire only accepts 'now'");
+                }
+                let mut repo = Repository::open(".")?;
+                let result = repo.gc()?;
+                println!(
+                    "GC complete: {} change(s) deleted, {} blob(s) deleted.",
+                    result.changes_deleted, result.blobs_deleted
+                );
             }
         },
         Command::Gc { dry_run } => {
@@ -2163,6 +2465,59 @@ fn prompt_yes_no(prompt: &str) -> anyhow::Result<bool> {
     Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
 
+struct TagSetUpdate {
+    name: String,
+    needs_write: bool,
+}
+
+struct TagSetPlan {
+    updates: Vec<TagSetUpdate>,
+    created: usize,
+    moved: usize,
+}
+
+fn plan_tag_set_updates(
+    existing: std::collections::HashMap<String, Blake3Hash>,
+    target: Blake3Hash,
+    names: Vec<String>,
+) -> TagSetPlan {
+    let mut unique_names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for name in names {
+        if seen.insert(name.clone()) {
+            unique_names.push(name);
+        }
+    }
+
+    let mut created = 0usize;
+    let mut moved = 0usize;
+    let mut updates = Vec::with_capacity(unique_names.len());
+
+    for name in unique_names {
+        let needs_write = match existing.get(&name) {
+            Some(old) => {
+                if old != &target {
+                    moved += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            None => {
+                created += 1;
+                true
+            }
+        };
+        updates.push(TagSetUpdate { name, needs_write });
+    }
+
+    TagSetPlan {
+        updates,
+        created,
+        moved,
+    }
+}
+
 /// Get a typed config value by dot-separated key.
 fn config_get(cfg: &ArcConfig, key: &str) -> Option<String> {
     match key {
@@ -2336,5 +2691,37 @@ fn atom_display_label(atom: &Atom) -> String {
                 .red()
                 .to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_tag_set_updates_deduplicates_and_counts() {
+        let existing = std::collections::HashMap::from([
+            ("v1".to_string(), [1u8; 32]),
+            ("v2".to_string(), [2u8; 32]),
+        ]);
+        let target = [2u8; 32];
+        let names = vec![
+            "v3".to_string(),
+            "v1".to_string(),
+            "v1".to_string(),
+            "v2".to_string(),
+        ];
+
+        let plan = plan_tag_set_updates(existing, target, names);
+
+        assert_eq!(plan.created, 1);
+        assert_eq!(plan.moved, 1);
+        assert_eq!(plan.updates.len(), 3);
+        assert_eq!(plan.updates[0].name, "v3");
+        assert!(plan.updates[0].needs_write);
+        assert_eq!(plan.updates[1].name, "v1");
+        assert!(plan.updates[1].needs_write);
+        assert_eq!(plan.updates[2].name, "v2");
+        assert!(!plan.updates[2].needs_write);
     }
 }

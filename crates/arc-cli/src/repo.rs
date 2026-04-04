@@ -2317,6 +2317,70 @@ impl Repository {
         Ok(tags)
     }
 
+    /// Create or move a signed tag named `name` to `target`.
+    ///
+    /// Existing tags are only moved when `allow_move` is true.
+    #[tracing::instrument(skip_all, fields(tag = %name, allow_move = allow_move))]
+    pub fn set_tag(
+        &self,
+        name: &str,
+        target: &Blake3Hash,
+        allow_move: bool,
+    ) -> anyhow::Result<()> {
+        let (author, signing_key) = self.signing_identity()?;
+        let tag = Tag::new(name, *target, author.clone(), signing_key);
+
+        let tag_dir = self.shared_root.join(".arc").join("tags");
+        fs::create_dir_all(&tag_dir)?;
+
+        let safe_name = name.replace('/', "-");
+        let path = tag_dir.join(format!("{safe_name}.json"));
+        if path.exists() && !allow_move {
+            anyhow::bail!(
+                "refusing to move existing tag '{name}'. Pass --allow-move to update it"
+            );
+        }
+        fs::write(&path, serde_json::to_string_pretty(&tag)?)
+            .map_err(|e| anyhow::anyhow!("failed to write tag '{name}': {e}"))
+    }
+
+    /// Delete local tags matching any provided glob-like pattern.
+    ///
+    /// Returns the sorted list of deleted tag names.
+    #[tracing::instrument(skip_all, fields(pattern_count = patterns.len()))]
+    pub fn delete_tags_matching(&self, patterns: &[String]) -> anyhow::Result<Vec<String>> {
+        let tags = self.list_tags()?;
+        let mut deleted = Vec::new();
+        for tag in tags {
+            if patterns.iter().any(|p| simple_pattern_match(p, &tag.name)) {
+                let safe_name = tag.name.replace('/', "-");
+                let path = self
+                    .shared_root
+                    .join(".arc")
+                    .join("tags")
+                    .join(format!("{safe_name}.json"));
+                if path.exists() {
+                    fs::remove_file(&path)
+                        .map_err(|e| anyhow::anyhow!("failed to delete tag '{}': {e}", tag.name))?;
+                    deleted.push(tag.name);
+                }
+            }
+        }
+        deleted.sort();
+        deleted.dedup();
+        Ok(deleted)
+    }
+
+    /// Return tags filtered by optional name patterns.
+    pub fn list_tags_matching(&self, patterns: &[String]) -> anyhow::Result<Vec<Tag>> {
+        let mut tags = self.list_tags()?;
+        if patterns.is_empty() {
+            return Ok(tags);
+        }
+        tags.retain(|tag| patterns.iter().any(|p| simple_pattern_match(p, &tag.name)));
+        Ok(tags)
+    }
+
     // ------------------------------------------------------------------
     // Bookmarks
     // ------------------------------------------------------------------
@@ -3209,6 +3273,60 @@ impl Repository {
         }
         workspaces.sort();
         Ok(workspaces)
+    }
+
+    /// Resolve and canonicalize a workspace path.
+    pub fn workspace_root(&self, path: Option<&Path>) -> anyhow::Result<PathBuf> {
+        let candidate = path.unwrap_or(&self.work_root);
+        if path.is_some() {
+            self.ensure_linked_workspace_path(candidate)?;
+        }
+        fs::canonicalize(candidate).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to resolve workspace root '{}': {e}",
+                candidate.display()
+            )
+        })
+    }
+
+    /// Forget a linked workspace by deleting its `.arc-workspace` manifest.
+    pub fn workspace_forget(&self, path: &Path) -> anyhow::Result<()> {
+        let manifest = self.ensure_linked_workspace_path(path)?;
+        fs::remove_file(&manifest)
+            .map_err(|e| anyhow::anyhow!("failed to forget workspace '{}': {e}", path.display()))
+    }
+
+    /// Rename a linked workspace directory on disk.
+    pub fn workspace_rename(&self, old_path: &Path, new_path: &Path) -> anyhow::Result<()> {
+        self.ensure_linked_workspace_path(old_path)?;
+        if new_path.exists() {
+            anyhow::bail!("target workspace path '{}' already exists", new_path.display());
+        }
+        fs::rename(old_path, new_path).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to rename workspace '{}' -> '{}': {e}",
+                old_path.display(),
+                new_path.display()
+            )
+        })
+    }
+
+    fn ensure_linked_workspace_path(&self, path: &Path) -> anyhow::Result<PathBuf> {
+        let manifest = path.join(".arc-workspace");
+        if !manifest.exists() {
+            anyhow::bail!("workspace '{}' is not linked", path.display());
+        }
+        let json = fs::read_to_string(&manifest)
+            .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", manifest.display()))?;
+        let parsed: WorkspaceManifest = serde_json::from_str(&json)
+            .map_err(|e| anyhow::anyhow!("invalid {}: {e}", manifest.display()))?;
+        if parsed.shared_root != self.shared_root {
+            anyhow::bail!(
+                "workspace '{}' belongs to a different shared repository",
+                path.display()
+            );
+        }
+        Ok(manifest)
     }
 
     // ------------------------------------------------------------------
@@ -4699,6 +4817,31 @@ fn load_sparse_patterns(root: &Path) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()
 }
 
+fn simple_pattern_match(pattern: &str, text: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let s: Vec<char> = text.chars().collect();
+    let mut dp = vec![vec![false; s.len() + 1]; p.len() + 1];
+    dp[0][0] = true;
+    for i in 1..=p.len() {
+        if p[i - 1] == '*' {
+            dp[i][0] = dp[i - 1][0];
+        }
+    }
+    for i in 1..=p.len() {
+        for j in 1..=s.len() {
+            dp[i][j] = match p[i - 1] {
+                '*' => dp[i - 1][j] || dp[i][j - 1],
+                '?' => dp[i - 1][j - 1],
+                c => dp[i - 1][j - 1] && c == s[j - 1],
+            };
+        }
+    }
+    dp[p.len()][s.len()]
+}
+
 fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
     SparseMatcher::from_patterns(&load_sparse_patterns(root))
 }
@@ -5827,6 +5970,29 @@ mod tests {
         let mut bad = tags[0].clone();
         bad.target = [99u8; 32];
         assert!(!bad.verify(), "tampered tag must not verify");
+
+        // set_tag must refuse moving without allow_move.
+        assert!(
+            repo.set_tag("v1.0.0", &[9u8; 32], false).is_err(),
+            "set_tag must refuse moves without --allow-move"
+        );
+
+        // allow_move updates the target.
+        repo.set_tag("v1.0.0", &[9u8; 32], true).unwrap();
+        let moved = repo
+            .list_tags_matching(&["v*".to_string()])
+            .unwrap()
+            .into_iter()
+            .find(|t| t.name == "v1.0.0")
+            .expect("tag should still exist");
+        assert_eq!(moved.target, [9u8; 32]);
+
+        // Pattern delete should remove matching tags only.
+        repo.set_tag("release-candidate", &snap_id, true).unwrap();
+        let deleted = repo
+            .delete_tags_matching(&["release-*".to_string()])
+            .unwrap();
+        assert_eq!(deleted, vec!["release-candidate".to_string()]);
     }
 
     #[test]
@@ -6263,6 +6429,26 @@ mod tests {
             list.contains(&ws_path),
             "workspace_list must return ws_path"
         );
+    }
+
+    #[test]
+    fn test_workspace_forget_rename_and_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let primary_path = dir.path().join("primary");
+        let ws_path = dir.path().join("workspace-a");
+        let ws_path_renamed = dir.path().join("workspace-b");
+
+        let mut primary = Repository::init(&primary_path).unwrap();
+        primary.workspace_add(&ws_path, None).unwrap();
+
+        let root = primary.workspace_root(Some(&ws_path)).unwrap();
+        assert!(root.ends_with("workspace-a"));
+
+        primary.workspace_rename(&ws_path, &ws_path_renamed).unwrap();
+        assert!(ws_path_renamed.join(".arc-workspace").exists());
+
+        primary.workspace_forget(&ws_path_renamed).unwrap();
+        assert!(!ws_path_renamed.join(".arc-workspace").exists());
     }
 
     #[test]
