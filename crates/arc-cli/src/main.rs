@@ -298,8 +298,31 @@ enum Command {
     },
     /// Unsupported — arc uses `snap` instead of `commit`.
     Commit,
+    /// Abandon one or more head revisions by moving the view frontier to their parents.
+    ///
+    /// Arc's AST-CRDT model treats this as a frontier rewrite (no textual rebase).
+    Abandon {
+        /// Revisions to abandon (defaults to `@`).
+        #[arg(long, short = 'r')]
+        revisions: Vec<String>,
+    },
+    /// Update the current head message without changing semantic content.
+    Describe {
+        /// New change description.
+        #[arg(long = "message", short = 'm')]
+        message: String,
+        /// Target revision. Only `@` / `HEAD` is currently supported.
+        #[arg(long, short = 'r', default_value = "@")] 
+        revision: String,
+    },
     /// Undo the last view-mutating operation using the operation log (O(1) pointer-swap).
     Undo,
+    /// Redo the most recently undone operation.
+    Redo,
+    /// Print the current workspace root directory.
+    Root,
+    /// Display version information.
+    Version,
     /// Inspect and manage the spacetime operation log.
     Op {
         #[command(subcommand)]
@@ -1676,6 +1699,27 @@ fn main() -> anyhow::Result<()> {
         Command::Commit => {
             println!("Hint: arc uses 'snap' instead of 'commit'. Try: arc snap -m \"<message>\"");
         }
+        Command::Abandon { revisions } => {
+            let mut repo = Repository::open(".")?;
+            let abandoned = repo.abandon_heads(&revisions)?;
+            if abandoned.is_empty() {
+                println!("No heads were abandoned.");
+            } else {
+                println!("Abandoned {} head(s).", abandoned.len());
+            }
+        }
+        Command::Describe { message, revision } => {
+            anyhow::ensure!(
+                revision == "@" || revision.eq_ignore_ascii_case("head"),
+                "describe currently supports only '@' / 'HEAD'"
+            );
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+            repo.set_identity(author, signing_key);
+            let id = repo.amend(Some(&message))?;
+            let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Described {}", &hex[..8]);
+        }
         Command::Undo => {
             let mut repo = Repository::open(".")?;
             match repo.undo()? {
@@ -1693,6 +1737,32 @@ fn main() -> anyhow::Result<()> {
                 }
                 None => println!("Nothing to undo — operation log is empty."),
             }
+        }
+        Command::Redo => {
+            let mut repo = Repository::open(".")?;
+            match repo.redo()? {
+                Some(op) => {
+                    let before = op.before_short();
+                    let after = op.after_short();
+                    println!(
+                        "{} Redid {} on view {}. Restored: {} → {}",
+                        "⏩".cyan(),
+                        format!("'{}'", op.command).green(),
+                        format!("'{}'", op.view).yellow(),
+                        before.dimmed(),
+                        after.dimmed(),
+                    );
+                }
+                None => println!("Nothing to redo."),
+            }
+        }
+        Command::Root => {
+            let repo = Repository::open(".")?;
+            let root = repo.workspace_root(None)?;
+            println!("{}", root.display());
+        }
+        Command::Version => {
+            print!("{}", Cli::command().render_version());
         }
         Command::Op { action } => match action {
             OpAction::Log => {

@@ -2802,7 +2802,103 @@ impl Repository {
             hashes_to_change_ids(&before_heads),
             hashes_to_change_ids(&after_heads),
         );
+        if command != "undo" {
+            let _ = self.save_redo_stack(&[]);
+        }
         OpLog::new(&self.shared_root.join(".arc")).append(&op)
+    }
+
+    fn redo_stack_path(&self) -> PathBuf {
+        self.shared_root
+            .join(".arc")
+            .join("local")
+            .join("redo_stack.json")
+    }
+
+    fn load_redo_stack(&self) -> anyhow::Result<Vec<Operation>> {
+        let primary = self.redo_stack_path();
+        let staged_backup = primary.with_extension("bak.new");
+        let backup = primary.with_extension("bak");
+        let path = if primary.exists() {
+            primary
+        } else if staged_backup.exists() {
+            staged_backup
+        } else if backup.exists() {
+            backup
+        } else {
+            primary
+        };
+
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("failed to read redo stack '{}': {e}", path.display()))?;
+        serde_json::from_str::<Vec<Operation>>(&raw).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to parse redo stack '{}': {e}",
+                path.display()
+            )
+        })
+    }
+
+    fn save_redo_stack(&self, stack: &[Operation]) -> anyhow::Result<()> {
+        let path = self.redo_stack_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| anyhow::anyhow!("failed to create redo stack dir: {e}"))?;
+        }
+        let tmp = path.with_extension("tmp");
+        let backup = path.with_extension("bak");
+        let staged_backup = path.with_extension("bak.new");
+        let payload = serde_json::to_string_pretty(stack)
+            .map_err(|e| anyhow::anyhow!("failed to serialize redo stack: {e}"))?;
+        fs::write(&tmp, payload).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to write redo stack temp '{}': {e}",
+                tmp.display()
+            )
+        })?;
+
+        if staged_backup.exists() {
+            fs::remove_file(&staged_backup)
+                .map_err(|e| anyhow::anyhow!("failed to clear staged redo backup: {e}"))?;
+        }
+        if path.exists() {
+            fs::rename(&path, &staged_backup).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to stage redo stack backup '{}': {e}",
+                    path.display()
+                )
+            })?;
+        }
+
+        if let Err(err) = fs::rename(&tmp, &path) {
+            if staged_backup.exists() {
+                let _ = fs::rename(&staged_backup, &path);
+            }
+            return Err(anyhow::anyhow!(
+                "failed to replace redo stack '{}': {err}",
+                path.display()
+            ));
+        }
+
+        if staged_backup.exists() {
+            if backup.exists() {
+                fs::remove_file(&backup)
+                    .map_err(|e| anyhow::anyhow!("failed to rotate redo backup: {e}"))?;
+            }
+            fs::rename(&staged_backup, &backup)
+                .map_err(|e| anyhow::anyhow!("failed to finalize redo backup: {e}"))?;
+        }
+
+        Ok(())
+    }
+
+    fn push_redo_operation(&self, op: &Operation) -> anyhow::Result<()> {
+        let mut stack = self.load_redo_stack()?;
+        stack.push(op.clone());
+        self.save_redo_stack(&stack)
     }
 
     fn append_rewrite_operation(
@@ -3025,7 +3121,135 @@ impl Repository {
         // Write the restored state to the working directory.
         write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)?;
 
+        if let Err(err) = self.push_redo_operation(&op) {
+            tracing::warn!(error = %err, "undo completed but redo stack update failed");
+        }
+
         Ok(Some(op))
+    }
+
+    /// Reapply the most recently undone operation.
+    #[tracing::instrument(skip_all)]
+    pub fn redo(&mut self) -> anyhow::Result<Option<Operation>> {
+        self.acquire_lock()?;
+
+        let mut stack = self.load_redo_stack()?;
+        let Some(op) = stack.pop() else {
+            return Ok(None);
+        };
+
+        if matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite) {
+            stack.push(op);
+            self.save_redo_stack(&stack)?;
+            anyhow::bail!(
+                "redo for rewrite operations is not yet supported safely; rerun the original command"
+            );
+        }
+
+        let current_view = View::load(&self.shared_root, &op.view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", op.view))?;
+        let expected_heads = change_ids_to_hashes(&op.before_heads);
+        anyhow::ensure!(
+            current_view.heads == expected_heads,
+            "cannot redo '{}': view '{}' changed since undo",
+            op.command,
+            op.view
+        );
+
+        self.hydrate_heads(&expected_heads)?;
+        let before_state = if expected_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&expected_heads)?
+        };
+
+        let restored_heads = change_ids_to_hashes(&op.after_heads);
+        let restored_view = View::new(&op.view, restored_heads.clone());
+        if let Err(err) = restored_view.save(&self.shared_root) {
+            return Err(anyhow::anyhow!("failed to save view '{}': {err}", op.view));
+        }
+
+        self.hydrate_heads(&restored_heads)?;
+        let restored_state = if restored_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&restored_heads)?
+        };
+
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)
+        {
+            let _ = View::new(&op.view, expected_heads).save(&self.shared_root);
+            let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
+            return Err(err);
+        }
+
+        if let Err(err) = OpLog::new(&self.shared_root.join(".arc")).append(&op) {
+            let _ = View::new(&op.view, change_ids_to_hashes(&op.before_heads)).save(&self.shared_root);
+            let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
+            return Err(anyhow::anyhow!("failed to append redo operation: {err}"));
+        }
+
+        if let Err(err) = self.save_redo_stack(&stack) {
+            tracing::warn!(error = %err, "redo committed but redo stack cleanup failed");
+        }
+        Ok(Some(op))
+    }
+
+    /// Abandon one or more current view heads by replacing each selected head
+    /// with its direct parent frontier.
+    #[tracing::instrument(skip_all)]
+    pub fn abandon_heads(&mut self, revisions: &[String]) -> anyhow::Result<Vec<Blake3Hash>> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        let targets = if revisions.is_empty() {
+            vec!["@".to_string()]
+        } else {
+            revisions.to_vec()
+        };
+
+        let mut resolved = Vec::with_capacity(targets.len());
+        for rev in &targets {
+            resolved.push(self.resolve_rev(rev)?);
+        }
+
+        let mut new_heads = view.heads.clone();
+        let mut abandoned = Vec::new();
+        for id in resolved {
+            if !new_heads.remove(&id) {
+                continue;
+            }
+            let change = self
+                .store
+                .read_change(&id)
+                .map_err(|e| anyhow::anyhow!("failed to load abandoned change {}: {e}", _hex(&id)))?;
+            new_heads.extend(change.deps);
+            abandoned.push(id);
+        }
+
+        if abandoned.is_empty() {
+            return Ok(abandoned);
+        }
+
+        let updated = View::new(&view_name, new_heads.clone());
+        updated
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view '{view_name}': {e}"))?;
+
+        self.hydrate_heads(&new_heads)?;
+        let state = if new_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&new_heads)?
+        };
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &state)?;
+
+        self.log_operation("abandon", &view_name, view.heads.clone(), new_heads.clone())?;
+
+        Ok(abandoned)
     }
 
     /// Return the full operation log in reverse-chronological order (most
@@ -5384,6 +5608,63 @@ mod tests {
             "merged view must have 2 heads, got: {:?}",
             main_view.heads
         );
+    }
+
+    #[test]
+    fn test_abandon_head_moves_frontier_to_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("abandon_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("lib.rs"), "fn v1() {}\n").unwrap();
+        let first = repo.snap("v1", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("lib.rs"), "fn v2() {}\n").unwrap();
+        let second = repo.snap("v2", false).unwrap().unwrap();
+
+        let abandoned = repo.abandon_heads(&["@".to_string()]).unwrap();
+        assert_eq!(abandoned, vec![second]);
+
+        let view = View::load(&repo.shared_root, "main").unwrap();
+        assert_eq!(view.heads, HashSet::from([first]));
+
+        let content = fs::read_to_string(repo_path.join("lib.rs")).unwrap();
+        assert!(content.contains("fn v1()"));
+        assert!(!content.contains("fn v2()"));
+    }
+
+    #[test]
+    fn test_undo_then_redo_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("redo_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("lib.rs"), "fn base() {}\n").unwrap();
+        let first = repo.snap("base", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("lib.rs"), "fn changed() {}\n").unwrap();
+        let second = repo.snap("changed", false).unwrap().unwrap();
+
+        let undone = repo.undo().unwrap().unwrap();
+        assert_eq!(undone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
+
+        let after_undo = View::load(&repo.shared_root, "main").unwrap();
+        assert_eq!(after_undo.heads, HashSet::from([first]));
+
+        let redone = repo.redo().unwrap().unwrap();
+        assert_eq!(redone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
+
+        let after_redo = View::load(&repo.shared_root, "main").unwrap();
+        assert_eq!(after_redo.heads, HashSet::from([second]));
+
+        let content = fs::read_to_string(repo_path.join("lib.rs")).unwrap();
+        assert!(content.contains("fn changed()"));
     }
 
     #[test]
