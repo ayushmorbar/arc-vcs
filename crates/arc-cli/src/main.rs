@@ -7,7 +7,6 @@ use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
 };
 use arc_cli::sync::{fetch, pull};
-use arc_net::ai::build_provider;
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
@@ -16,8 +15,11 @@ use arc_core::store::view::View;
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
 use arc_git_bridge::pack::encode_packfile;
-use arc_git_bridge::translator::{CommitCompileInput, GitMap, GitOdb, compile_commit, compile_tree};
+use arc_git_bridge::translator::{
+    CommitCompileInput, GitMap, GitOdb, compile_commit, compile_tree,
+};
 use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_net::ai::build_provider;
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
 
@@ -370,6 +372,9 @@ enum Command {
         #[arg(long)]
         include_raw_intent: bool,
     },
+    /// Start the IDE JSON-RPC daemon.
+    #[command(hide = true)]
+    Daemon,
 }
 
 #[derive(Subcommand)]
@@ -1035,11 +1040,7 @@ fn main() -> anyhow::Result<()> {
                 repo.set_identity(author, signing_key);
 
                 let cfg = load_merged_config(std::path::Path::new("."))?;
-                let provider_name = cfg
-                    .ai
-                    .provider
-                    .as_deref()
-                    .unwrap_or("openai-compatible");
+                let provider_name = cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
                 let model = cfg
                     .ai
                     .model
@@ -1472,11 +1473,10 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
 
-                let head = *view
-                    .heads
-                    .iter()
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("view '{}' has no head to push", view_name))?;
+                let head =
+                    *view.heads.iter().next().ok_or_else(|| {
+                        anyhow::anyhow!("view '{}' has no head to push", view_name)
+                    })?;
 
                 let graph = repo.graph.load_full();
                 let change = graph
@@ -1496,21 +1496,20 @@ fn main() -> anyhow::Result<()> {
                     .cloned()
                     .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_string());
 
-                let parent_ids = if let Some(parent) =
-                    arc_git_bridge::object::GitSha1::from_hex(&old_sha_hex)
-                {
-                    if old_sha_hex.chars().all(|c| c == '0') {
-                        Vec::new()
+                let parent_ids =
+                    if let Some(parent) = arc_git_bridge::object::GitSha1::from_hex(&old_sha_hex) {
+                        if old_sha_hex.chars().all(|c| c == '0') {
+                            Vec::new()
+                        } else {
+                            vec![parent]
+                        }
                     } else {
-                        vec![parent]
-                    }
-                } else {
-                    anyhow::bail!(
-                        "remote ref '{}' returned invalid object id '{}'",
-                        ref_name,
-                        old_sha_hex
-                    );
-                };
+                        anyhow::bail!(
+                            "remote ref '{}' returned invalid object id '{}'",
+                            ref_name,
+                            old_sha_hex
+                        );
+                    };
 
                 let ident = git_identity_from_author(&change.author);
                 let new_commit = compile_commit(
@@ -1655,8 +1654,41 @@ fn main() -> anyhow::Result<()> {
             arc_cli::bugreport::generate(&repo, &out_path, include_raw_intent)?;
             println!("Bug report written to: {out_path}");
         }
+        Command::Daemon => {
+            run_daemon_subprocess()?;
+        }
     }
 
+    Ok(())
+}
+
+fn run_daemon_subprocess() -> anyhow::Result<()> {
+    use std::process::Stdio;
+
+    let current_exe = std::env::current_exe()?;
+    let daemon_name = if cfg!(windows) {
+        "arc-daemon.exe"
+    } else {
+        "arc-daemon"
+    };
+    let sibling = current_exe.with_file_name(daemon_name);
+
+    anyhow::ensure!(
+        sibling.exists(),
+        "arc-daemon executable was not found next to '{}'",
+        current_exe.display()
+    );
+
+    let mut cmd = std::process::Command::new(sibling);
+
+    let status = cmd
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to launch arc-daemon subprocess: {e}"))?;
+
+    anyhow::ensure!(status.success(), "arc-daemon exited with status {status}");
     Ok(())
 }
 

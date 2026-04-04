@@ -183,6 +183,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-daemon"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-cli",
+ "arc-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "arc-git-bridge"
 version = "0.1.0"
 dependencies = [
