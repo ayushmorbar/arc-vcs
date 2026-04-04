@@ -86,12 +86,40 @@ pub struct UiConfig {
     /// Colour output mode: `"auto"` (default), `"always"`, or `"never"`.
     #[serde(default = "UiConfig::default_color")]
     pub color: String,
+    /// Preferred terminal pager command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pager: Option<String>,
+    /// Preferred text editor command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<String>,
+    /// Graph style for log rendering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_style: Option<String>,
+    /// Diff formatter mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_formatter: Option<String>,
+    /// Conflict marker style preference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict_marker_style: Option<String>,
+    /// Whether progress indicators are shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_indicator: Option<bool>,
+    /// Movement UI defaults.
+    #[serde(default)]
+    pub movement: UiMovementConfig,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             color: Self::default_color(),
+            pager: None,
+            editor: None,
+            graph_style: None,
+            diff_formatter: None,
+            conflict_marker_style: None,
+            progress_indicator: None,
+            movement: UiMovementConfig::default(),
         }
     }
 }
@@ -100,6 +128,53 @@ impl UiConfig {
     fn default_color() -> String {
         "auto".to_string()
     }
+}
+
+/// UI movement preferences.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct UiMovementConfig {
+    /// Whether movement commands edit in-place by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<bool>,
+}
+
+/// Snapshot behavior preferences.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct SnapshotConfig {
+    /// Maximum size accepted for newly tracked files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_new_file_size: Option<String>,
+    /// Revset/fileset expression deciding what auto-tracks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_track: Option<String>,
+    /// Whether stale workspaces are auto-updated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_update_stale: Option<bool>,
+}
+
+/// Hint toggles for UX guidance.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct HintsConfig {
+    /// Show conflict-resolution hints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolving_conflicts: Option<bool>,
+}
+
+/// External merge tool descriptor.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct MergeToolConfig {
+    /// Program/binary to execute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Arguments for merge mode.
+    #[serde(default)]
+    pub merge_args: Vec<String>,
+    /// Arguments for edit mode.
+    #[serde(default)]
+    pub edit_args: Vec<String>,
+    /// Arguments for diff mode.
+    #[serde(default)]
+    pub diff_args: Vec<String>,
 }
 
 /// AI resolver preferences.
@@ -144,6 +219,136 @@ pub struct ArcConfig {
     /// Supported events: `pre-snap`, `post-merge`.
     #[serde(default)]
     pub hooks: HashMap<String, Vec<String>>,
+    /// Revset defaults and aliases.
+    #[serde(default)]
+    pub revsets: HashMap<String, String>,
+    /// Template defaults.
+    #[serde(default)]
+    pub templates: HashMap<String, String>,
+    /// Template alias defaults.
+    #[serde(default, rename = "template-aliases")]
+    pub template_aliases: HashMap<String, String>,
+    /// Styling colors keyed by semantic token.
+    #[serde(default)]
+    pub colors: HashMap<String, String>,
+    /// Merge tool catalog.
+    #[serde(default, rename = "merge-tools")]
+    pub merge_tools: HashMap<String, MergeToolConfig>,
+    /// Snapshot defaults.
+    #[serde(default)]
+    pub snapshot: SnapshotConfig,
+    /// UX hints.
+    #[serde(default)]
+    pub hints: HintsConfig,
+}
+
+/// Build platform-aware synthesized defaults from the imported jj config intent.
+pub fn synthesized_defaults_config() -> ArcConfig {
+    let mut cfg = ArcConfig::default();
+
+    cfg.aliases.insert("b".to_string(), "bookmark".to_string());
+    cfg.aliases.insert("ci".to_string(), "commit".to_string());
+    cfg.aliases.insert("desc".to_string(), "describe".to_string());
+    cfg.aliases.insert("st".to_string(), "status".to_string());
+
+    cfg.ui.color = "auto".to_string();
+    cfg.ui.graph_style = Some("curved".to_string());
+    cfg.ui.diff_formatter = Some(":color-words".to_string());
+    cfg.ui.conflict_marker_style = Some("diff".to_string());
+    cfg.ui.progress_indicator = Some(true);
+    cfg.ui.movement.edit = Some(false);
+    if cfg!(windows) {
+        cfg.ui.pager = Some(":builtin".to_string());
+        cfg.ui.editor = Some("Notepad".to_string());
+    } else {
+        cfg.ui.editor = Some("nano".to_string());
+        cfg.ui.pager = Some("less -FRX".to_string());
+    }
+
+    cfg.hints.resolving_conflicts = Some(true);
+    cfg.snapshot.max_new_file_size = Some("1MiB".to_string());
+    cfg.snapshot.auto_track = Some("all()".to_string());
+    cfg.snapshot.auto_update_stale = Some(false);
+
+    cfg.revsets
+        .insert("arrange".to_string(), "reachable(@, mutable())".to_string());
+    cfg.revsets
+        .insert("fix".to_string(), "reachable(@, mutable())".to_string());
+    cfg.revsets.insert(
+        "simplify-parents".to_string(),
+        "reachable(@, mutable())".to_string(),
+    );
+    cfg.revsets.insert(
+        "log".to_string(),
+        "present(@) | ancestors(immutable_heads().., 2) | trunk()".to_string(),
+    );
+    cfg.revsets
+        .insert("sign".to_string(), "reachable(@, mutable())".to_string());
+
+    cfg.templates
+        .insert("log".to_string(), "builtin_log_compact".to_string());
+    cfg.templates
+        .insert("show".to_string(), "builtin_log_detailed".to_string());
+    cfg.templates
+        .insert("op_log".to_string(), "builtin_op_log_compact".to_string());
+    cfg.templates
+        .insert("commit_summary".to_string(), "format_commit_summary_with_refs(self, format_commit_ref_names(bookmarks))".to_string());
+
+    cfg.colors.insert("error".to_string(), "bold".to_string());
+    cfg.colors
+        .insert("warning".to_string(), "yellow bold".to_string());
+    cfg.colors
+        .insert("hint".to_string(), "cyan bold".to_string());
+    cfg.colors.insert("commit_id".to_string(), "blue".to_string());
+    cfg.colors
+        .insert("change_id".to_string(), "magenta".to_string());
+    cfg.colors.insert("author".to_string(), "yellow".to_string());
+    cfg.colors
+        .insert("timestamp".to_string(), "cyan".to_string());
+    cfg.colors.insert("conflict".to_string(), "red".to_string());
+
+    cfg.merge_tools.insert(
+        "vscode".to_string(),
+        MergeToolConfig {
+            program: Some(if cfg!(windows) {
+                "code.cmd".to_string()
+            } else {
+                "code".to_string()
+            }),
+            merge_args: vec![
+                "--wait".to_string(),
+                "--merge".to_string(),
+                "$left".to_string(),
+                "$right".to_string(),
+                "$base".to_string(),
+                "$output".to_string(),
+            ],
+            edit_args: Vec::new(),
+            diff_args: vec![
+                "--diff".to_string(),
+                "$left".to_string(),
+                "$right".to_string(),
+                "--wait".to_string(),
+            ],
+        },
+    );
+    cfg.merge_tools.insert(
+        "meld".to_string(),
+        MergeToolConfig {
+            program: Some("meld".to_string()),
+            merge_args: vec![
+                "$left".to_string(),
+                "$base".to_string(),
+                "$right".to_string(),
+                "-o".to_string(),
+                "$output".to_string(),
+                "--auto-merge".to_string(),
+            ],
+            edit_args: vec!["$left".to_string(), "$right".to_string()],
+            diff_args: Vec::new(),
+        },
+    );
+    cfg
 }
 
 /// Backward-compat: the old JSON-only config shape (remotes + aliases + hooks).
@@ -5336,6 +5541,12 @@ pub fn global_config_file_path() -> anyhow::Result<std::path::PathBuf> {
     global_config_path()
 }
 
+/// Load only the global config layer without synthesized defaults or local overlay.
+pub fn load_global_config_layer() -> anyhow::Result<ArcConfig> {
+    let path = global_config_path()?;
+    Ok(load_config_file(&path))
+}
+
 /// Return the local `.arc/config.toml` path for `shared_root`.
 pub fn local_config_file_path(shared_root: &Path) -> std::path::PathBuf {
     shared_root.join(".arc").join("config.toml")
@@ -5348,16 +5559,56 @@ pub fn local_config_file_path(shared_root: &Path) -> std::path::PathBuf {
 /// precedence.  Maps (`remotes`, `aliases`, `hooks`) are merged with local
 /// entries overriding global ones of the same name.
 pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
-    let mut merged = ArcConfig::default();
+    let mut merged = synthesized_defaults_config();
     // Global config.
     if let Ok(global_path) = global_config_path() {
         let global = load_config_file(&global_path);
         merged.user = global.user;
         merged.merge = global.merge;
-        merged.ui = global.ui;
+        if global.ui.color != "auto" {
+            merged.ui.color = global.ui.color;
+        }
+        if global.ui.pager.is_some() {
+            merged.ui.pager = global.ui.pager;
+        }
+        if global.ui.editor.is_some() {
+            merged.ui.editor = global.ui.editor;
+        }
+        if global.ui.graph_style.is_some() {
+            merged.ui.graph_style = global.ui.graph_style;
+        }
+        if global.ui.diff_formatter.is_some() {
+            merged.ui.diff_formatter = global.ui.diff_formatter;
+        }
+        if global.ui.conflict_marker_style.is_some() {
+            merged.ui.conflict_marker_style = global.ui.conflict_marker_style;
+        }
+        if global.ui.progress_indicator.is_some() {
+            merged.ui.progress_indicator = global.ui.progress_indicator;
+        }
+        if global.ui.movement.edit.is_some() {
+            merged.ui.movement.edit = global.ui.movement.edit;
+        }
+        if global.hints.resolving_conflicts.is_some() {
+            merged.hints.resolving_conflicts = global.hints.resolving_conflicts;
+        }
+        if global.snapshot.max_new_file_size.is_some() {
+            merged.snapshot.max_new_file_size = global.snapshot.max_new_file_size;
+        }
+        if global.snapshot.auto_track.is_some() {
+            merged.snapshot.auto_track = global.snapshot.auto_track;
+        }
+        if global.snapshot.auto_update_stale.is_some() {
+            merged.snapshot.auto_update_stale = global.snapshot.auto_update_stale;
+        }
         merged.remotes.extend(global.remotes);
         merged.aliases.extend(global.aliases);
         merged.hooks.extend(global.hooks);
+        merged.revsets.extend(global.revsets);
+        merged.templates.extend(global.templates);
+        merged.template_aliases.extend(global.template_aliases);
+        merged.colors.extend(global.colors);
+        merged.merge_tools.extend(global.merge_tools);
     }
     // Local config (overrides global).
     let local_path = shared_root.join(".arc").join("config.toml");
@@ -5374,9 +5625,47 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     if local.ui.color != "auto" {
         merged.ui.color = local.ui.color;
     }
+    if local.ui.pager.is_some() {
+        merged.ui.pager = local.ui.pager;
+    }
+    if local.ui.editor.is_some() {
+        merged.ui.editor = local.ui.editor;
+    }
+    if local.ui.graph_style.is_some() {
+        merged.ui.graph_style = local.ui.graph_style;
+    }
+    if local.ui.diff_formatter.is_some() {
+        merged.ui.diff_formatter = local.ui.diff_formatter;
+    }
+    if local.ui.conflict_marker_style.is_some() {
+        merged.ui.conflict_marker_style = local.ui.conflict_marker_style;
+    }
+    if local.ui.progress_indicator.is_some() {
+        merged.ui.progress_indicator = local.ui.progress_indicator;
+    }
+    if local.ui.movement.edit.is_some() {
+        merged.ui.movement.edit = local.ui.movement.edit;
+    }
+    if local.hints.resolving_conflicts.is_some() {
+        merged.hints.resolving_conflicts = local.hints.resolving_conflicts;
+    }
+    if local.snapshot.max_new_file_size.is_some() {
+        merged.snapshot.max_new_file_size = local.snapshot.max_new_file_size;
+    }
+    if local.snapshot.auto_track.is_some() {
+        merged.snapshot.auto_track = local.snapshot.auto_track;
+    }
+    if local.snapshot.auto_update_stale.is_some() {
+        merged.snapshot.auto_update_stale = local.snapshot.auto_update_stale;
+    }
     merged.remotes.extend(local.remotes);
     merged.aliases.extend(local.aliases);
     merged.hooks.extend(local.hooks);
+    merged.revsets.extend(local.revsets);
+    merged.templates.extend(local.templates);
+    merged.template_aliases.extend(local.template_aliases);
+    merged.colors.extend(local.colors);
+    merged.merge_tools.extend(local.merge_tools);
     Ok(merged)
 }
 

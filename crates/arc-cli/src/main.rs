@@ -6,8 +6,8 @@ use arc_cli::governance::audit_github_governance;
 use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
-    ArcConfig, Repository, global_config_file_path, load_merged_config, local_config_file_path,
-    save_global_config, save_local_config,
+    ArcConfig, Repository, global_config_file_path, load_global_config_layer, load_merged_config,
+    local_config_file_path, save_global_config, save_local_config,
 };
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
@@ -2191,7 +2191,19 @@ fn main() -> anyhow::Result<()> {
                         "ui": {
                             "type": "object",
                             "properties": {
-                                "color": {"type": "string", "enum": ["auto", "always", "never"]}
+                                "color": {"type": "string", "enum": ["auto", "always", "never"]},
+                                "pager": {"type": "string"},
+                                "editor": {"type": "string"},
+                                "graph_style": {"type": "string"},
+                                "diff_formatter": {"type": "string"},
+                                "conflict_marker_style": {"type": "string"},
+                                "progress_indicator": {"type": "boolean"},
+                                "movement": {
+                                    "type": "object",
+                                    "properties": {
+                                        "edit": {"type": "boolean"}
+                                    }
+                                }
                             }
                         },
                         "merge": {
@@ -2215,6 +2227,36 @@ fn main() -> anyhow::Result<()> {
                             "additionalProperties": {
                                 "type": "array",
                                 "items": {"type": "string"}
+                            }
+                        },
+                        "colors": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "hints": {
+                            "type": "object",
+                            "properties": {
+                                "resolving_conflicts": {"type": "boolean"}
+                            }
+                        },
+                        "snapshot": {
+                            "type": "object",
+                            "properties": {
+                                "max_new_file_size": {"type": "string"},
+                                "auto_track": {"type": "string"},
+                                "auto_update_stale": {"type": "boolean"}
+                            }
+                        },
+                        "revsets": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "templates": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "template-aliases": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "merge-tools": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                    "program": {"type": "string"},
+                                    "merge_args": {"type": "array", "items": {"type": "string"}},
+                                    "edit_args": {"type": "array", "items": {"type": "string"}},
+                                    "diff_args": {"type": "array", "items": {"type": "string"}}
+                                }
                             }
                         }
                     }
@@ -2462,8 +2504,7 @@ fn main() -> anyhow::Result<()> {
             ConfigAction::Set { key, value } => {
                 let shared_root = std::path::Path::new(".");
                 let mut config = if global {
-                    // Load global only for mutation.
-                    load_merged_config(shared_root)?
+                    load_global_config_layer()?
                 } else {
                     load_merged_config(shared_root)?
                 };
@@ -2566,9 +2607,48 @@ fn main() -> anyhow::Result<()> {
                 }
                 println!("\n[ui]");
                 println!("color = {}", config.ui.color);
+                if let Some(v) = &config.ui.pager {
+                    println!("pager = {v}");
+                }
+                if let Some(v) = &config.ui.editor {
+                    println!("editor = {v}");
+                }
+                if let Some(v) = &config.ui.graph_style {
+                    println!("graph_style = {v}");
+                }
+                if let Some(v) = &config.ui.diff_formatter {
+                    println!("diff_formatter = {v}");
+                }
+                if let Some(v) = &config.ui.conflict_marker_style {
+                    println!("conflict_marker_style = {v}");
+                }
+                if let Some(v) = config.ui.progress_indicator {
+                    println!("progress_indicator = {v}");
+                }
+                if let Some(v) = config.ui.movement.edit {
+                    println!("movement.edit = {v}");
+                }
                 println!("\n[merge]");
                 if let Some(t) = &config.merge.tool {
                     println!("tool = {t}");
+                }
+                if let Some(v) = config.hints.resolving_conflicts {
+                    println!("\n[hints]\nresolving_conflicts = {v}");
+                }
+                if config.snapshot.max_new_file_size.is_some()
+                    || config.snapshot.auto_track.is_some()
+                    || config.snapshot.auto_update_stale.is_some()
+                {
+                    println!("\n[snapshot]");
+                    if let Some(v) = &config.snapshot.max_new_file_size {
+                        println!("max_new_file_size = {v}");
+                    }
+                    if let Some(v) = &config.snapshot.auto_track {
+                        println!("auto_track = {v}");
+                    }
+                    if let Some(v) = config.snapshot.auto_update_stale {
+                        println!("auto_update_stale = {v}");
+                    }
                 }
                 if !config.remotes.is_empty() {
                     println!("\n[remotes]");
@@ -2584,6 +2664,57 @@ fn main() -> anyhow::Result<()> {
                     al.sort_by_key(|(k, _)| k.as_str());
                     for (k, v) in al {
                         println!("{k} = {v}");
+                    }
+                }
+                if !config.revsets.is_empty() {
+                    println!("\n[revsets]");
+                    let mut vals: Vec<_> = config.revsets.iter().collect();
+                    vals.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in vals {
+                        println!("{k} = {v}");
+                    }
+                }
+                if !config.templates.is_empty() {
+                    println!("\n[templates]");
+                    let mut vals: Vec<_> = config.templates.iter().collect();
+                    vals.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in vals {
+                        println!("{k} = {v}");
+                    }
+                }
+                if !config.template_aliases.is_empty() {
+                    println!("\n[template-aliases]");
+                    let mut vals: Vec<_> = config.template_aliases.iter().collect();
+                    vals.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in vals {
+                        println!("{k} = {v}");
+                    }
+                }
+                if !config.colors.is_empty() {
+                    println!("\n[colors]");
+                    let mut vals: Vec<_> = config.colors.iter().collect();
+                    vals.sort_by_key(|(k, _)| k.as_str());
+                    for (k, v) in vals {
+                        println!("{k} = {v}");
+                    }
+                }
+                if !config.merge_tools.is_empty() {
+                    let mut vals: Vec<_> = config.merge_tools.iter().collect();
+                    vals.sort_by_key(|(k, _)| k.as_str());
+                    for (name, tool) in vals {
+                        println!("\n[merge-tools.{name}]");
+                        if let Some(program) = &tool.program {
+                            println!("program = {program}");
+                        }
+                        if !tool.merge_args.is_empty() {
+                            println!("merge_args = {:?}", tool.merge_args);
+                        }
+                        if !tool.edit_args.is_empty() {
+                            println!("edit_args = {:?}", tool.edit_args);
+                        }
+                        if !tool.diff_args.is_empty() {
+                            println!("diff_args = {:?}", tool.diff_args);
+                        }
                     }
                 }
             }
@@ -2791,16 +2922,38 @@ fn config_get(cfg: &ArcConfig, key: &str) -> Option<String> {
         "user.name" => cfg.user.name.clone(),
         "user.email" => cfg.user.email.clone(),
         "ui.color" => Some(cfg.ui.color.clone()),
+        "ui.pager" => cfg.ui.pager.clone(),
+        "ui.editor" => cfg.ui.editor.clone(),
+        "ui.graph_style" => cfg.ui.graph_style.clone(),
+        "ui.diff_formatter" => cfg.ui.diff_formatter.clone(),
+        "ui.conflict_marker_style" => cfg.ui.conflict_marker_style.clone(),
+        "ui.progress_indicator" => cfg.ui.progress_indicator.map(|v| v.to_string()),
+        "ui.movement.edit" => cfg.ui.movement.edit.map(|v| v.to_string()),
         "merge.tool" => cfg.merge.tool.clone(),
         "ai.provider" => cfg.ai.provider.clone(),
         "ai.model" => cfg.ai.model.clone(),
         "ai.endpoint" => cfg.ai.endpoint.clone(),
+        "hints.resolving_conflicts" => cfg.hints.resolving_conflicts.map(|v| v.to_string()),
+        "snapshot.max_new_file_size" => cfg.snapshot.max_new_file_size.clone(),
+        "snapshot.auto_track" => cfg.snapshot.auto_track.clone(),
+        "snapshot.auto_update_stale" => cfg.snapshot.auto_update_stale.map(|v| v.to_string()),
         _ => {
             // remotes.<name> and aliases.<name>
             if let Some(name) = key.strip_prefix("remotes.") {
                 cfg.remotes.get(name).cloned()
             } else if let Some(name) = key.strip_prefix("aliases.") {
                 cfg.aliases.get(name).cloned()
+            } else if let Some(name) = key.strip_prefix("revsets.") {
+                cfg.revsets.get(name).cloned()
+            } else if let Some(name) = key.strip_prefix("templates.") {
+                cfg.templates.get(name).cloned()
+            } else if let Some(name) = key
+                .strip_prefix("template-aliases.")
+                .or_else(|| key.strip_prefix("template_aliases."))
+            {
+                cfg.template_aliases.get(name).cloned()
+            } else if let Some(name) = key.strip_prefix("colors.") {
+                cfg.colors.get(name).cloned()
             } else {
                 None
             }
@@ -2820,6 +2973,25 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
             );
             cfg.ui.color = value.to_string();
         }
+        "ui.pager" => cfg.ui.pager = Some(value.to_string()),
+        "ui.editor" => cfg.ui.editor = Some(value.to_string()),
+        "ui.graph_style" => cfg.ui.graph_style = Some(value.to_string()),
+        "ui.diff_formatter" => cfg.ui.diff_formatter = Some(value.to_string()),
+        "ui.conflict_marker_style" => cfg.ui.conflict_marker_style = Some(value.to_string()),
+        "ui.progress_indicator" => {
+            cfg.ui.progress_indicator = Some(
+                value
+                    .parse::<bool>()
+                    .map_err(|_| anyhow::anyhow!("ui.progress_indicator must be true or false"))?,
+            )
+        }
+        "ui.movement.edit" => {
+            cfg.ui.movement.edit = Some(
+                value
+                    .parse::<bool>()
+                    .map_err(|_| anyhow::anyhow!("ui.movement.edit must be true or false"))?,
+            )
+        }
         "merge.tool" => cfg.merge.tool = Some(value.to_string()),
         "ai.provider" => {
             anyhow::ensure!(
@@ -2830,17 +3002,47 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
         }
         "ai.model" => cfg.ai.model = Some(value.to_string()),
         "ai.endpoint" => cfg.ai.endpoint = Some(value.to_string()),
+        "hints.resolving_conflicts" => {
+            cfg.hints.resolving_conflicts =
+                Some(value.parse::<bool>().map_err(|_| {
+                    anyhow::anyhow!("hints.resolving_conflicts must be true or false")
+                })?)
+        }
+        "snapshot.max_new_file_size" => cfg.snapshot.max_new_file_size = Some(value.to_string()),
+        "snapshot.auto_track" => cfg.snapshot.auto_track = Some(value.to_string()),
+        "snapshot.auto_update_stale" => {
+            cfg.snapshot.auto_update_stale =
+                Some(value.parse::<bool>().map_err(|_| {
+                    anyhow::anyhow!("snapshot.auto_update_stale must be true or false")
+                })?)
+        }
         _ => {
             if let Some(name) = key.strip_prefix("remotes.") {
                 cfg.remotes.insert(name.to_string(), value.to_string());
             } else if let Some(name) = key.strip_prefix("aliases.") {
                 cfg.aliases.insert(name.to_string(), value.to_string());
+            } else if let Some(name) = key.strip_prefix("revsets.") {
+                cfg.revsets.insert(name.to_string(), value.to_string());
+            } else if let Some(name) = key.strip_prefix("templates.") {
+                cfg.templates.insert(name.to_string(), value.to_string());
+            } else if let Some(name) = key
+                .strip_prefix("template-aliases.")
+                .or_else(|| key.strip_prefix("template_aliases."))
+            {
+                cfg.template_aliases
+                    .insert(name.to_string(), value.to_string());
+            } else if let Some(name) = key.strip_prefix("colors.") {
+                cfg.colors.insert(name.to_string(), value.to_string());
             } else {
                 anyhow::bail!(
                     "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, \
-                     remotes.<name>, aliases.<name>"
+                     user.name, user.email, ui.color, ui.pager, ui.editor, \
+                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
+                     ui.progress_indicator, ui.movement.edit, merge.tool, \
+                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                     snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
+                     remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
+                     template-aliases.<name>, colors.<name>"
                 );
             }
         }
@@ -2854,21 +3056,47 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
         "user.name" => cfg.user.name = None,
         "user.email" => cfg.user.email = None,
         "ui.color" => cfg.ui.color = "auto".to_string(),
+        "ui.pager" => cfg.ui.pager = None,
+        "ui.editor" => cfg.ui.editor = None,
+        "ui.graph_style" => cfg.ui.graph_style = None,
+        "ui.diff_formatter" => cfg.ui.diff_formatter = None,
+        "ui.conflict_marker_style" => cfg.ui.conflict_marker_style = None,
+        "ui.progress_indicator" => cfg.ui.progress_indicator = None,
+        "ui.movement.edit" => cfg.ui.movement.edit = None,
         "merge.tool" => cfg.merge.tool = None,
         "ai.provider" => cfg.ai.provider = None,
         "ai.model" => cfg.ai.model = None,
         "ai.endpoint" => cfg.ai.endpoint = None,
+        "hints.resolving_conflicts" => cfg.hints.resolving_conflicts = None,
+        "snapshot.max_new_file_size" => cfg.snapshot.max_new_file_size = None,
+        "snapshot.auto_track" => cfg.snapshot.auto_track = None,
+        "snapshot.auto_update_stale" => cfg.snapshot.auto_update_stale = None,
         _ => {
             if let Some(name) = key.strip_prefix("remotes.") {
                 cfg.remotes.remove(name);
             } else if let Some(name) = key.strip_prefix("aliases.") {
                 cfg.aliases.remove(name);
+            } else if let Some(name) = key.strip_prefix("revsets.") {
+                cfg.revsets.remove(name);
+            } else if let Some(name) = key.strip_prefix("templates.") {
+                cfg.templates.remove(name);
+            } else if let Some(name) = key
+                .strip_prefix("template-aliases.")
+                .or_else(|| key.strip_prefix("template_aliases."))
+            {
+                cfg.template_aliases.remove(name);
+            } else if let Some(name) = key.strip_prefix("colors.") {
+                cfg.colors.remove(name);
             } else {
                 anyhow::bail!(
                     "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, \
-                     remotes.<name>, aliases.<name>"
+                     user.name, user.email, ui.color, ui.pager, ui.editor, \
+                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
+                     ui.progress_indicator, ui.movement.edit, merge.tool, \
+                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                     snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
+                     remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
+                     template-aliases.<name>, colors.<name>"
                 );
             }
         }
