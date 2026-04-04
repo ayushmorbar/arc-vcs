@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use arc_swap::ArcSwap;
 use arc_net::ai::AiProvider;
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
 use arc_core::ai::AiResolver;
@@ -929,9 +929,17 @@ impl Repository {
 
         // ── Pass 2: Non-Rust files — parallel BLAKE3 blob diff ─────────────
         let all_files = collect_all_files(&self.work_root, &arcignore)?;
+        let tracked_files: HashSet<String> = state
+            .keys()
+            .filter(|k| k.len() == 2 && k[0] == "file")
+            .map(|k| k[1].clone())
+            .collect();
         let non_rs_files: Vec<String> = all_files
             .into_iter()
             .filter(|f| !f.ends_with(".rs"))
+            .filter(|f| {
+                tracked_files.contains(f.as_str()) || !is_implicitly_ignored(Path::new(f))
+            })
             .collect();
         let work_root: &std::path::Path = &self.work_root;
         let blob_atoms = parallel::in_parallel(
@@ -1667,8 +1675,7 @@ impl Repository {
                     .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
                 let before_heads = view.heads.clone();
                 view.heads = HashSet::from([change.id]);
-                view
-                    .save(&self.shared_root)
+                view.save(&self.shared_root)
                     .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
                 self.log_operation(
@@ -3870,8 +3877,12 @@ fn conflict_projection_for_file(
 
 fn read_blob_bytes(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<Vec<u8>> {
     let blob_path = shared_root.join(".arc").join("blobs").join(_hex(hash));
-    fs::read(&blob_path)
-        .map_err(|e| anyhow::anyhow!("failed to read conflict blob '{}': {e}", blob_path.display()))
+    fs::read(&blob_path).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to read conflict blob '{}': {e}",
+            blob_path.display()
+        )
+    })
 }
 
 fn read_blob_text(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<String> {
@@ -4373,6 +4384,9 @@ fn collect_empty_dirs_recursive(
             {
                 return Ok(());
             }
+            if contains_hard_ignored_dir(rel) {
+                return Ok(());
+            }
         }
     }
     let sub_dirs: Vec<_> = entries
@@ -4404,8 +4418,9 @@ fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<St
 /// Recursively collect **all** regular file paths relative to `root`.
 ///
 /// Unlike [`collect_rs_files`], this returns every file regardless of
-/// extension.  Used by [`Repository::compute_working_directory_delta`] to
-/// detect changes in non-Rust assets tracked as [`Atom::Blob`].
+/// extension. Implicit ignore policy is applied later in
+/// [`Repository::compute_working_directory_delta`] so previously tracked files
+/// can still be diffed and deleted safely.
 fn collect_all_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_all_recursive(root, root, &mut files, arcignore)?;
@@ -4439,6 +4454,10 @@ fn collect_all_recursive(
                 .matched_path_or_any_parents(&rel_str, path.is_dir())
                 .is_ignore()
             {
+                continue;
+            }
+
+            if path.is_dir() && contains_hard_ignored_dir(rel) {
                 continue;
             }
         }
@@ -4480,6 +4499,14 @@ fn collect_rs_recursive(
             {
                 continue;
             }
+
+            if path.is_dir() {
+                if contains_hard_ignored_dir(rel) {
+                    continue;
+                }
+            } else if is_implicitly_ignored(rel) {
+                continue;
+            }
         }
         if path.is_dir() {
             collect_rs_recursive(base, &path, files, arcignore)?;
@@ -4491,6 +4518,59 @@ fn collect_rs_recursive(
         }
     }
     Ok(())
+}
+
+fn contains_hard_ignored_dir(path: &Path) -> bool {
+    path.components().any(|component| {
+        component.as_os_str().to_str().is_some_and(|part| {
+            matches!(part, "target" | "node_modules" | ".git" | "dist" | "build")
+        })
+    })
+}
+
+fn is_implicitly_ignored(file_path: &Path) -> bool {
+    if std::env::var("ARC_TRACK_IMPLICITLY_IGNORED").is_ok_and(|v| v == "1") {
+        return false;
+    }
+
+    if contains_hard_ignored_dir(file_path) {
+        return true;
+    }
+
+    let file_name = match file_path.file_name().and_then(|n| n.to_str()) {
+        Some(name) => name,
+        None => return true,
+    };
+
+    if matches!(file_name, ".env" | "id_rsa") {
+        return true;
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase());
+
+    if matches!(ext.as_deref(), Some("pem" | "key")) {
+        return true;
+    }
+
+    !matches!(
+        ext.as_deref(),
+        Some(
+            "rs" | "js"
+                | "ts"
+                | "py"
+                | "go"
+                | "c"
+                | "cpp"
+                | "md"
+                | "json"
+                | "toml"
+                | "yaml"
+                | "yml"
+        )
+    )
 }
 
 /// Recursively count all regular files under `dir`.
@@ -4697,8 +4777,14 @@ mod tests {
             .unwrap()
             .collect();
 
-        assert!(ids.contains(&feature_head), "revset must include feature head");
-        assert!(ids.contains(&main_head), "revset must include feature ancestor");
+        assert!(
+            ids.contains(&feature_head),
+            "revset must include feature head"
+        );
+        assert!(
+            ids.contains(&main_head),
+            "revset must include feature ancestor"
+        );
     }
 
     #[test]
@@ -4753,7 +4839,9 @@ mod tests {
         );
         let head = *main_view.heads.iter().next().unwrap();
         let graph = repo.graph.load();
-        let change = graph.get(&head).expect("conflict change must exist in graph");
+        let change = graph
+            .get(&head)
+            .expect("conflict change must exist in graph");
         assert!(
             change
                 .atoms
@@ -5232,10 +5320,76 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_implicit_ignore_skips_env_and_node_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("implicit_ignore_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join(".env"), "API_KEY=super-secret").unwrap();
+        fs::create_dir_all(repo_path.join("node_modules")).unwrap();
+        fs::write(
+            repo_path.join("node_modules").join("fake.js"),
+            "module.exports = 1;",
+        )
+        .unwrap();
+
+        let delta = repo.status().unwrap();
+        assert!(
+            delta.is_empty(),
+            "implicit ignore should hide .env and node_modules from DAG delta"
+        );
+
+        let snap = repo.snap("should be ignored", false).unwrap();
+        assert!(
+            snap.is_none(),
+            "snapshot should be empty when only implicitly ignored files changed"
+        );
+    }
+
+    #[test]
+    fn test_implicit_ignore_still_allows_delete_of_tracked_legacy_asset() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("implicit_ignore_delete_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author.clone(), signing_key.clone());
+
+        let blob_hash = repo.store.write_blob(b"legacy").unwrap();
+        let legacy_change = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: vec!["file".to_string(), "legacy.txt".to_string()],
+                hash: blob_hash,
+            }],
+            "seed legacy tracked blob",
+            author,
+            &signing_key,
+        );
+        repo.store.write_change(&legacy_change).unwrap();
+
+        View::new("main", HashSet::from([legacy_change.id]))
+            .save(&repo_path)
+            .unwrap();
+
+        let delta = repo.status().unwrap();
+        assert!(
+            delta.iter().any(|atom| matches!(
+                atom,
+                Atom::Delete { at, .. } if at.len() >= 2 && at[0] == "file" && at[1] == "legacy.txt"
+            )),
+            "tracked legacy asset deletion must still emit a Delete atom"
+        );
+    }
+
     /// Universal asset engine: non-Rust files are tracked as [`Atom::Blob`].
     ///
     /// Verifies that:
-    /// 1. Snapping a `.txt` file writes raw bytes to `.arc/blobs/`.
+    /// 1. Snapping a `.md` file writes raw bytes to `.arc/blobs/`.
     /// 2. The materialized state holds an `ARC_BLOB_REF:` entry.
     /// 3. `restore()` reconstructs the original bytes on disk.
     /// 4. The snap change carries a valid signature.
@@ -5248,14 +5402,14 @@ mod tests {
         let (author, signing_key) = arc_core::store::author::test_keypair();
         repo.set_identity(author, signing_key);
 
-        // Write a non-Rust text file and snap it.
-        let txt_path = repo_path.join("readme.txt");
+        // Write a non-Rust markdown file and snap it.
+        let txt_path = repo_path.join("readme.md");
         fs::write(&txt_path, b"Hello, arc universal assets!").unwrap();
 
         let snap_id = repo
-            .snap("add readme.txt", false)
+            .snap("add readme.md", false)
             .unwrap()
-            .expect("snap must produce a change for a new txt file");
+            .expect("snap must produce a change for a new markdown file");
 
         // .arc/blobs/ must contain exactly one file.
         let blobs_dir = repo_path.join(".arc").join("blobs");
@@ -5268,7 +5422,7 @@ mod tests {
 
         // The materialized state must carry an ARC_BLOB_REF: entry.
         let state = repo.materialize("main").unwrap();
-        let path_key = vec!["file".to_string(), "readme.txt".to_string()];
+        let path_key = vec!["file".to_string(), "readme.md".to_string()];
         let blob_ref = state.get(&path_key).expect("blob ref must be in state");
         assert!(
             blob_ref.starts_with(b"ARC_BLOB_REF:"),
@@ -5278,7 +5432,7 @@ mod tests {
 
         // restore() must recover the original bytes.
         fs::write(&txt_path, b"corrupted").unwrap();
-        repo.restore("readme.txt").unwrap();
+        repo.restore("readme.md").unwrap();
         let restored = fs::read(&txt_path).unwrap();
         assert_eq!(
             restored, b"Hello, arc universal assets!",
@@ -5305,10 +5459,10 @@ mod tests {
         let (author, signing_key) = arc_core::store::author::test_keypair();
         repo.set_identity(author, signing_key);
 
-        // Snap a text file.
-        let txt_path = repo_path.join("data.txt");
+        // Snap a markdown file.
+        let txt_path = repo_path.join("data.md");
         fs::write(&txt_path, b"important data").unwrap();
-        repo.snap("add data.txt", false)
+        repo.snap("add data.md", false)
             .unwrap()
             .expect("snap must produce a change");
 
