@@ -37,3 +37,5 @@ pub mod semantic_diff;
 pub mod sync;
 /// Typed workspace tooling policy audit utilities.
 pub mod tooling;
+/// Root workspace policy audit utilities.
+pub mod workspace_policy;

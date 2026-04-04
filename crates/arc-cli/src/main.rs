@@ -10,6 +10,7 @@ use arc_cli::repo::{
 };
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
+use arc_cli::workspace_policy::audit_workspace_policy;
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
@@ -209,6 +210,9 @@ enum Command {
         /// Also validate GitHub governance and CI policy files under `.github/`.
         #[arg(long, default_value_t = false)]
         governance: bool,
+        /// Also validate root workspace policy files (.editorconfig/.gitattributes/etc).
+        #[arg(long, default_value_t = false)]
+        workspace_policy: bool,
     },
     /// Manage arc identity (cryptographic key-pair).
     Auth {
@@ -1197,6 +1201,7 @@ fn main() -> anyhow::Result<()> {
         Command::Verify {
             tooling,
             governance,
+            workspace_policy,
         } => {
             let mut repo = Repository::open(".")?;
             let name = repo.current_view_name()?;
@@ -1244,6 +1249,24 @@ fn main() -> anyhow::Result<()> {
                     report.required_workflows.len(),
                     report.pinned_action_references,
                     report.dependabot_ecosystems.join(", ")
+                );
+                println!(
+                    "Typed evidence: {} frontier ChangeId(s), {} SnapshotId(s).",
+                    report.frontier.len(),
+                    report.synthesis_snapshots.len()
+                );
+            }
+
+            if workspace_policy {
+                let report = audit_workspace_policy(
+                    &repo.shared_root,
+                    frontier.clone(),
+                    snapshots.clone(),
+                )?;
+                println!(
+                    "Workspace policy verified: {} policy files, {} gitignore patterns.",
+                    report.policy_files.len(),
+                    report.validated_gitignore_patterns
                 );
                 println!(
                     "Typed evidence: {} frontier ChangeId(s), {} SnapshotId(s).",

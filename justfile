@@ -12,9 +12,9 @@ default:
 test:
     cargo test --workspace
 
-# Verify cryptographic graph + local tooling + GitHub governance policy
+# Verify local tooling + GitHub governance + root workspace policy checks
 verify:
-    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace
+    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace workspace_policy::tests::workspace_policy_audit_current_workspace
 
 # Run tests matching a filter string
 test-filter FILTER:
@@ -71,4 +71,4 @@ ci:
     cargo test --workspace
     cargo clippy --all-targets -- -D warnings
     cargo fmt --all -- --check
-    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace
+    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace workspace_policy::tests::workspace_policy_audit_current_workspace

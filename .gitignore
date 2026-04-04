@@ -1,8 +1,30 @@
+# --- Project Specific ---
+# Ignore the research directory where you are testing jj-main
+research/
 
-research
+# --- Rust/Cargo ---
+# The primary build directory
+/target/
+# Generated documentation
+/rendered-docs/
+# Snapshot testing artifacts (insta, etc.)
+*.pending-snap
 
-# Added by cargo
+# --- Environment & Shell ---
+# direnv configuration and state
+.direnv/
+.envrc
 
-/target
+# --- Editor & IDEs ---
+# JetBrains
+.idea/
+# VS Code
+.vscode/
+# Zed
+.zed/
 
-editors/vscode/node_modules*
+# --- Language Specific (Node/JS) ---
+# For the VS Code extension/editor components
+editors/vscode/node_modules/
+editors/vscode/out/
+*.log
