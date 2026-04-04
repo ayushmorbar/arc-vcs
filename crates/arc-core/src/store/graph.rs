@@ -1,8 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use crate::algebra::Blake3Hash;
 use crate::store::blake3_hasher::Blake3HashMap;
 use crate::store::change::Change;
+use crate::store::newtypes::ChangeId;
 
 /// In-memory DAG of changes loaded from the CAS.
 ///
@@ -132,6 +133,60 @@ impl ChangeGraph {
         }
 
         order
+    }
+
+    /// Return a deterministic topological order restricted to `selected` IDs.
+    ///
+    /// The returned order is roots-first. Callers that need newest-first can
+    /// reverse the resulting vector.
+    pub fn topological_sort_ids(&self, selected: &BTreeSet<ChangeId>) -> Vec<ChangeId> {
+        let heads: HashSet<Blake3Hash> = selected.iter().copied().map(Blake3Hash::from).collect();
+        let mut order = self.topological_sort(&heads);
+        order.retain(|id| selected.contains(&ChangeId::from(*id)));
+        order.into_iter().map(ChangeId::from).collect()
+    }
+
+    /// Return sorted direct parent IDs for `id`.
+    pub fn parent_ids(&self, id: ChangeId) -> Vec<ChangeId> {
+        let hash = Blake3Hash::from(id);
+        let mut out: Vec<ChangeId> = self
+            .edges
+            .get(&hash)
+            .into_iter()
+            .flat_map(|deps| deps.iter().copied())
+            .map(ChangeId::from)
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Return sorted direct child IDs for `id`.
+    pub fn child_ids(&self, id: ChangeId) -> Vec<ChangeId> {
+        let hash = Blake3Hash::from(id);
+        let mut out: Vec<ChangeId> = self
+            .reverse_edges
+            .get(&hash)
+            .into_iter()
+            .flat_map(|children| children.iter().copied())
+            .map(ChangeId::from)
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Return all tip IDs (nodes without children) in deterministic order.
+    pub fn tip_ids(&self) -> BTreeSet<ChangeId> {
+        let mut tips = BTreeSet::new();
+        for &hash in self.nodes.keys() {
+            let is_tip = self
+                .reverse_edges
+                .get(&hash)
+                .is_none_or(|children| children.is_empty());
+            if is_tip {
+                tips.insert(ChangeId::from(hash));
+            }
+        }
+        tips
     }
 
     // ------------------------------------------------------------------

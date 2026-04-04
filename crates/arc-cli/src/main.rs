@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+use arc_cli::graph_render::GraphRenderer;
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
@@ -952,51 +953,18 @@ fn main() -> anyhow::Result<()> {
                     println!("{table}");
                 }
             } else {
-                let expr = arc_core::revset::parse(&revset)
-                    .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
-                repo.prepare_revset(&expr)?;
-                let graph = repo.graph_snapshot();
-                let mut symbol_resolver = |symbol: &str| repo.resolve_revset_symbol(symbol);
-                let rev_iter = arc_core::revset::compile(&expr, graph, &mut symbol_resolver)?;
-
-                let mut table = Table::new();
-                table.load_preset(presets::NOTHING);
-                let mut printed = 0usize;
-
-                for id in rev_iter {
-                    let change = repo.read_change(&id)?;
-                    let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
-                    let author_str = match &change.author {
-                        Author::Human { name, email, .. } => {
-                            format!("{name} <{email}>")
-                        }
-                        Author::AI {
-                            model,
-                            human_sponsor,
-                        } => {
-                            let sponsor: String =
-                                human_sponsor.iter().map(|b| format!("{b:02x}")).collect();
-                            format!("{model} | sponsor:{}", &sponsor[..8])
-                        }
-                        Author::Server { canonical_id, .. } => {
-                            format!("{canonical_id} [server]")
-                        }
-                        Author::Transient { session_id, .. } => {
-                            format!("{session_id} [transient]")
-                        }
-                    };
-                    table.add_row(vec![
-                        Cell::new(&hex[..8]).fg(Color::Cyan),
-                        Cell::new(&author_str).fg(Color::Magenta),
-                        Cell::new(&change.intent),
-                    ]);
-                    printed += 1;
-                }
-
-                if printed == 0 {
+                let changes = if revset.trim() == "ancestors(@)" {
+                    repo.log()?
+                } else {
+                    repo.log_revset(&revset)?
+                };
+                if changes.is_empty() {
                     println!("No changes yet. Use 'arc snap' to create your first change.");
                 } else {
-                    println!("{table}");
+                    let renderer = GraphRenderer::new();
+                    for line in renderer.render(&changes) {
+                        println!("{line}");
+                    }
                 }
             }
         }

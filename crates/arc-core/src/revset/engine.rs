@@ -6,9 +6,39 @@ use anyhow::{Result, anyhow, bail};
 use crate::algebra::Blake3Hash;
 use crate::revset::RevsetExpression;
 use crate::store::graph::ChangeGraph;
+use crate::store::newtypes::ChangeId;
 
 /// Iterator type produced by revset compilation.
 pub type RevsetIterator<'a> = Box<dyn Iterator<Item = Blake3Hash> + 'a>;
+/// Typed iterator over strongly-typed change identifiers.
+pub type RevsetChangeIdIterator<'a> = Box<dyn Iterator<Item = ChangeId> + 'a>;
+
+/// Typed revset evaluator over a [`ChangeGraph`].
+pub struct RevsetEvaluator<'g, F>
+where
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
+{
+    graph: Arc<ChangeGraph>,
+    resolve_symbol: &'g mut F,
+}
+
+impl<'g, F> RevsetEvaluator<'g, F>
+where
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
+{
+    /// Create a new evaluator bound to `graph` and a repository-specific symbol resolver.
+    pub fn new(graph: Arc<ChangeGraph>, resolve_symbol: &'g mut F) -> Self {
+        Self {
+            graph,
+            resolve_symbol,
+        }
+    }
+
+    /// Evaluate `expr` into a lazy iterator of typed [`ChangeId`] values.
+    pub fn evaluate<'a>(&mut self, expr: &RevsetExpression) -> Result<RevsetChangeIdIterator<'a>> {
+        compile_impl_change_ids(expr, Arc::clone(&self.graph), self.resolve_symbol)
+    }
+}
 
 /// Compile a revset AST into a lazy hash iterator.
 ///
@@ -22,28 +52,42 @@ pub fn compile<'a, F>(
 where
     F: FnMut(&str) -> Result<Option<Blake3Hash>>,
 {
-    compile_impl(expr, graph, resolve_symbol)
+    let mut typed_resolver = |symbol: &str| resolve_symbol(symbol).map(|opt| opt.map(ChangeId::from));
+    let typed_iter = compile_change_ids(expr, graph, &mut typed_resolver)?;
+    Ok(Box::new(typed_iter.map(Blake3Hash::from)))
 }
 
-fn compile_impl<'a, F>(
+/// Compile a revset AST into a typed lazy [`ChangeId`] iterator.
+pub fn compile_change_ids<'a, F>(
     expr: &RevsetExpression,
     graph: Arc<ChangeGraph>,
     resolve_symbol: &mut F,
-) -> Result<RevsetIterator<'a>>
+) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<Blake3Hash>>,
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
+{
+    compile_impl_change_ids(expr, graph, resolve_symbol)
+}
+
+fn compile_impl_change_ids<'a, F>(
+    expr: &RevsetExpression,
+    graph: Arc<ChangeGraph>,
+    resolve_symbol: &mut F,
+) -> Result<RevsetChangeIdIterator<'a>>
+where
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
 {
     match expr {
         RevsetExpression::Symbol(name) => compile_symbol(name, resolve_symbol),
         RevsetExpression::Union(left, right) => {
-            let left_iter = compile_impl(left, Arc::clone(&graph), resolve_symbol)?;
-            let right_iter = compile_impl(right, graph, resolve_symbol)?;
+            let left_iter = compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol)?;
+            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol)?;
             Ok(Box::new(UnionIterator::new(left_iter, right_iter)))
         }
         RevsetExpression::Intersection(left, right) => {
-            let left_iter = compile_impl(left, Arc::clone(&graph), resolve_symbol)?;
-            let right_iter = compile_impl(right, graph, resolve_symbol)?;
-            let right_set: HashSet<Blake3Hash> = right_iter.collect();
+            let left_iter = compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol)?;
+            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol)?;
+            let right_set: HashSet<ChangeId> = right_iter.collect();
             Ok(Box::new(
                 left_iter.filter(move |hash| right_set.contains(hash)),
             ))
@@ -54,16 +98,20 @@ where
     }
 }
 
-fn compile_symbol<'a, F>(name: &str, resolve_symbol: &mut F) -> Result<RevsetIterator<'a>>
+fn compile_symbol<'a, F>(name: &str, resolve_symbol: &mut F) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<Blake3Hash>>,
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
 {
-    if let Some(hash) = parse_hex_hash(name) {
-        return Ok(Box::new(std::iter::once(hash)));
+    if let Ok(id) = ChangeId::from_hex(name) {
+        return Ok(Box::new(std::iter::once(id)));
     }
 
-    if let Some(hash) = resolve_symbol(name)? {
-        return Ok(Box::new(std::iter::once(hash)));
+    if let Some(hash) = parse_hex_hash(name) {
+        return Ok(Box::new(std::iter::once(ChangeId::from(hash))));
+    }
+
+    if let Some(id) = resolve_symbol(name)? {
+        return Ok(Box::new(std::iter::once(id)));
     }
 
     bail!("unknown revset symbol '{name}'")
@@ -74,9 +122,9 @@ fn compile_function<'a, F>(
     args: &[RevsetExpression],
     graph: Arc<ChangeGraph>,
     resolve_symbol: &mut F,
-) -> Result<RevsetIterator<'a>>
+) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<Blake3Hash>>,
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
 {
     match name {
         "ancestors" => {
@@ -86,23 +134,31 @@ where
             let arg = args
                 .first()
                 .ok_or_else(|| anyhow!("ancestors() expects exactly one argument"))?;
-            let starts_iter = compile_impl(arg, Arc::clone(&graph), resolve_symbol)?;
+            let starts_iter = compile_impl_change_ids(arg, Arc::clone(&graph), resolve_symbol)?;
             let starts = starts_iter.collect::<Vec<_>>();
             Ok(Box::new(AncestorsIterator::new(graph, starts)))
+        }
+        "tags" | "remote_branches" => {
+            if !args.is_empty() {
+                bail!("{name}() expects no arguments");
+            }
+            bail!(
+                "unsupported revset function '{name}'; only ancestors() is currently implemented"
+            )
         }
         _ => bail!("unsupported revset function '{name}'"),
     }
 }
 
 struct UnionIterator<'a> {
-    left: RevsetIterator<'a>,
-    right: RevsetIterator<'a>,
-    seen: HashSet<Blake3Hash>,
+    left: RevsetChangeIdIterator<'a>,
+    right: RevsetChangeIdIterator<'a>,
+    seen: HashSet<ChangeId>,
     on_left: bool,
 }
 
 impl<'a> UnionIterator<'a> {
-    fn new(left: RevsetIterator<'a>, right: RevsetIterator<'a>) -> Self {
+    fn new(left: RevsetChangeIdIterator<'a>, right: RevsetChangeIdIterator<'a>) -> Self {
         Self {
             left,
             right,
@@ -113,7 +169,7 @@ impl<'a> UnionIterator<'a> {
 }
 
 impl<'a> Iterator for UnionIterator<'a> {
-    type Item = Blake3Hash;
+    type Item = ChangeId;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -143,12 +199,12 @@ impl<'a> Iterator for UnionIterator<'a> {
 
 struct AncestorsIterator {
     graph: Arc<ChangeGraph>,
-    queue: VecDeque<Blake3Hash>,
-    seen: HashSet<Blake3Hash>,
+    queue: VecDeque<ChangeId>,
+    seen: HashSet<ChangeId>,
 }
 
 impl AncestorsIterator {
-    fn new(graph: Arc<ChangeGraph>, starts: Vec<Blake3Hash>) -> Self {
+    fn new(graph: Arc<ChangeGraph>, starts: Vec<ChangeId>) -> Self {
         Self {
             graph,
             queue: starts.into(),
@@ -158,7 +214,7 @@ impl AncestorsIterator {
 }
 
 impl Iterator for AncestorsIterator {
-    type Item = Blake3Hash;
+    type Item = ChangeId;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(current) = self.queue.pop_front() {
@@ -166,8 +222,8 @@ impl Iterator for AncestorsIterator {
                 continue;
             }
 
-            if let Some(change) = self.graph.get(&current) {
-                let mut deps: Vec<Blake3Hash> = change.deps.iter().copied().collect();
+            if let Some(change) = self.graph.get(&Blake3Hash::from(current)) {
+                let mut deps: Vec<ChangeId> = change.deps.iter().copied().map(ChangeId::from).collect();
                 deps.sort();
                 for dep in deps {
                     if !self.seen.contains(&dep) {
@@ -233,18 +289,19 @@ mod tests {
 
         let graph = Arc::new(graph);
         let ast = parse("ancestors(A) | B").expect("query should parse");
-        let mut resolver = |name: &str| -> Result<Option<Blake3Hash>> {
+        let mut resolver = |name: &str| -> Result<Option<ChangeId>> {
             match name {
-                "A" => Ok(Some(a)),
-                "B" => Ok(Some(b)),
+                "A" => Ok(Some(ChangeId::from(a))),
+                "B" => Ok(Some(ChangeId::from(b))),
                 _ => Ok(None),
             }
         };
 
-        let iter = compile(&ast, Arc::clone(&graph), &mut resolver).expect("compile should work");
-        let result: HashSet<Blake3Hash> = iter.collect();
+        let iter = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should work");
+        let result: HashSet<ChangeId> = iter.collect();
 
-        let expected = HashSet::from([a, b, root]);
+        let expected = HashSet::from([ChangeId::from(a), ChangeId::from(b), ChangeId::from(root)]);
         assert_eq!(result, expected);
     }
 
@@ -252,9 +309,9 @@ mod tests {
     fn rejects_ancestors_with_no_args() {
         let graph = Arc::new(ChangeGraph::new());
         let ast = parse("ancestors()").expect("query should parse");
-        let mut resolver = |_name: &str| -> Result<Option<Blake3Hash>> { Ok(None) };
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
 
-        let err = match compile(&ast, graph, &mut resolver) {
+        let err = match compile_change_ids(&ast, graph, &mut resolver) {
             Ok(_) => panic!("compile should fail"),
             Err(err) => err,
         };
@@ -272,15 +329,15 @@ mod tests {
         let graph = Arc::new(graph);
 
         let ast = parse("ancestors(A, B)").expect("query should parse");
-        let mut resolver = move |name: &str| -> Result<Option<Blake3Hash>> {
+        let mut resolver = move |name: &str| -> Result<Option<ChangeId>> {
             match name {
-                "A" => Ok(Some(a)),
-                "B" => Ok(Some(b)),
+                "A" => Ok(Some(ChangeId::from(a))),
+                "B" => Ok(Some(ChangeId::from(b))),
                 _ => Ok(None),
             }
         };
 
-        let err = match compile(&ast, graph, &mut resolver) {
+        let err = match compile_change_ids(&ast, graph, &mut resolver) {
             Ok(_) => panic!("compile should fail"),
             Err(err) => err,
         };
@@ -288,5 +345,27 @@ mod tests {
             err.to_string().contains("exactly one argument"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn rejects_union_of_tags_and_remote_branches_until_refs_are_wired() {
+        let mut graph = ChangeGraph::new();
+        let root = make_change(&mut graph, HashSet::new(), "root");
+        let a = make_change(&mut graph, HashSet::from([root]), "a");
+        let b = make_change(&mut graph, HashSet::from([root]), "b");
+
+        let graph = Arc::new(graph);
+        let ast = parse("remote_branches() | tags()").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!(
+                "compile should fail until tags()/remote_branches() are metadata-backed"
+            ),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("unsupported revset function"));
+
+        let _ = (a, b);
     }
 }

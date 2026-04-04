@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -2003,6 +2003,29 @@ impl Repository {
             .collect()
     }
 
+    /// Return all changes selected by `revset`, newest-first.
+    pub fn log_revset(&mut self, revset: &str) -> anyhow::Result<Vec<Change>> {
+        let expr = arc_core::revset::parse(revset)
+            .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
+        self.prepare_revset(&expr)?;
+
+        let graph = self.graph_snapshot();
+        let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
+        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids(
+            &expr,
+            Arc::clone(&graph),
+            &mut resolver,
+        )?
+        .collect();
+
+        let mut ordered_ids = graph.topological_sort_ids(&selected);
+        ordered_ids.reverse();
+        ordered_ids
+            .into_iter()
+            .map(|id| self.read_change(&Blake3Hash::from(id)))
+            .collect()
+    }
+
     /// Semantic search over the current view's history using embedding similarity.
     ///
     /// Embeds `query`, bootstraps (or updates) the vector index at
@@ -3774,6 +3797,12 @@ impl Repository {
         Ok(None)
     }
 
+    /// Typed variant of [`resolve_revset_symbol`] used by the revset evaluator.
+    pub fn resolve_revset_symbol_typed(&self, symbol: &str) -> anyhow::Result<Option<ChangeId>> {
+        self.resolve_revset_symbol(symbol)
+            .map(|opt| opt.map(ChangeId::from))
+    }
+
     /// Prepare graph state required for evaluating a revset expression.
     ///
     /// This hydrates referenced view heads and full 64-character hash symbols
@@ -4824,6 +4853,35 @@ mod tests {
             ids.contains(&main_head),
             "revset must include feature ancestor"
         );
+    }
+
+    #[test]
+    fn test_log_is_multi_head_safe_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("multi_head_log_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("base.rs"), "fn base() {}\n").unwrap();
+        repo.snap("base", false).unwrap().expect("base snap");
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("feature.rs"), "fn feature() {}\n").unwrap();
+        let feature_head = repo.snap("feature head", false).unwrap().expect("feature snap");
+
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("main.rs"), "fn main_head() {}\n").unwrap();
+        let main_head = repo.snap("main head", false).unwrap().expect("main snap");
+
+        repo.merge_view("feature").unwrap();
+
+        let entries = repo.log().expect("default log must work for multi-head views");
+        let ids: HashSet<Blake3Hash> = entries.iter().map(|change| change.id).collect();
+        assert!(ids.contains(&feature_head));
+        assert!(ids.contains(&main_head));
     }
 
     #[test]
