@@ -24,6 +24,7 @@
 
 # Design
 
+- [Vision: Agentic Era (2026)](design/VISION.md)
 - [ADR 001 - Change Algebra](design/ADR-001-Change-Algebra.md)
 - [ADR 002 - Jujutsu Workflow](design/ADR-002-Jujutsu-Workflow.md)
 - [ADR 003 - Git Bridge](design/ADR-003-Git-Bridge.md)

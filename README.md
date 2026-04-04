@@ -38,6 +38,10 @@ arc models change as typed semantic atoms, not text hunks. That lets it reason a
 - **AI-assisted conflict resolution** — semantic conflicts routed to a pluggable `AiResolver` interface
 - **Causal stability GC** — garbage collection only prunes causally-stable changes
 
+## Built for the Agentic Era (2026 Standards)
+
+`arc` is designed to be navigable by AI agents and human maintainers alike: explicit module boundaries, strongly typed domain contracts, and predictable operational semantics make large-scale refactors safer and easier to verify. The codebase leans on NewType-driven modeling to make invalid states unrepresentable, and on zero-copy memory-mapped I/O to deliver high throughput without sacrificing correctness.
+
 ## Quick Start
 
 ```sh

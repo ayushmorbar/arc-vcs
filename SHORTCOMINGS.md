@@ -28,15 +28,18 @@ arc is a mathematically rigorous system. We believe strongly in being honest abo
 
 ---
 
-## 3. Network Sync Is Currently Pull-Only
+## 3. Network Sync Is Bidirectional (Resolved in 2026)
 
-**Status:** Active limitation.
+**Status:** Resolved milestone.
 
-`arc-net` exposes a read-only HTTP server. `arc push` POSTs objects to a remote arc-net instance, but there is no peer-initiated push protocol or authenticated remote view update. There is no equivalent of `git push --force` or remote branch protection.
+arc now supports bidirectional sync through two production paths:
 
-**Impact:** arc is currently best suited to a hub-and-spoke sync model. True P2P sync (every node is both client and server) is not yet supported.
+- **Git Smart HTTP Bridge** for compatibility with legacy Git remotes.
+- **Native TCP Sync Protocol** for direct arc-to-arc synchronization.
 
-**Roadmap:** A gossip-based sync layer is planned for arc 1.2.
+Remote peers can both send and receive changesets, including view updates, over the native protocol.
+
+**Roadmap:** Next networking work focuses on higher-level replication topologies (for example, gossip-assisted distribution), not basic push/pull capability.
 
 ---
 
@@ -80,14 +83,14 @@ arc does not yet have a per-file attribute system (end-of-line normalization, bi
 
 ---
 
-## 8. `arc-net` Has No Authentication Layer
+## 8. `arc-net` Mutation Auth Is Token-Gated (Resolved in 2026)
 
-**Status:** Active limitation.
+**Status:** Resolved milestone.
 
-The `arc-net` HTTP server serves CAS objects and views without authentication. Write endpoints are protected only by network-level firewall rules.
+Remote mutation paths now enforce an authentication token guard (`ARC_SYNC_TOKEN`) for non-loopback peers. This gate is validated before accepting remote state mutations.
 
-**Roadmap:** TLS + ed25519-authenticated requests for `arc-net` are planned for the 1.0 stable release.
+**Roadmap:** TLS transport hardening and richer request-level cryptographic attestation remain planned for the 1.0 stable line.
 
 ---
 
-*If you encounter a limitation not listed here, please open a GitHub Issue or submit a PR adding it to this file.*
+_If you encounter a limitation not listed here, please open a GitHub Issue or submit a PR adding it to this file._
