@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
+use arc_net::ai::AiProvider;
 use serde::{Deserialize, Serialize};
 
 use arc_core::ai::AiResolver;
@@ -89,6 +90,20 @@ impl UiConfig {
     }
 }
 
+/// AI resolver preferences.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    /// Provider backend: `anthropic` or `openai-compatible`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Model identifier passed through to the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Optional custom endpoint (provider-specific URL/base URL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
 /// Repository-level configuration persisted in `.arc/config.toml`.
 ///
 /// Settings are isolated per-repository and never touch the OS keyring.
@@ -104,6 +119,9 @@ pub struct ArcConfig {
     /// Terminal UI preferences (`[ui]` table).
     #[serde(default)]
     pub ui: UiConfig,
+    /// AI resolver preferences (`[ai]` table).
+    #[serde(default)]
+    pub ai: AiConfig,
     /// Named remote aliases mapping a short name to a URL or filesystem path.
     #[serde(default)]
     pub remotes: HashMap<String, String>,
@@ -1381,6 +1399,8 @@ impl Repository {
                 )
                 .map_err(|e| anyhow::anyhow!("AI resolver failed: {e}"))?;
 
+            self.verify_resolved_output(&path, &resolved)?;
+
             // Write resolved blob to CAS now (content-addressed; safe to do
             // before the Change record exists — orphans are GC'd).
             let content_hash = self
@@ -1434,6 +1454,167 @@ impl Repository {
         Ok(())
     }
 
+    /// Resolve a pending conflict using an async, provider-agnostic AI backend.
+    ///
+    /// This path is used by the runtime-configurable `[ai]` provider stack.
+    pub async fn resolve_conflict_with_provider(
+        &mut self,
+        provider: &dyn AiProvider,
+        model: &str,
+    ) -> anyhow::Result<()> {
+        let conflict_path = self.shared_root.join(".arc").join("conflict");
+        if !conflict_path.exists() {
+            anyhow::bail!("no pending conflict - nothing to resolve");
+        }
+        if has_pending_ai(&self.shared_root) {
+            anyhow::bail!(
+                "An AI change is already pending approval.\n\
+                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+            );
+        }
+
+        let conflict_bytes = fs::read(&conflict_path)?;
+        let conflict: PendingConflict = bincode::deserialize(&conflict_bytes)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize conflict: {e}"))?;
+
+        self.hydrate(&conflict.current_view)?;
+        self.hydrate_heads(&conflict.target_heads)?;
+
+        let current_view = View::load(&self.shared_root, &conflict.current_view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
+
+        let lca_heads = self
+            .graph
+            .load()
+            .merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_state = if lca_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&lca_heads)?
+        };
+
+        let current_state = self.materialize_heads(&current_view.heads)?;
+        let target_state = self.materialize_heads(&conflict.target_heads)?;
+
+        let mut merge_atoms = Vec::new();
+        let mut combined_intent = String::from("AI merge: ");
+        let mut affected_files: Vec<PathBuf> = Vec::new();
+
+        let g = self.graph.load_full();
+        for (id_a, id_b) in &conflict.conflicting_pairs {
+            let change_a = g
+                .get(id_a)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+            let change_b = g
+                .get(id_b)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+
+            let overlap = find_overlapping_path(&change_a.atoms, &change_b.atoms);
+            let path = overlap
+                .ok_or_else(|| anyhow::anyhow!("no overlapping path found for conflicting pair"))?;
+
+            let base_content = extract_content_at_path(&lca_state, &path);
+            let mut ours_content = extract_content_at_path(&current_state, &path);
+            let mut theirs_content = extract_content_at_path(&target_state, &path);
+            let mut base_content = base_content;
+
+            if let Some((bases, sides)) = decode_conflict_projection(&ours_content) {
+                if let Some(base_hash) = bases.first() {
+                    base_content = read_blob_bytes(&self.shared_root, base_hash)?;
+                }
+                if let Some(side_a) = sides.first() {
+                    ours_content = read_blob_bytes(&self.shared_root, side_a)?;
+                }
+                if let Some(side_b) = sides.get(1) {
+                    theirs_content = read_blob_bytes(&self.shared_root, side_b)?;
+                }
+            }
+
+            let file_path = if path.len() >= 2 && path[0] == "file" {
+                path[1].as_str()
+            } else {
+                "unknown"
+            };
+
+            let resolved = provider
+                .resolve_conflict(
+                    &String::from_utf8_lossy(&base_content),
+                    &String::from_utf8_lossy(&ours_content),
+                    &String::from_utf8_lossy(&theirs_content),
+                    file_path,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("AI provider resolver failed: {e}"))?
+                .into_bytes();
+
+            self.verify_resolved_output(&path, &resolved)?;
+
+            let content_hash = self
+                .store
+                .write_blob(&resolved)
+                .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
+            merge_atoms.push(Atom::Insert {
+                at: path.clone(),
+                content_hash,
+            });
+
+            if path.len() >= 2 && path[0] == "file" {
+                let file_path = self.work_root.join(&path[1]);
+                if let Some(parent) = file_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&file_path, &resolved)
+                    .map_err(|e| anyhow::anyhow!("failed to write resolved file: {e}"))?;
+                affected_files.push(PathBuf::from(&path[1]));
+            }
+
+            combined_intent.push_str(&change_a.intent);
+            combined_intent.push_str(" + ");
+            combined_intent.push_str(&change_b.intent);
+            combined_intent.push_str("; ");
+        }
+
+        let mut merge_deps = current_view.heads.clone();
+        merge_deps.extend(&conflict.target_heads);
+
+        let pending = PendingAiChange::new_resolve(
+            model.to_string(),
+            combined_intent,
+            affected_files,
+            merge_atoms,
+            merge_deps.into_iter().collect(),
+        );
+        save_pending_ai(&self.shared_root, &pending)?;
+
+        fs::remove_file(&conflict_path)?;
+        Ok(())
+    }
+
+    fn verify_resolved_output(&self, path: &[String], resolved: &[u8]) -> anyhow::Result<()> {
+        if path.len() < 2 || path[0] != "file" {
+            return Ok(());
+        }
+        let filepath = &path[1];
+        if !filepath.ends_with(".rs") {
+            return Ok(());
+        }
+
+        let source = std::str::from_utf8(resolved).map_err(|_| {
+            anyhow::anyhow!("AI resolver produced non-UTF-8 content for Rust file '{filepath}'")
+        })?;
+
+        let plugin = RustPlugin::new();
+        plugin.diff("", source, &self.store).map_err(|e| {
+            anyhow::anyhow!(
+                "AI-resolved Rust content failed parser verification for '{filepath}': {e}"
+            )
+        })?;
+
+        Ok(())
+    }
+
     // ------------------------------------------------------------------
     // AI Provenance — approve_pending_ai / snap_ai
     // ------------------------------------------------------------------
@@ -1482,10 +1663,20 @@ impl Repository {
 
                 // Advance the current view to the new merge change.
                 let view_name = self.current_view_name()?;
-                let updated = View::new(&view_name, HashSet::from([change.id]));
-                updated
+                let mut view = View::load(&self.shared_root, &view_name)
+                    .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+                let before_heads = view.heads.clone();
+                view.heads = HashSet::from([change.id]);
+                view
                     .save(&self.shared_root)
                     .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+
+                self.log_operation(
+                    "ai resolve",
+                    &view_name,
+                    before_heads,
+                    HashSet::from([change.id]),
+                )?;
 
                 let _ = self.try_embed_change(&change);
                 change.id
@@ -4673,6 +4864,67 @@ mod tests {
         assert!(
             ai_changes[0].verify_signature(),
             "AI change must have a valid signature"
+        );
+    }
+
+    #[test]
+    fn test_ai_conflict_resolution_with_provider() {
+        struct MockProvider;
+
+        #[async_trait::async_trait]
+        impl arc_net::ai::AiProvider for MockProvider {
+            async fn resolve_conflict(
+                &self,
+                _base: &str,
+                side_a: &str,
+                side_b: &str,
+                _file_path: &str,
+            ) -> anyhow::Result<String> {
+                Ok(format!("{side_a}\n{side_b}"))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("ai_resolve_provider_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
+
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
+
+        repo.merge_view("feature").unwrap();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(repo.resolve_conflict_with_provider(&MockProvider, "mock-model"))
+            .unwrap();
+
+        let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
+        assert!(content.contains("let a = 1") && content.contains("let b = 2"));
+
+        let (approve_author, approve_key) = arc_core::store::author::test_keypair();
+        let _ = repo
+            .approve_pending_ai(&approve_author, &approve_key)
+            .unwrap();
+
+        let oplog = arc_core::store::oplog::OpLog::new(&repo.shared_root.join(".arc"));
+        let ops = oplog.read_all().unwrap();
+        assert!(
+            ops.iter().any(|op| op.command == "ai resolve"),
+            "approval flow should record 'ai resolve' operation"
         );
     }
 

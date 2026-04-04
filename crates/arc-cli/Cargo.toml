@@ -48,3 +48,4 @@ signal-hook = "0.4.3"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+async-trait = "0.1.89"

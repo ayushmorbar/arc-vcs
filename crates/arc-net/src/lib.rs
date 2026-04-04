@@ -11,5 +11,8 @@
 
 #![warn(missing_docs)]
 
+/// LLM provider abstractions and implementations used by `arc resolve`.
+pub mod ai;
+
 /// HTTP server exposing the arc CAS to remote peers for fetch and pull operations.
 pub mod server;

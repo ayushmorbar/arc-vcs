@@ -7,7 +7,7 @@ use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
 };
 use arc_cli::sync::{fetch, pull};
-use arc_core::ai::{LlmResolver, MockResolver};
+use arc_net::ai::build_provider;
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
@@ -411,9 +411,9 @@ enum ViewAction {
 enum AiAction {
     /// Resolve a pending semantic conflict using the AI resolver.
     ///
-    /// Uses LLM resolution if ARC_AI_KEY is set; falls back to mock resolver
-    /// for offline / CI scenarios.  The resolved content is written to the
-    /// working directory as a Ghost Node — run 'arc ai approve' to finalise.
+    /// Uses `[ai]` provider settings from config and reads the API key from
+    /// `ARC_AI_API_KEY` at runtime. The resolved content is written to the
+    /// working directory as a Ghost Node - run 'arc ai approve' to finalise.
     Resolve,
     /// Approve and cryptographically sign a pending AI change (Ghost Node).
     ///
@@ -538,7 +538,7 @@ enum ConfigAction {
     /// Read a typed configuration value.
     ///
     /// Known keys: `user.name`, `user.email`, `ui.color`, `merge.tool`,
-    /// `remotes.<name>`, `aliases.<name>`.
+    /// `ai.provider`, `ai.model`, `ai.endpoint`, `remotes.<name>`, `aliases.<name>`.
     Get {
         /// Dot-separated config key (e.g. `ui.color`).
         key: String,
@@ -1033,20 +1033,36 @@ fn main() -> anyhow::Result<()> {
                 let mut repo = Repository::open(".")?;
                 let (author, signing_key) = load_identity()?;
                 repo.set_identity(author, signing_key);
-                let resolver: Box<dyn arc_core::ai::AiResolver> = match LlmResolver::from_env() {
-                    Some(llm) => {
-                        eprintln!("[arc] Using LLM resolver (model: {}).", llm.model);
-                        Box::new(llm)
-                    }
-                    None => {
-                        eprintln!(
-                            "[arc] ARC_AI_KEY not set — using mock resolver. \
-                                 Set ARC_AI_KEY to enable real AI resolution."
-                        );
-                        Box::new(MockResolver)
-                    }
-                };
-                repo.resolve_conflict(resolver.as_ref())?;
+
+                let cfg = load_merged_config(std::path::Path::new("."))?;
+                let provider_name = cfg
+                    .ai
+                    .provider
+                    .as_deref()
+                    .unwrap_or("openai-compatible");
+                let model = cfg
+                    .ai
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                let endpoint = cfg.ai.endpoint.clone();
+                let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
+                    anyhow::anyhow!(
+                        "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
+                    )
+                })?;
+
+                let provider = build_provider(provider_name, &model, endpoint, api_key)?;
+                eprintln!(
+                    "[arc] Using AI provider '{}' with model '{}'.",
+                    provider_name, model
+                );
+
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                rt.block_on(repo.resolve_conflict_with_provider(provider.as_ref(), &model))?;
+
                 println!(
                     "[arc] Resolution staged as Ghost Node. \
                      Review changes then run 'arc ai approve'."
@@ -1596,6 +1612,16 @@ fn main() -> anyhow::Result<()> {
                 if let Some(e) = &config.user.email {
                     println!("email = {e}");
                 }
+                println!("\n[ai]");
+                if let Some(provider) = &config.ai.provider {
+                    println!("provider = {provider}");
+                }
+                if let Some(model) = &config.ai.model {
+                    println!("model = {model}");
+                }
+                if let Some(endpoint) = &config.ai.endpoint {
+                    println!("endpoint = {endpoint}");
+                }
                 println!("\n[ui]");
                 println!("color = {}", config.ui.color);
                 println!("\n[merge]");
@@ -1641,6 +1667,9 @@ fn config_get(cfg: &ArcConfig, key: &str) -> Option<String> {
         "user.email" => cfg.user.email.clone(),
         "ui.color" => Some(cfg.ui.color.clone()),
         "merge.tool" => cfg.merge.tool.clone(),
+        "ai.provider" => cfg.ai.provider.clone(),
+        "ai.model" => cfg.ai.model.clone(),
+        "ai.endpoint" => cfg.ai.endpoint.clone(),
         _ => {
             // remotes.<name> and aliases.<name>
             if let Some(name) = key.strip_prefix("remotes.") {
@@ -1667,6 +1696,15 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
             cfg.ui.color = value.to_string();
         }
         "merge.tool" => cfg.merge.tool = Some(value.to_string()),
+        "ai.provider" => {
+            anyhow::ensure!(
+                matches!(value, "anthropic" | "openai-compatible"),
+                "ai.provider must be 'anthropic' or 'openai-compatible'"
+            );
+            cfg.ai.provider = Some(value.to_string());
+        }
+        "ai.model" => cfg.ai.model = Some(value.to_string()),
+        "ai.endpoint" => cfg.ai.endpoint = Some(value.to_string()),
         _ => {
             if let Some(name) = key.strip_prefix("remotes.") {
                 cfg.remotes.insert(name.to_string(), value.to_string());
@@ -1676,6 +1714,7 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
                 anyhow::bail!(
                     "unknown config key '{key}'; known keys: \
                      user.name, user.email, ui.color, merge.tool, \
+                     ai.provider, ai.model, ai.endpoint, \
                      remotes.<name>, aliases.<name>"
                 );
             }
@@ -1691,6 +1730,9 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
         "user.email" => cfg.user.email = None,
         "ui.color" => cfg.ui.color = "auto".to_string(),
         "merge.tool" => cfg.merge.tool = None,
+        "ai.provider" => cfg.ai.provider = None,
+        "ai.model" => cfg.ai.model = None,
+        "ai.endpoint" => cfg.ai.endpoint = None,
         _ => {
             if let Some(name) = key.strip_prefix("remotes.") {
                 cfg.remotes.remove(name);
@@ -1700,6 +1742,7 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
                 anyhow::bail!(
                     "unknown config key '{key}'; known keys: \
                      user.name, user.email, ui.color, merge.tool, \
+                     ai.provider, ai.model, ai.endpoint, \
                      remotes.<name>, aliases.<name>"
                 );
             }
