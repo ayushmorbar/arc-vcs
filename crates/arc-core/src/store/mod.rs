@@ -4,6 +4,8 @@
 pub mod author;
 /// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
 pub mod blake3_hasher;
+/// Deterministic DAG bisect state machine and persistence.
+pub mod bisect;
 /// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
 /// Immutable semantic changes and their dependency metadata.

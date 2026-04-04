@@ -15,7 +15,7 @@ use arc_cli::workspace_policy::audit_workspace_policy;
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
-use arc_core::store::newtypes::SnapshotId;
+use arc_core::store::newtypes::{ChangeId, SnapshotId};
 use arc_core::store::oplog::OperationAgent;
 use arc_core::store::synthesis::{SynthesisSnapshot, list_snapshot_ids};
 use arc_core::store::view::View;
@@ -312,7 +312,7 @@ enum Command {
         #[arg(long = "message", short = 'm')]
         message: String,
         /// Target revision. Only `@` / `HEAD` is currently supported.
-        #[arg(long, short = 'r', default_value = "@")] 
+        #[arg(long, short = 'r', default_value = "@")]
         revision: String,
     },
     /// Undo the last view-mutating operation using the operation log (O(1) pointer-swap).
@@ -323,6 +323,16 @@ enum Command {
     Root,
     /// Display version information.
     Version,
+    /// Bisect history to isolate first bad (or good) change.
+    Bisect {
+        #[command(subcommand)]
+        action: BisectAction,
+    },
+    /// Benchmark core DAG and revset operations.
+    Bench {
+        #[command(subcommand)]
+        action: BenchAction,
+    },
     /// Inspect and manage the spacetime operation log.
     Op {
         #[command(subcommand)]
@@ -479,6 +489,69 @@ enum Command {
 enum OpAction {
     /// Print the operation log in reverse-chronological order.
     Log,
+}
+
+#[derive(Subcommand)]
+enum BisectAction {
+    /// Start a new bisect session over a revset range.
+    Start {
+        /// Revset range expression (e.g. `ancestors(@)`).
+        #[arg(long, short = 'r', required = true)]
+        range: String,
+        /// Find first good revision instead of first bad.
+        #[arg(long, default_value_t = false)]
+        find_good: bool,
+    },
+    /// Show or compute the next revision to test.
+    Next,
+    /// Mark current revision as good.
+    Good,
+    /// Mark current revision as bad.
+    Bad,
+    /// Print bisect session status.
+    Status,
+    /// Reset (clear) bisect session state.
+    Reset,
+}
+
+#[derive(Subcommand)]
+enum BenchAction {
+    /// Benchmark common-ancestor computation.
+    CommonAncestors {
+        /// Left revision.
+        left: String,
+        /// Right revision.
+        right: String,
+        /// Number of benchmark iterations.
+        #[arg(long, default_value_t = 100)]
+        iterations: u32,
+    },
+    /// Benchmark ancestor predicate.
+    IsAncestor {
+        /// Potential ancestor revision.
+        ancestor: String,
+        /// Potential descendant revision.
+        descendant: String,
+        /// Number of benchmark iterations.
+        #[arg(long, default_value_t = 100)]
+        iterations: u32,
+    },
+    /// Benchmark commit hash-prefix resolution.
+    ResolvePrefix {
+        /// Prefix to resolve.
+        prefix: String,
+        /// Number of benchmark iterations.
+        #[arg(long, default_value_t = 100)]
+        iterations: u32,
+    },
+    /// Benchmark revset compilation and evaluation.
+    Revset {
+        /// Revset expression.
+        revset: String,
+        /// Number of benchmark iterations.
+        #[arg(long, default_value_t = 100)]
+        iterations: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1764,6 +1837,130 @@ fn main() -> anyhow::Result<()> {
         Command::Version => {
             print!("{}", Cli::command().render_version());
         }
+        Command::Bisect { action } => {
+            let mut repo = Repository::open(".")?;
+            match action {
+                BisectAction::Start { range, find_good } => {
+                    let state = repo.bisect_start(&range, find_good)?;
+                    println!(
+                        "Started bisect: {} candidates ({} untested)",
+                        state.candidates.len(),
+                        state.untested_count()
+                    );
+                    match state.current {
+                        Some(id) => println!("Next test revision: {}", short_change_id(id)),
+                        None => println!("Bisect converged immediately; no untested revisions."),
+                    }
+                }
+                BisectAction::Next => {
+                    let state = repo.bisect_next()?;
+                    match state.current {
+                        Some(id) => println!("Next test revision: {}", short_change_id(id)),
+                        None => println!("Bisect complete: no untested revisions remain."),
+                    }
+                }
+                BisectAction::Good => {
+                    let state = repo.bisect_mark_good()?;
+                    let (good_count, bad_count) = display_bisect_counts(&state);
+                    println!(
+                        "Marked good. good={} bad={} untested={}",
+                        good_count,
+                        bad_count,
+                        state.untested_count()
+                    );
+                    match state.current {
+                        Some(id) => println!("Next test revision: {}", short_change_id(id)),
+                        None => println!("Bisect complete: no untested revisions remain."),
+                    }
+                }
+                BisectAction::Bad => {
+                    let state = repo.bisect_mark_bad()?;
+                    let (good_count, bad_count) = display_bisect_counts(&state);
+                    println!(
+                        "Marked bad. good={} bad={} untested={}",
+                        good_count,
+                        bad_count,
+                        state.untested_count()
+                    );
+                    match state.current {
+                        Some(id) => println!("Next test revision: {}", short_change_id(id)),
+                        None => println!("Bisect complete: no untested revisions remain."),
+                    }
+                }
+                BisectAction::Status => match repo.bisect_status()? {
+                    Some(state) => {
+                        let (good_count, bad_count) = display_bisect_counts(&state);
+                        println!(
+                            "Bisect status: range='{}' good={} bad={} untested={}",
+                            state.range_expr,
+                            good_count,
+                            bad_count,
+                            state.untested_count()
+                        );
+                        match state.current {
+                            Some(id) => println!("Current revision: {}", short_change_id(id)),
+                            None => println!("Current revision: <none>"),
+                        }
+                    }
+                    None => println!("No active bisect session."),
+                },
+                BisectAction::Reset => {
+                    repo.bisect_reset()?;
+                    println!("Bisect session reset.");
+                }
+            }
+        }
+        Command::Bench { action } => {
+            let mut repo = Repository::open(".")?;
+            match action {
+                BenchAction::CommonAncestors {
+                    left,
+                    right,
+                    iterations,
+                } => {
+                    let (total_nanos, last_len) =
+                        repo.bench_common_ancestors(&left, &right, iterations)?;
+                    println!(
+                        "bench common-ancestors: iterations={} avg={}ns result_count={}",
+                        iterations.max(1),
+                        total_nanos / u128::from(iterations.max(1)),
+                        last_len
+                    );
+                }
+                BenchAction::IsAncestor {
+                    ancestor,
+                    descendant,
+                    iterations,
+                } => {
+                    let (total_nanos, result) =
+                        repo.bench_is_ancestor(&ancestor, &descendant, iterations)?;
+                    println!(
+                        "bench is-ancestor: iterations={} avg={}ns result={}",
+                        iterations.max(1),
+                        total_nanos / u128::from(iterations.max(1)),
+                        result
+                    );
+                }
+                BenchAction::ResolvePrefix { prefix, iterations } => {
+                    let (total_nanos, hits) = repo.bench_resolve_prefix(&prefix, iterations)?;
+                    println!(
+                        "bench resolve-prefix: iterations={} avg={}ns hits={}",
+                        iterations.max(1),
+                        total_nanos / u128::from(iterations.max(1)),
+                        hits
+                    );
+                }
+                BenchAction::Revset { revset, iterations } => {
+                    let (total_nanos, count) = repo.bench_revset(&revset, iterations)?;
+                    println!(
+                        "bench revset: iterations={} avg={}ns count={}",
+                        iterations.max(1),
+                        total_nanos / u128::from(iterations.max(1)),
+                        count
+                    );
+                }
+            }
+        }
         Command::Op { action } => match action {
             OpAction::Log => {
                 let repo = Repository::open(".")?;
@@ -2714,6 +2911,19 @@ fn dehex(b: u8) -> anyhow::Result<u8> {
         b'a'..=b'f' => Ok(b - b'a' + 10),
         b'A'..=b'F' => Ok(b - b'A' + 10),
         _ => anyhow::bail!("invalid hex character: {}", b as char),
+    }
+}
+
+fn short_change_id(id: ChangeId) -> String {
+    let hex = id.to_hex();
+    hex[..8].to_string()
+}
+
+fn display_bisect_counts(state: &arc_core::store::bisect::BisectState) -> (usize, usize) {
+    if state.find_good {
+        (state.bad_count(), state.good_count())
+    } else {
+        (state.good_count(), state.bad_count())
     }
 }
 

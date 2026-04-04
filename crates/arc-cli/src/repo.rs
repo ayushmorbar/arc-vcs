@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use arc_net::ai::AiProvider;
@@ -18,6 +18,10 @@ use arc_core::algebra::sparse::SparseMatcher;
 use arc_core::algebra::{Atom, Blake3Hash, NodePath};
 use arc_core::engine::mutator;
 use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
+use arc_core::store::bisect::{
+    BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
+    load_state as load_bisect_state, save_state as save_bisect_state,
+};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
@@ -2015,6 +2019,188 @@ impl Repository {
             .into_iter()
             .map(|id| self.read_change(&Blake3Hash::from(id)))
             .collect()
+    }
+
+    /// Start a new bisect session from a revset range.
+    #[tracing::instrument(skip_all, fields(range = %range_revset, find_good = find_good))]
+    pub fn bisect_start(&mut self, range_revset: &str, find_good: bool) -> anyhow::Result<BisectState> {
+        self.acquire_lock()?;
+        let selected = self.resolve_revset_ids(range_revset)?;
+        anyhow::ensure!(
+            !selected.is_empty(),
+            "bisect range '{}' selected no revisions",
+            range_revset
+        );
+
+        let graph = self.graph_snapshot();
+        let mut state = BisectEngine::start(range_revset.to_string(), selected, find_good);
+        state.current = BisectEngine::select_next(graph.as_ref(), &state);
+        save_bisect_state(&self.shared_root, &state)?;
+        Ok(state)
+    }
+
+    /// Return current bisect state, if present.
+    pub fn bisect_status(&self) -> anyhow::Result<Option<BisectState>> {
+        load_bisect_state(&self.shared_root)
+    }
+
+    /// Remove current bisect session state.
+    pub fn bisect_reset(&mut self) -> anyhow::Result<()> {
+        self.acquire_lock()?;
+        clear_bisect_state(&self.shared_root)
+    }
+
+    /// Return bisect state with computed next candidate when needed.
+    pub fn bisect_next(&mut self) -> anyhow::Result<BisectState> {
+        self.acquire_lock()?;
+        let mut state = load_bisect_state(&self.shared_root)?
+            .ok_or_else(|| anyhow::anyhow!("no active bisect session"))?;
+        if state.current.is_none() {
+            let graph = self.graph_snapshot();
+            state.current = BisectEngine::select_next(graph.as_ref(), &state);
+            save_bisect_state(&self.shared_root, &state)?;
+        }
+        Ok(state)
+    }
+
+    /// Mark the current bisect revision as good.
+    pub fn bisect_mark_good(&mut self) -> anyhow::Result<BisectState> {
+        self.bisect_mark_current(BisectMark::Good)
+    }
+
+    /// Mark the current bisect revision as bad.
+    pub fn bisect_mark_bad(&mut self) -> anyhow::Result<BisectState> {
+        self.bisect_mark_current(BisectMark::Bad)
+    }
+
+    fn bisect_mark_current(&mut self, user_mark: BisectMark) -> anyhow::Result<BisectState> {
+        self.acquire_lock()?;
+        let mut state = load_bisect_state(&self.shared_root)?
+            .ok_or_else(|| anyhow::anyhow!("no active bisect session"))?;
+        let current = state
+            .current
+            .ok_or_else(|| anyhow::anyhow!("bisect session has no current revision to mark"))?;
+
+        let internal_mark = if state.find_good {
+            match user_mark {
+                BisectMark::Good => BisectMark::Bad,
+                BisectMark::Bad => BisectMark::Good,
+                BisectMark::Untested => BisectMark::Untested,
+            }
+        } else {
+            user_mark
+        };
+
+        let graph = self.graph_snapshot();
+        BisectEngine::mark(graph.as_ref(), &mut state, current, internal_mark)?;
+        state.current = BisectEngine::select_next(graph.as_ref(), &state);
+        save_bisect_state(&self.shared_root, &state)?;
+        Ok(state)
+    }
+
+    /// Benchmark common ancestor computation between two revisions.
+    pub fn bench_common_ancestors(
+        &mut self,
+        left: &str,
+        right: &str,
+        iterations: u32,
+    ) -> anyhow::Result<(u128, usize)> {
+        let left_id = self.resolve_rev(left)?;
+        let right_id = self.resolve_rev(right)?;
+        self.hydrate_heads(&HashSet::from([left_id, right_id]))?;
+        let graph = self.graph_snapshot();
+
+        let mut total_nanos = 0u128;
+        let mut last_len = 0usize;
+        for _ in 0..iterations.max(1) {
+            let start = Instant::now();
+            let ancestors = graph.merge_base(&HashSet::from([left_id]), &HashSet::from([right_id]));
+            total_nanos += start.elapsed().as_nanos();
+            last_len = ancestors.len();
+        }
+        Ok((total_nanos, last_len))
+    }
+
+    /// Benchmark ancestor check between two revisions.
+    pub fn bench_is_ancestor(
+        &mut self,
+        ancestor: &str,
+        descendant: &str,
+        iterations: u32,
+    ) -> anyhow::Result<(u128, bool)> {
+        let ancestor_id = self.resolve_rev(ancestor)?;
+        let descendant_id = self.resolve_rev(descendant)?;
+        self.hydrate_heads(&HashSet::from([descendant_id]))?;
+        let graph = self.graph_snapshot();
+
+        let mut total_nanos = 0u128;
+        let mut last = false;
+        for _ in 0..iterations.max(1) {
+            let start = Instant::now();
+            let ancestors = graph.ancestors(&HashSet::from([descendant_id]));
+            last = ancestors.contains(&ancestor_id);
+            total_nanos += start.elapsed().as_nanos();
+        }
+        Ok((total_nanos, last))
+    }
+
+    /// Benchmark hash-prefix resolution against loaded DAG nodes.
+    pub fn bench_resolve_prefix(
+        &mut self,
+        prefix: &str,
+        iterations: u32,
+    ) -> anyhow::Result<(u128, usize)> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let graph = self.graph_snapshot();
+        let prefix_lower = prefix.to_ascii_lowercase();
+
+        let mut total_nanos = 0u128;
+        let mut last_len = 0usize;
+        for _ in 0..iterations.max(1) {
+            let start = Instant::now();
+            let mut hits = 0usize;
+            for change in graph.iter() {
+                if ChangeId::from(change.id).to_hex().starts_with(&prefix_lower) {
+                    hits += 1;
+                }
+            }
+            total_nanos += start.elapsed().as_nanos();
+            last_len = hits;
+        }
+        Ok((total_nanos, last_len))
+    }
+
+    /// Benchmark revset evaluation by counting selected revisions.
+    pub fn bench_revset(&mut self, revset: &str, iterations: u32) -> anyhow::Result<(u128, usize)> {
+        let mut total_nanos = 0u128;
+        let mut last_count = 0usize;
+        for _ in 0..iterations.max(1) {
+            let start = Instant::now();
+            let selected = self.resolve_revset_ids(revset)?;
+            total_nanos += start.elapsed().as_nanos();
+            last_count = selected.len();
+        }
+        Ok((total_nanos, last_count))
+    }
+
+    fn resolve_revset_ids(&mut self, revset: &str) -> anyhow::Result<BTreeSet<ChangeId>> {
+        let expr = arc_core::revset::parse(revset)
+            .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
+        self.prepare_revset(&expr)?;
+
+        let graph = self.graph_snapshot();
+        let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
+        let mut refs_resolver =
+            |function_name: &str| self.resolve_revset_reference_heads(function_name);
+        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids_with_refs(
+            &expr,
+            Arc::clone(&graph),
+            &mut resolver,
+            &mut refs_resolver,
+        )?
+        .collect();
+        Ok(selected)
     }
 
     /// Semantic search over the current view's history using embedding similarity.
@@ -5665,6 +5851,37 @@ mod tests {
 
         let content = fs::read_to_string(repo_path.join("lib.rs")).unwrap();
         assert!(content.contains("fn changed()"));
+    }
+
+    #[test]
+    fn test_bisect_roundtrip_start_mark_next() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("bisect_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("lib.rs"), "fn v1() {}\n").unwrap();
+        let _ = repo.snap("v1", false).unwrap().unwrap();
+        fs::write(repo_path.join("lib.rs"), "fn v2() {}\n").unwrap();
+        let _ = repo.snap("v2", false).unwrap().unwrap();
+        fs::write(repo_path.join("lib.rs"), "fn v3() {}\n").unwrap();
+        let _ = repo.snap("v3", false).unwrap().unwrap();
+
+        let started = repo.bisect_start("ancestors(@)", false).unwrap();
+        assert!(started.current.is_some());
+        assert!(repo_path.join(".arc").join("bisect").join("state.bin").exists());
+
+        let after_mark = repo.bisect_mark_good().unwrap();
+        // After marking current as good, either we have a next candidate or session converged.
+        let _ = after_mark.current;
+
+        let status = repo.bisect_status().unwrap().unwrap();
+        assert_eq!(status.range_expr, "ancestors(@)");
+
+        repo.bisect_reset().unwrap();
+        assert!(repo.bisect_status().unwrap().is_none());
     }
 
     #[test]
