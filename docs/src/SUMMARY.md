@@ -51,6 +51,14 @@
 
 ---
 
+# Enterprise Operations
+
+- [Disaster Recovery Runbook](howto/disaster-recovery.md)
+- [Performance and Maintenance Runbook](howto/performance-maintenance.md)
+- [Large Monorepo Playbook (Sparse and Mounts)](howto/large-monorepo-playbook.md)
+
+---
+
 # Architecture & ADRs
 
 - [Architecture Overview](architecture/overview.md)
