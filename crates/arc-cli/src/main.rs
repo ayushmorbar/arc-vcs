@@ -10,7 +10,9 @@ use arc_cli::sync::{fetch, pull};
 use arc_core::algebra::Blake3Hash;
 use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
+use arc_core::store::newtypes::SnapshotId;
 use arc_core::store::oplog::OperationAgent;
+use arc_core::store::synthesis::{SynthesisSnapshot, list_snapshot_ids};
 use arc_core::store::view::View;
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
@@ -369,6 +371,11 @@ enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Capture and inspect architecture synthesis snapshots.
+    Synthesis {
+        #[command(subcommand)]
+        action: SynthesisAction,
+    },
     /// Package OS metadata and an anonymized DAG dump for bug reporting.
     BugReport {
         /// Output file path (default: `./arc-bugreport.json`).
@@ -569,6 +576,80 @@ enum ConfigAction {
     },
     /// Print all configuration values (global + local merged).
     List,
+}
+
+#[derive(Subcommand)]
+enum SynthesisAction {
+    /// Capture a deterministic synthesis snapshot from one or more files.
+    Capture {
+        /// Source label (e.g. `jj-main`, `git-master`).
+        #[arg(long, default_value = "jj-main")]
+        source: String,
+        /// Input files to include in the synthesis snapshot.
+        #[arg(required = true)]
+        files: Vec<String>,
+    },
+    /// Show one snapshot by id.
+    Show {
+        /// 64-hex snapshot id.
+        id: String,
+    },
+    /// List all captured synthesis snapshots.
+    List,
+}
+
+#[tracing::instrument(skip(files), fields(source = %source))]
+fn capture_synthesis_snapshot(source: &str, files: &[String]) -> anyhow::Result<()> {
+    let repo = Repository::open(".")?;
+    let paths: Vec<std::path::PathBuf> = files.iter().map(std::path::PathBuf::from).collect();
+    let snapshot = SynthesisSnapshot::capture(&repo.work_root, source.to_string(), &paths)?;
+    snapshot.persist(&repo.shared_root)?;
+
+    tracing::info!(
+        id = %snapshot.id,
+        artifact_count = snapshot.artifacts.len(),
+        "synthesis snapshot captured"
+    );
+
+    println!("Captured synthesis snapshot: {}", snapshot.id);
+    for artifact in &snapshot.artifacts {
+        println!(
+            "  - {} ({} bytes, {})",
+            artifact.path,
+            artifact.byte_len,
+            artifact
+                .content_hash
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+    }
+    Ok(())
+}
+
+#[tracing::instrument(fields(snapshot_id = %id))]
+fn show_synthesis_snapshot(id: &str) -> anyhow::Result<()> {
+    let repo = Repository::open(".")?;
+    let parsed = SnapshotId::from_hex(id)?;
+    let snapshot = SynthesisSnapshot::load(&repo.shared_root, parsed)?;
+
+    println!("Snapshot: {}", snapshot.id);
+    println!("Source: {}", snapshot.source);
+    println!("Created: {}", snapshot.created_at_unix);
+    println!("Artifacts:");
+    for artifact in &snapshot.artifacts {
+        println!(
+            "  - {} ({} bytes, {})",
+            artifact.path,
+            artifact.byte_len,
+            artifact
+                .content_hash
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+    }
+    Ok(())
 }
 
 fn init_tracing() {
@@ -1662,6 +1743,25 @@ fn main() -> anyhow::Result<()> {
                     al.sort_by_key(|(k, _)| k.as_str());
                     for (k, v) in al {
                         println!("{k} = {v}");
+                    }
+                }
+            }
+        },
+        Command::Synthesis { action } => match action {
+            SynthesisAction::Capture { source, files } => {
+                capture_synthesis_snapshot(&source, &files)?;
+            }
+            SynthesisAction::Show { id } => {
+                show_synthesis_snapshot(&id)?;
+            }
+            SynthesisAction::List => {
+                let repo = Repository::open(".")?;
+                let ids = list_snapshot_ids(&repo.shared_root)?;
+                if ids.is_empty() {
+                    println!("No synthesis snapshots found.");
+                } else {
+                    for id in ids {
+                        println!("{id}");
                     }
                 }
             }

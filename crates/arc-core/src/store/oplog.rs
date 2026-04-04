@@ -424,10 +424,7 @@ mod tests {
     fn test_days_to_ymd_known_date() {
         // 2025-03-08 ≈ 20155 days after 1970-01-01
         let (y, _m, _d) = _days_to_ymd(20155);
-        assert!(
-            (2024..=2026).contains(&y),
-            "year should be near 2025, got {y}"
-        );
+        assert!((2024..=2026).contains(&y), "year should be near 2025, got {y}");
     }
 
     #[test]

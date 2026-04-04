@@ -10,6 +10,10 @@ pub mod cas;
 pub mod change;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
+/// Strongly-typed content IDs (NewType wrappers).
+pub mod newtypes;
+/// Crash-consistent synthesized architecture snapshots.
+pub mod synthesis;
 /// Signal-safe temporary-file registry.
 pub mod tempfile;
 
