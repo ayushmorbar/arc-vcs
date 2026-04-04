@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use arc_core::algebra::Atom;
 use arc_core::store::author::Author;
@@ -10,6 +10,15 @@ use owo_colors::OwoColorize;
 #[derive(Debug, Clone, Copy)]
 pub struct GraphRenderer {
     use_color: bool,
+}
+
+/// Decorations keyed by commit id for renderer row labels.
+#[derive(Debug, Clone, Default)]
+pub struct GraphDecorations {
+    /// Tag names by target change id.
+    pub tags: BTreeMap<ChangeId, Vec<String>>,
+    /// Remote-tracking branch names by tracked head id.
+    pub remotes: BTreeMap<ChangeId, Vec<String>>,
 }
 
 impl Default for GraphRenderer {
@@ -31,6 +40,15 @@ impl GraphRenderer {
 
     /// Render `changes` (expected newest-first) into graph lines.
     pub fn render(&self, changes: &[Change]) -> Vec<String> {
+        self.render_with_decorations(changes, &GraphDecorations::default())
+    }
+
+    /// Render `changes` with optional reference decorations.
+    pub fn render_with_decorations(
+        &self,
+        changes: &[Change],
+        decorations: &GraphDecorations,
+    ) -> Vec<String> {
         let visible: HashSet<ChangeId> = changes.iter().map(|c| ChangeId::from(c.id)).collect();
         let mut active: Vec<ChangeId> = Vec::new();
         let mut lines = Vec::new();
@@ -69,7 +87,12 @@ impl GraphRenderer {
             lines.push(format!(
                 "{} {}",
                 graph_prefix,
-                self.row_label(change, change_is_ai(change), change_has_conflict(change))
+                self.row_label(
+                    change,
+                    change_is_ai(change),
+                    change_has_conflict(change),
+                    decorations,
+                )
             ));
 
             if parents.is_empty() {
@@ -141,36 +164,75 @@ impl GraphRenderer {
         "○".cyan().to_string()
     }
 
-    fn row_label(&self, change: &Change, is_ai: bool, has_conflict: bool) -> String {
-        let short_id = ChangeId::from(change.id).to_hex()[..8].to_string();
+    fn row_label(
+        &self,
+        change: &Change,
+        is_ai: bool,
+        has_conflict: bool,
+        decorations: &GraphDecorations,
+    ) -> String {
+        let change_id = ChangeId::from(change.id);
+        let short_id = change_id.to_hex()[..8].to_string();
         let author = author_label(&change.author);
-        let mut tags = Vec::new();
+        let mut state_badges = Vec::new();
 
         if has_conflict {
-            tags.push(if self.use_color {
+            state_badges.push(if self.use_color {
                 "⚠".red().bold().to_string()
             } else {
                 "⚠".to_string()
             });
         }
         if is_ai {
-            tags.push(if self.use_color {
+            state_badges.push(if self.use_color {
                 "🤖".magenta().bold().to_string()
             } else {
                 "🤖".to_string()
             });
         }
 
-        if tags.is_empty() {
+        let mut ref_badges = Vec::new();
+        if let Some(names) = decorations.tags.get(&change_id) {
+            for name in names {
+                ref_badges.push(self.ref_badge(name, true));
+            }
+        }
+        if let Some(names) = decorations.remotes.get(&change_id) {
+            for name in names {
+                ref_badges.push(self.ref_badge(name, false));
+            }
+        }
+
+        let mut badge_chunks = Vec::new();
+        if !state_badges.is_empty() {
+            badge_chunks.push(state_badges.join(""));
+        }
+        if !ref_badges.is_empty() {
+            badge_chunks.push(ref_badges.join(" "));
+        }
+
+        if badge_chunks.is_empty() {
             format!("{} {} | {}", short_id, author, change.intent)
         } else {
             format!(
                 "{} {} {} | {}",
                 short_id,
-                tags.join(""),
+                badge_chunks.join(" "),
                 author,
                 change.intent
             )
+        }
+    }
+
+    fn ref_badge(&self, name: &str, is_tag: bool) -> String {
+        let text = format!("[{}]", name);
+        if !self.use_color {
+            return text;
+        }
+        if is_tag {
+            text.cyan().to_string()
+        } else {
+            text.yellow().to_string()
         }
     }
 }
@@ -213,8 +275,9 @@ mod tests {
     use arc_core::algebra::Atom;
     use arc_core::store::author::test_keypair;
     use arc_core::store::change::Change;
+    use arc_core::store::newtypes::ChangeId;
 
-    use super::GraphRenderer;
+    use super::{GraphDecorations, GraphRenderer};
 
     fn mk_change(deps: HashSet<[u8; 32]>, label: &str, with_conflict: bool, ai: bool) -> Change {
         let (author, key) = test_keypair();
@@ -278,5 +341,24 @@ mod tests {
         let lines = GraphRenderer::monochrome().render(&[conflict, ai, root]);
         assert!(lines.iter().any(|line| line.contains("⚠")));
         assert!(lines.iter().any(|line| line.contains("🤖")));
+    }
+
+    #[test]
+    fn renders_ref_decorations() {
+        let root = mk_change(HashSet::new(), "root", false, false);
+        let head = mk_change(HashSet::from([root.id]), "head", false, false);
+
+        let mut decorations = GraphDecorations::default();
+        decorations
+            .tags
+            .insert(ChangeId::from(head.id), vec!["v1.0.0".to_string()]);
+        decorations.remotes.insert(
+            ChangeId::from(head.id),
+            vec!["origin/main".to_string()],
+        );
+
+        let lines = GraphRenderer::monochrome().render_with_decorations(&[head, root], &decorations);
+        assert!(lines.iter().any(|line| line.contains("[v1.0.0]")));
+        assert!(lines.iter().any(|line| line.contains("[origin/main]")));
     }
 }

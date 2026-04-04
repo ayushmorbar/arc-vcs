@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
@@ -13,30 +13,54 @@ pub type RevsetIterator<'a> = Box<dyn Iterator<Item = Blake3Hash> + 'a>;
 /// Typed iterator over strongly-typed change identifiers.
 pub type RevsetChangeIdIterator<'a> = Box<dyn Iterator<Item = ChangeId> + 'a>;
 
+/// Resolver for metadata-backed reference functions such as `tags()`.
+pub trait ReferenceResolver {
+    /// Resolve function-backed reference heads by function name.
+    fn resolve_reference_heads(&mut self, function_name: &str) -> Result<BTreeSet<ChangeId>>;
+}
+
+impl<F> ReferenceResolver for F
+where
+    F: FnMut(&str) -> Result<BTreeSet<ChangeId>>,
+{
+    fn resolve_reference_heads(&mut self, function_name: &str) -> Result<BTreeSet<ChangeId>> {
+        self(function_name)
+    }
+}
+
 /// Typed revset evaluator over a [`ChangeGraph`].
-pub struct RevsetEvaluator<'g, F>
+pub struct RevsetEvaluator<'g, F, R>
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
 {
     graph: Arc<ChangeGraph>,
     resolve_symbol: &'g mut F,
+    resolve_refs: &'g mut R,
 }
 
-impl<'g, F> RevsetEvaluator<'g, F>
+impl<'g, F, R> RevsetEvaluator<'g, F, R>
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
 {
     /// Create a new evaluator bound to `graph` and a repository-specific symbol resolver.
-    pub fn new(graph: Arc<ChangeGraph>, resolve_symbol: &'g mut F) -> Self {
+    pub fn new(graph: Arc<ChangeGraph>, resolve_symbol: &'g mut F, resolve_refs: &'g mut R) -> Self {
         Self {
             graph,
             resolve_symbol,
+            resolve_refs,
         }
     }
 
     /// Evaluate `expr` into a lazy iterator of typed [`ChangeId`] values.
     pub fn evaluate<'a>(&mut self, expr: &RevsetExpression) -> Result<RevsetChangeIdIterator<'a>> {
-        compile_impl_change_ids(expr, Arc::clone(&self.graph), self.resolve_symbol)
+        compile_impl_change_ids(
+            expr,
+            Arc::clone(&self.graph),
+            self.resolve_symbol,
+            self.resolve_refs,
+        )
     }
 }
 
@@ -66,34 +90,65 @@ pub fn compile_change_ids<'a, F>(
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
 {
-    compile_impl_change_ids(expr, graph, resolve_symbol)
+    let mut missing_refs = |name: &str| {
+        bail!(
+            "revset function '{name}' requires reference resolver; use compile_change_ids_with_refs()"
+        )
+    };
+    compile_impl_change_ids(expr, graph, resolve_symbol, &mut missing_refs)
 }
 
-fn compile_impl_change_ids<'a, F>(
+/// Compile a revset AST with explicit support for metadata-backed ref functions.
+pub fn compile_change_ids_with_refs<'a, F, R>(
     expr: &RevsetExpression,
     graph: Arc<ChangeGraph>,
     resolve_symbol: &mut F,
+    resolve_refs: &mut R,
 ) -> Result<RevsetChangeIdIterator<'a>>
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
+{
+    compile_impl_change_ids(expr, graph, resolve_symbol, resolve_refs)
+}
+
+fn compile_impl_change_ids<'a, F, R>(
+    expr: &RevsetExpression,
+    graph: Arc<ChangeGraph>,
+    resolve_symbol: &mut F,
+    resolve_refs: &mut R,
+) -> Result<RevsetChangeIdIterator<'a>>
+where
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
 {
     match expr {
         RevsetExpression::Symbol(name) => compile_symbol(name, resolve_symbol),
         RevsetExpression::Union(left, right) => {
-            let left_iter = compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol)?;
-            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol)?;
+            let left_iter = compile_impl_change_ids(
+                left,
+                Arc::clone(&graph),
+                resolve_symbol,
+                resolve_refs,
+            )?;
+            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol, resolve_refs)?;
             Ok(Box::new(UnionIterator::new(left_iter, right_iter)))
         }
         RevsetExpression::Intersection(left, right) => {
-            let left_iter = compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol)?;
-            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol)?;
+            let left_iter = compile_impl_change_ids(
+                left,
+                Arc::clone(&graph),
+                resolve_symbol,
+                resolve_refs,
+            )?;
+            let right_iter = compile_impl_change_ids(right, graph, resolve_symbol, resolve_refs)?;
             let right_set: HashSet<ChangeId> = right_iter.collect();
             Ok(Box::new(
                 left_iter.filter(move |hash| right_set.contains(hash)),
             ))
         }
         RevsetExpression::Function { name, args } => {
-            compile_function(name, args, graph, resolve_symbol)
+            compile_function(name, args, graph, resolve_symbol, resolve_refs)
         }
     }
 }
@@ -117,14 +172,16 @@ where
     bail!("unknown revset symbol '{name}'")
 }
 
-fn compile_function<'a, F>(
+fn compile_function<'a, F, R>(
     name: &str,
     args: &[RevsetExpression],
     graph: Arc<ChangeGraph>,
     resolve_symbol: &mut F,
+    resolve_refs: &mut R,
 ) -> Result<RevsetChangeIdIterator<'a>>
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
 {
     match name {
         "ancestors" => {
@@ -134,7 +191,12 @@ where
             let arg = args
                 .first()
                 .ok_or_else(|| anyhow!("ancestors() expects exactly one argument"))?;
-            let starts_iter = compile_impl_change_ids(arg, Arc::clone(&graph), resolve_symbol)?;
+            let starts_iter = compile_impl_change_ids(
+                arg,
+                Arc::clone(&graph),
+                resolve_symbol,
+                resolve_refs,
+            )?;
             let starts = starts_iter.collect::<Vec<_>>();
             Ok(Box::new(AncestorsIterator::new(graph, starts)))
         }
@@ -142,9 +204,8 @@ where
             if !args.is_empty() {
                 bail!("{name}() expects no arguments");
             }
-            bail!(
-                "unsupported revset function '{name}'; only ancestors() is currently implemented"
-            )
+            let heads = resolve_refs.resolve_reference_heads(name)?;
+            Ok(Box::new(heads.into_iter()))
         }
         _ => bail!("unsupported revset function '{name}'"),
     }
@@ -348,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_union_of_tags_and_remote_branches_until_refs_are_wired() {
+    fn unions_tags_and_remote_branches_with_mock_reference_resolver() {
         let mut graph = ChangeGraph::new();
         let root = make_change(&mut graph, HashSet::new(), "root");
         let a = make_change(&mut graph, HashSet::from([root]), "a");
@@ -357,15 +418,20 @@ mod tests {
         let graph = Arc::new(graph);
         let ast = parse("remote_branches() | tags()").expect("query should parse");
         let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
-
-        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
-            Ok(_) => panic!(
-                "compile should fail until tags()/remote_branches() are metadata-backed"
-            ),
-            Err(err) => err,
+        let mut refs = |name: &str| -> Result<BTreeSet<ChangeId>> {
+            match name {
+                "remote_branches" => Ok(BTreeSet::from([ChangeId::from(a)])),
+                "tags" => Ok(BTreeSet::from([ChangeId::from(b)])),
+                _ => Ok(BTreeSet::new()),
+            }
         };
-        assert!(err.to_string().contains("unsupported revset function"));
 
-        let _ = (a, b);
+        let result: HashSet<ChangeId> =
+            compile_change_ids_with_refs(&ast, Arc::clone(&graph), &mut resolver, &mut refs)
+                .expect("compile should succeed")
+                .collect();
+
+        let expected = HashSet::from([ChangeId::from(a), ChangeId::from(b)]);
+        assert_eq!(result, expected);
     }
 }

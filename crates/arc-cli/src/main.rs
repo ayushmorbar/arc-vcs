@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use arc_cli::graph_render::GraphRenderer;
+use arc_cli::graph_render::{GraphDecorations, GraphRenderer};
 use arc_cli::interop::git::import_repo;
 use arc_cli::repo::{
     ArcConfig, Repository, load_merged_config, save_global_config, save_local_config,
@@ -961,8 +961,12 @@ fn main() -> anyhow::Result<()> {
                 if changes.is_empty() {
                     println!("No changes yet. Use 'arc snap' to create your first change.");
                 } else {
+                    let decorations = GraphDecorations {
+                        tags: repo.tag_decorations()?,
+                        remotes: repo.remote_branch_decorations()?,
+                    };
                     let renderer = GraphRenderer::new();
-                    for line in renderer.render(&changes) {
+                    for line in renderer.render_with_decorations(&changes, &decorations) {
                         println!("{line}");
                     }
                 }

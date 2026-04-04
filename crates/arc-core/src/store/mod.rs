@@ -12,6 +12,8 @@ pub mod change;
 pub mod graph;
 /// Strongly-typed content IDs (NewType wrappers).
 pub mod newtypes;
+/// Reference metadata readers for tags and remote-tracking branches.
+pub mod refs;
 /// Crash-consistent synthesized architecture snapshots.
 pub mod synthesis;
 /// Signal-safe temporary-file registry.

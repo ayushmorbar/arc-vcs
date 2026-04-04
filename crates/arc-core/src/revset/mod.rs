@@ -6,6 +6,7 @@ pub mod engine;
 pub mod parser;
 
 pub use engine::{
-    RevsetChangeIdIterator, RevsetEvaluator, RevsetIterator, compile, compile_change_ids,
+    ReferenceResolver, RevsetChangeIdIterator, RevsetEvaluator, RevsetIterator, compile,
+    compile_change_ids, compile_change_ids_with_refs,
 };
 pub use parser::{RevsetExpression, parse};

@@ -21,6 +21,9 @@ use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
 use arc_core::store::newtypes::ChangeId;
 use arc_core::store::oplog::{OpLog, Operation};
+use arc_core::store::refs::{
+    read_remote_branch_heads, read_remote_branch_map, read_tag_heads, read_tag_map,
+};
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
 use arc_lang::ast::LanguagePlugin;
@@ -2011,10 +2014,12 @@ impl Repository {
 
         let graph = self.graph_snapshot();
         let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
-        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids(
+        let mut refs_resolver = |function_name: &str| self.resolve_revset_reference_heads(function_name);
+        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids_with_refs(
             &expr,
             Arc::clone(&graph),
             &mut resolver,
+            &mut refs_resolver,
         )?
         .collect();
 
@@ -3803,6 +3808,30 @@ impl Repository {
             .map(|opt| opt.map(ChangeId::from))
     }
 
+    /// Resolve metadata-backed revset functions to typed reference heads.
+    pub fn resolve_revset_reference_heads(
+        &self,
+        function_name: &str,
+    ) -> anyhow::Result<BTreeSet<ChangeId>> {
+        match function_name {
+            "tags" => read_tag_heads(&self.shared_root),
+            "remote_branches" => read_remote_branch_heads(&self.shared_root),
+            _ => Ok(BTreeSet::new()),
+        }
+    }
+
+    /// Return tag decorations keyed by target change id.
+    pub fn tag_decorations(&self) -> anyhow::Result<std::collections::BTreeMap<ChangeId, Vec<String>>> {
+        read_tag_map(&self.shared_root)
+    }
+
+    /// Return remote branch decorations keyed by tracked head change id.
+    pub fn remote_branch_decorations(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<ChangeId, Vec<String>>> {
+        read_remote_branch_map(&self.shared_root)
+    }
+
     /// Prepare graph state required for evaluating a revset expression.
     ///
     /// This hydrates referenced view heads and full 64-character hash symbols
@@ -3839,7 +3868,15 @@ impl Repository {
 
                 Ok(())
             }
-            arc_core::revset::RevsetExpression::Function { args, .. } => {
+            arc_core::revset::RevsetExpression::Function { name, args } => {
+                if matches!(name.as_str(), "tags" | "remote_branches") {
+                    let heads = self.resolve_revset_reference_heads(name)?;
+                    if !heads.is_empty() {
+                        let hashes: HashSet<Blake3Hash> =
+                            heads.iter().copied().map(Blake3Hash::from).collect();
+                        self.hydrate_heads(&hashes)?;
+                    }
+                }
                 for arg in args {
                     self.prepare_revset_impl(arg)?;
                 }
