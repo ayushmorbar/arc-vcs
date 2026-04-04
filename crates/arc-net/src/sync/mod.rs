@@ -5,8 +5,12 @@
 
 /// Length-prefixed binary frame codec used over TCP streams.
 pub mod codec;
+/// Native TCP sync client.
+pub mod client;
 /// Protocol handshake payloads and status envelopes.
 pub mod protocol;
+/// Native TCP sync server.
+pub mod server;
 
 /// 4-byte stream prelude identifying the native arc sync protocol.
 pub const MAGIC_BYTES: &[u8; 4] = b"ARC\x01";

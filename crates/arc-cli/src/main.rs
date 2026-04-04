@@ -170,6 +170,11 @@ enum Command {
         #[command(subcommand)]
         source: ImportSource,
     },
+    /// Perform native TCP sync handshake with a remote arc peer.
+    Sync {
+        /// Native sync server address, e.g. 127.0.0.1:9000.
+        address: String,
+    },
     /// Fetch missing changes from a remote repository.
     Fetch {
         /// Path to the remote repository.
@@ -191,7 +196,7 @@ enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
-    /// Start an HTTP server serving the current repository over TCP.
+    /// Start the native TCP sync server for the current repository.
     Serve {
         /// TCP port to listen on.
         #[arg(short, long, default_value_t = 8080)]
@@ -1146,8 +1151,19 @@ fn main() -> anyhow::Result<()> {
             }
         },
         Command::Serve { port } => {
+            let repo = Repository::open(".")?;
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(arc_net::server::serve(port))?;
+            rt.block_on(arc_net::sync::server::serve(port, repo.shared_root.clone()))?;
+        }
+        Command::Sync { address } => {
+            let repo = Repository::open(".")?;
+            let heads = collect_local_view_heads(&repo)?;
+            let rt = tokio::runtime::Runtime::new()?;
+            let response = rt.block_on(arc_net::sync::client::sync_remote(&address, heads))?;
+            println!(
+                "[arc] Native sync handshake successful. Server status: {}",
+                response.status
+            );
         }
         Command::Remote { action } => match action {
             RemoteAction::Add { name, url } => {
@@ -1781,6 +1797,21 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn collect_local_view_heads(
+    repo: &Repository,
+) -> anyhow::Result<std::collections::HashMap<String, Blake3Hash>> {
+    let mut heads = std::collections::HashMap::new();
+    for view_name in repo.list_views()? {
+        let view = View::load(&repo.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let Some(head) = view.heads.iter().min().copied() else {
+            continue;
+        };
+        heads.insert(view_name, head);
+    }
+    Ok(heads)
 }
 
 /// Parse a 64-character hex string into a [`Blake3Hash`].

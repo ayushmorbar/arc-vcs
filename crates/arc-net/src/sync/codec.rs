@@ -57,6 +57,13 @@ impl SyncFrame {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ArcSyncCodec;
 
+impl ArcSyncCodec {
+    /// Construct a new sync frame codec instance.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl Decoder for ArcSyncCodec {
     type Item = SyncFrame;
     type Error = io::Error;

@@ -227,6 +227,7 @@ dependencies = [
  "arc-core",
  "async-trait",
  "axum",
+ "bincode",
  "blake3",
  "bytes",
  "futures-util",
