@@ -16,6 +16,10 @@ pub struct BlobId(pub Blake3Hash);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SnapshotId(pub Blake3Hash);
 
+/// Strongly-typed history mutation transaction identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct MutationId(pub Blake3Hash);
+
 impl ChangeId {
     /// Return lowercase hex representation.
     pub fn to_hex(self) -> String {
@@ -55,6 +59,19 @@ impl SnapshotId {
     }
 }
 
+impl MutationId {
+    /// Return lowercase hex representation.
+    pub fn to_hex(self) -> String {
+        hash_to_hex(&self.0)
+    }
+
+    /// Parse a 64-char lowercase/uppercase hex string.
+    pub fn from_hex(input: &str) -> anyhow::Result<Self> {
+        let bytes = decode_hex_32(input)?;
+        Ok(Self(bytes))
+    }
+}
+
 impl fmt::Display for SnapshotId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_hex())
@@ -68,6 +85,12 @@ impl fmt::Display for ChangeId {
 }
 
 impl fmt::Display for BlobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
+
+impl fmt::Display for MutationId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_hex())
     }
@@ -100,6 +123,18 @@ impl From<BlobId> for Blake3Hash {
 impl From<Blake3Hash> for SnapshotId {
     fn from(value: Blake3Hash) -> Self {
         Self(value)
+    }
+}
+
+impl From<Blake3Hash> for MutationId {
+    fn from(value: Blake3Hash) -> Self {
+        Self(value)
+    }
+}
+
+impl From<MutationId> for Blake3Hash {
+    fn from(value: MutationId) -> Self {
+        value.0
     }
 }
 
@@ -167,6 +202,18 @@ mod tests {
         assert_eq!(
             id.to_hex(),
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+    }
+
+    #[test]
+    fn mutation_id_roundtrip_hex() {
+        let id = super::MutationId::from_hex(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        .expect("valid hex must parse");
+        assert_eq!(
+            id.to_hex(),
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         );
     }
 }

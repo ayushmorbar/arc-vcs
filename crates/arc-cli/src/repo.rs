@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 use arc_net::ai::AiProvider;
@@ -15,12 +16,13 @@ use arc_core::algebra::apply::{BlameState, MaterializedState, apply_change};
 use arc_core::algebra::commute::commutes;
 use arc_core::algebra::sparse::SparseMatcher;
 use arc_core::algebra::{Atom, Blake3Hash, NodePath};
+use arc_core::engine::mutator;
 use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
 use arc_core::store::cas::ObjectStore;
 use arc_core::store::change::Change;
 use arc_core::store::graph::ChangeGraph;
-use arc_core::store::newtypes::ChangeId;
-use arc_core::store::oplog::{OpLog, Operation};
+use arc_core::store::newtypes::{ChangeId, MutationId};
+use arc_core::store::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
 use arc_core::store::refs::{
     read_remote_branch_heads, read_remote_branch_map, read_tag_heads, read_tag_map,
 };
@@ -2014,7 +2016,8 @@ impl Repository {
 
         let graph = self.graph_snapshot();
         let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
-        let mut refs_resolver = |function_name: &str| self.resolve_revset_reference_heads(function_name);
+        let mut refs_resolver =
+            |function_name: &str| self.resolve_revset_reference_heads(function_name);
         let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids_with_refs(
             &expr,
             Arc::clone(&graph),
@@ -2655,6 +2658,158 @@ impl Repository {
         OpLog::new(&self.shared_root.join(".arc")).append(&op)
     }
 
+    fn append_rewrite_operation(
+        &self,
+        command: &str,
+        view: &str,
+        before_heads: HashSet<Blake3Hash>,
+        after_heads: HashSet<Blake3Hash>,
+        rewrite_map: &HashMap<Blake3Hash, Blake3Hash>,
+    ) -> anyhow::Result<()> {
+        let tx_id = next_mutation_id(command, view, rewrite_map)?;
+        let tx = RewriteTransaction {
+            tx_id,
+            command: command.to_string(),
+            view: view.to_string(),
+            before_heads: hashes_to_change_ids(&before_heads),
+            after_heads: hashes_to_change_ids(&after_heads),
+            rewrite_map: rewrite_map
+                .iter()
+                .map(|(old, new)| (ChangeId::from(*old), ChangeId::from(*new)))
+                .collect(),
+            agent: OperationAgent::Human,
+        };
+        OpLog::new(&self.shared_root.join(".arc")).append_transaction(&tx)
+    }
+
+    fn load_epoch_map_raw(&self) -> anyhow::Result<HashMap<String, String>> {
+        let canonical = self.shared_root.join(".arc").join("epochs");
+        let canonical_staged_backup = canonical.with_extension("bak.new");
+        let canonical_backup = canonical.with_extension("bak");
+        let legacy = self.shared_root.join(".arc").join("epochs.json");
+        let path = if canonical.exists() {
+            canonical
+        } else if canonical_staged_backup.exists() {
+            canonical_staged_backup
+        } else if canonical_backup.exists() {
+            canonical_backup
+        } else {
+            legacy
+        };
+        if !path.exists() {
+            return Ok(HashMap::new());
+        }
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("could not read epoch map '{}': {e}", path.display()))?;
+        serde_json::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("epoch map '{}' is not valid JSON: {e}", path.display()))
+    }
+
+    fn persist_epoch_map_raw(&self, map: &HashMap<String, String>) -> anyhow::Result<()> {
+        let path = self.shared_root.join(".arc").join("epochs");
+        let tmp = path.with_extension("tmp");
+        let backup = path.with_extension("bak");
+        let staged_backup = path.with_extension("bak.new");
+        let payload = serde_json::to_string_pretty(map)
+            .map_err(|e| anyhow::anyhow!("epoch map serialisation error: {e}"))?;
+        fs::write(&tmp, payload).map_err(|e| anyhow::anyhow!("could not write epoch map: {e}"))?;
+
+        if staged_backup.exists() {
+            fs::remove_file(&staged_backup)
+                .map_err(|e| anyhow::anyhow!("could not remove stale epoch staged backup: {e}"))?;
+        }
+        if path.exists() {
+            fs::rename(&path, &staged_backup)
+                .map_err(|e| anyhow::anyhow!("could not stage existing epoch map: {e}"))?;
+        }
+        if let Err(err) = fs::rename(&tmp, &path) {
+            if staged_backup.exists() {
+                let _ = fs::rename(&staged_backup, &path);
+            }
+            return Err(anyhow::anyhow!("could not rename epoch map: {err}"));
+        }
+        if staged_backup.exists() {
+            if backup.exists() {
+                fs::remove_file(&backup)
+                    .map_err(|e| anyhow::anyhow!("could not replace epoch backup: {e}"))?;
+            }
+            fs::rename(&staged_backup, &backup)
+                .map_err(|e| anyhow::anyhow!("could not finalize epoch backup: {e}"))?;
+        }
+
+        let legacy = self.shared_root.join(".arc").join("epochs.json");
+        if legacy.exists() {
+            let _ = fs::remove_file(legacy);
+        }
+        Ok(())
+    }
+
+    fn persist_rewrite_map(
+        &self,
+        rewrite_map: &HashMap<Blake3Hash, Blake3Hash>,
+    ) -> anyhow::Result<()> {
+        let mut epoch_map = self.load_epoch_map_raw()?;
+        for (old, new) in rewrite_map {
+            epoch_map.insert(_hex(old), _hex(new));
+        }
+        self.persist_epoch_map_raw(&epoch_map)
+    }
+
+    fn stage_rewrite_metadata(
+        &self,
+        command: &str,
+        view: &str,
+        before_heads: HashSet<Blake3Hash>,
+        after_heads: HashSet<Blake3Hash>,
+        rewrite_map: &HashMap<Blake3Hash, Blake3Hash>,
+    ) -> anyhow::Result<HashMap<String, String>> {
+        let previous_epoch = self.load_epoch_map_raw()?;
+        self.persist_rewrite_map(rewrite_map)?;
+        if let Err(err) =
+            self.append_rewrite_operation(command, view, before_heads, after_heads, rewrite_map)
+        {
+            let _ = self.persist_epoch_map_raw(&previous_epoch);
+            return Err(err);
+        }
+        Ok(previous_epoch)
+    }
+
+    fn rollback_rewrite_metadata(
+        &self,
+        previous_epoch: &HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let mut failures = Vec::new();
+        if let Err(err) = OpLog::new(&self.shared_root.join(".arc")).pop() {
+            failures.push(format!("oplog rollback failed: {err}"));
+        }
+        if let Err(err) = self.persist_epoch_map_raw(previous_epoch) {
+            failures.push(format!("epoch rollback failed: {err}"));
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(failures.join("; "))
+        }
+    }
+
+    fn rollback_rewrite_map_entries(
+        &self,
+        rewrite_map: &std::collections::BTreeMap<ChangeId, ChangeId>,
+    ) -> anyhow::Result<()> {
+        if rewrite_map.is_empty() {
+            return Ok(());
+        }
+        let mut epoch_map = self.load_epoch_map_raw()?;
+        for (old, new) in rewrite_map {
+            let old_hex = old.to_hex();
+            let new_hex = new.to_hex();
+            if epoch_map.get(&old_hex).is_some_and(|v| v == &new_hex) {
+                epoch_map.remove(&old_hex);
+            }
+        }
+        self.persist_epoch_map_raw(&epoch_map)
+    }
+
     /// Undo the last view-mutating operation recorded in the operation log.
     ///
     /// Pops the most-recent [`Operation`] via [`OpLog`], restores the view to
@@ -2670,6 +2825,15 @@ impl Repository {
             Some(op) => op,
             None => return Ok(None),
         };
+
+        if matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite)
+            && let Err(err) = self.rollback_rewrite_map_entries(&op.rewrite_map)
+        {
+            let _ = OpLog::new(&arc_dir).append(&op);
+            return Err(anyhow::anyhow!(
+                "failed to rollback rewrite map during undo: {err}"
+            ));
+        }
 
         // Load the current view and materialise it so we know which blob files
         // exist right now (and may need to be removed after the undo).
@@ -3458,8 +3622,6 @@ impl Repository {
     /// Returns an error when the current view has more than one head, when the
     /// spine is non-linear, or when `target_id` is not an ancestor of HEAD.
     pub fn squash_into(&mut self, target_rev: &str) -> anyhow::Result<Blake3Hash> {
-        use arc_core::engine::spacetime::squash_into as engine_squash;
-
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;
 
@@ -3477,53 +3639,137 @@ impl Repository {
         let (author, signing_key) = self.signing_identity()?;
         let signer = (author.clone(), signing_key.clone());
 
-        let squashed = engine_squash(
-            &self.graph.load_full(),
-            &self.store,
-            &view.heads,
-            target_id,
-            &signer,
-        )
-        .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
+        let outcome =
+            mutator::squash_into(&self.graph.load_full(), &view.heads, target_id, &signer)
+                .map_err(|e| anyhow::anyhow!("squash failed: {e}"))?;
 
-        let new_id = squashed.id;
+        let new_id = outcome.squashed.id;
         self.store
-            .write_change(&squashed)
+            .write_change(&outcome.squashed)
             .map_err(|e| anyhow::anyhow!("failed to write squashed change: {e}"))?;
-        self.graph_add_change(squashed);
+        self.graph_add_change(outcome.squashed.clone());
 
-        // Record epoch map entry: old head → new squashed id.
-        let old_head = *view.heads.iter().next().unwrap();
-        let epochs_path = self.shared_root.join(".arc").join("epochs.json");
-        let mut epoch_map: HashMap<String, String> = if epochs_path.exists() {
-            let raw = fs::read_to_string(&epochs_path)?;
-            serde_json::from_str(&raw).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-        epoch_map.insert(_hex(&old_head), _hex(&new_id));
-        let tmp = epochs_path.with_extension("tmp");
-        fs::write(&tmp, serde_json::to_string_pretty(&epoch_map)?)?;
-        fs::rename(&tmp, &epochs_path)
-            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
-
-        self.log_operation(
+        let rewrite_map: HashMap<Blake3Hash, Blake3Hash> = outcome
+            .rewrite_map
+            .iter()
+            .map(|(old, new)| (Blake3Hash::from(*old), Blake3Hash::from(*new)))
+            .collect();
+        let previous_epoch = self.stage_rewrite_metadata(
             "squash",
             &view_name,
             view.heads.clone(),
             HashSet::from([new_id]),
+            &rewrite_map,
         )?;
 
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
-        updated_view
-            .save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        if let Err(e) = updated_view.save(&self.shared_root) {
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(anyhow::anyhow!("failed to save view: {e}"));
+        }
 
-        let new_state = self.materialize(&view_name)?;
-        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
+        let new_state = match self.materialize(&view_name) {
+            Ok(state) => state,
+            Err(err) => {
+                let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+                let _ = self.rollback_rewrite_metadata(&previous_epoch);
+                return Err(err);
+            }
+        };
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)
+        {
+            let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(err);
+        }
 
         tracing::info!(target = %_hex(&target_id), new = %_hex(&new_id), "squash complete");
         Ok(new_id)
+    }
+
+    /// Reorder a contiguous linear chain of revisions.
+    ///
+    /// The input sequence defines the desired oldest->newest order.
+    pub fn reorder(&mut self, ordered_revs: &[String]) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        if ordered_revs.len() < 2 {
+            anyhow::bail!("reorder requires at least two revisions");
+        }
+
+        let view_name = self.current_view_name()?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        if view.heads.len() != 1 {
+            anyhow::bail!(
+                "reorder requires exactly one head; current view '{}' has {} heads",
+                view_name,
+                view.heads.len()
+            );
+        }
+
+        let mut desired = Vec::with_capacity(ordered_revs.len());
+        for rev in ordered_revs {
+            desired.push(self.resolve_rev(rev)?);
+        }
+
+        let old_head = *view
+            .heads
+            .iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("view '{view_name}' has no head"))?;
+        if !desired.contains(&old_head) {
+            anyhow::bail!("reorder set must include current HEAD");
+        }
+
+        let (author, signing_key) = self.signing_identity()?;
+        let signer = (author.clone(), signing_key.clone());
+        let outcome = mutator::reorder(&self.graph.load_full(), &desired, &signer)
+            .map_err(|e| anyhow::anyhow!("reorder failed: {e}"))?;
+
+        for change in &outcome.rewritten {
+            self.store
+                .write_change(change)
+                .map_err(|e| anyhow::anyhow!("failed to write reordered change: {e}"))?;
+            self.graph_add_change(change.clone());
+        }
+
+        let rewrite_map: HashMap<Blake3Hash, Blake3Hash> = outcome
+            .rewrite_map
+            .iter()
+            .map(|(old, new)| (Blake3Hash::from(*old), Blake3Hash::from(*new)))
+            .collect();
+        let new_head = Blake3Hash::from(outcome.new_head);
+        let previous_epoch = self.stage_rewrite_metadata(
+            "reorder",
+            &view_name,
+            view.heads.clone(),
+            HashSet::from([new_head]),
+            &rewrite_map,
+        )?;
+
+        let updated_view = View::new(&view_name, HashSet::from([new_head]));
+        if let Err(e) = updated_view.save(&self.shared_root) {
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(anyhow::anyhow!("failed to save view: {e}"));
+        }
+
+        let new_state = match self.materialize(&view_name) {
+            Ok(state) => state,
+            Err(err) => {
+                let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+                let _ = self.rollback_rewrite_metadata(&previous_epoch);
+                return Err(err);
+            }
+        };
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)
+        {
+            let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(err);
+        }
+
+        tracing::info!(new = %_hex(&new_head), "reorder complete");
+        Ok(new_head)
     }
 
     /// Prepare a diffedit session for the change identified by `target_rev`.
@@ -3661,34 +3907,35 @@ impl Repository {
         let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view: {e}"))?;
 
-        // Record epoch map: old target id → new diffedit id.
-        let epochs_path = self.shared_root.join(".arc").join("epochs.json");
-        let mut epoch_map: HashMap<String, String> = if epochs_path.exists() {
-            let raw = fs::read_to_string(&epochs_path)?;
-            serde_json::from_str(&raw).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-        epoch_map.insert(_hex(&target_id), _hex(&new_id));
-        let tmp = epochs_path.with_extension("tmp");
-        fs::write(&tmp, serde_json::to_string_pretty(&epoch_map)?)?;
-        fs::rename(&tmp, &epochs_path)
-            .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
-
-        self.log_operation(
+        let rewrite_map = HashMap::from([(target_id, new_id)]);
+        let previous_epoch = self.stage_rewrite_metadata(
             "diffedit",
             &view_name,
             view.heads.clone(),
             HashSet::from([new_id]),
+            &rewrite_map,
         )?;
 
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
-        updated_view
-            .save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save updated view: {e}"))?;
+        if let Err(e) = updated_view.save(&self.shared_root) {
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(anyhow::anyhow!("failed to save updated view: {e}"));
+        }
 
-        let new_state = self.materialize(&view_name)?;
-        write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)?;
+        let new_state = match self.materialize(&view_name) {
+            Ok(state) => state,
+            Err(err) => {
+                let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+                let _ = self.rollback_rewrite_metadata(&previous_epoch);
+                return Err(err);
+            }
+        };
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)
+        {
+            let _ = View::new(&view_name, view.heads.clone()).save(&self.shared_root);
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            return Err(err);
+        }
 
         // Remove the diffedit lock file.
         let _ = fs::remove_file(&lock_path);
@@ -3821,7 +4068,9 @@ impl Repository {
     }
 
     /// Return tag decorations keyed by target change id.
-    pub fn tag_decorations(&self) -> anyhow::Result<std::collections::BTreeMap<ChangeId, Vec<String>>> {
+    pub fn tag_decorations(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<ChangeId, Vec<String>>> {
         read_tag_map(&self.shared_root)
     }
 
@@ -3906,6 +4155,23 @@ impl Repository {
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
 fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn next_mutation_id(
+    command: &str,
+    view: &str,
+    rewrite_map: &HashMap<Blake3Hash, Blake3Hash>,
+) -> anyhow::Result<MutationId> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut edges: Vec<(Blake3Hash, Blake3Hash)> =
+        rewrite_map.iter().map(|(old, new)| (*old, *new)).collect();
+    edges.sort();
+    let payload = bincode::serialize(&(command, view, now, &edges))
+        .map_err(|e| anyhow::anyhow!("failed to serialize rewrite transaction id payload: {e}"))?;
+    Ok(MutationId(*blake3::hash(&payload).as_bytes()))
 }
 
 fn hashes_to_change_ids(input: &HashSet<Blake3Hash>) -> std::collections::BTreeSet<ChangeId> {
@@ -4907,7 +5173,10 @@ mod tests {
         repo.create_view("feature").unwrap();
         repo.switch_view("feature").unwrap();
         fs::write(repo_path.join("feature.rs"), "fn feature() {}\n").unwrap();
-        let feature_head = repo.snap("feature head", false).unwrap().expect("feature snap");
+        let feature_head = repo
+            .snap("feature head", false)
+            .unwrap()
+            .expect("feature snap");
 
         repo.switch_view("main").unwrap();
         fs::write(repo_path.join("main.rs"), "fn main_head() {}\n").unwrap();
@@ -4915,7 +5184,9 @@ mod tests {
 
         repo.merge_view("feature").unwrap();
 
-        let entries = repo.log().expect("default log must work for multi-head views");
+        let entries = repo
+            .log()
+            .expect("default log must work for multi-head views");
         let ids: HashSet<Blake3Hash> = entries.iter().map(|change| change.id).collect();
         assert!(ids.contains(&feature_head));
         assert!(ids.contains(&main_head));
@@ -5638,6 +5909,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_rewrite_transaction_undo_restores_heads() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("rewrite_undo_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("main.rs"), "fn a() {}\n").unwrap();
+        repo.snap("add a", false)
+            .unwrap()
+            .expect("snap must produce id");
+
+        fs::write(repo_path.join("main.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+        repo.snap("add b", false)
+            .unwrap()
+            .expect("snap must produce id");
+
+        let before = View::load(&repo_path, "main").unwrap().heads;
+        assert_eq!(before.len(), 1, "test assumes one-head view");
+
+        let _ = repo.squash_into("HEAD~1").unwrap();
+
+        let op = repo
+            .op_log()
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.command == "squash")
+            .expect("oplog must contain squash operation");
+        assert!(
+            matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite),
+            "squash must be stored as rewrite operation"
+        );
+        assert!(!op.rewrite_map.is_empty(), "rewrite map must be recorded");
+
+        repo.undo().unwrap().expect("undo should pop rewrite op");
+        let restored = View::load(&repo_path, "main").unwrap().heads;
+        assert_eq!(restored, before, "undo must restore original heads");
+    }
+
     /// Sparse Safety Law: files outside the active cone must be absent from
     /// disk *and* must not produce false `Delete` atoms when diffing.
     #[test]
@@ -5692,7 +6004,9 @@ mod tests {
         fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
         fs::create_dir_all(repo_path.join("b")).unwrap();
         fs::write(repo_path.join("b").join("c.rs"), "fn c() {}").unwrap();
-        repo.snap("add files", false).unwrap().expect("snap must produce a change");
+        repo.snap("add files", false)
+            .unwrap()
+            .expect("snap must produce a change");
 
         repo.apply_sparse(&["b/".to_string()]).unwrap();
         assert!(!repo_path.join("a.rs").exists());

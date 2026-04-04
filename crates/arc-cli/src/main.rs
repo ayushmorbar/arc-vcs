@@ -307,6 +307,14 @@ enum Command {
         #[arg(long)]
         into: String,
     },
+    /// Reorder a contiguous linear chain of revisions.
+    ///
+    /// Example: `arc reorder HEAD~2 HEAD HEAD~1`.
+    Reorder {
+        /// Desired oldest->newest revision order.
+        #[arg(required = true)]
+        revs: Vec<String>,
+    },
     /// Interactively edit the AST content of an existing change.
     ///
     /// Two-step workflow:
@@ -1467,6 +1475,14 @@ fn main() -> anyhow::Result<()> {
             let new_id = repo.squash_into(&into)?;
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Squashed → {}", &hex[..8]);
+        }
+        Command::Reorder { revs } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+            let new_id = repo.reorder(&revs)?;
+            let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+            println!("Reordered → {}", &hex[..8]);
         }
         Command::Diffedit {
             prepare,

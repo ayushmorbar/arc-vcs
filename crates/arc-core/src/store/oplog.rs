@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::io::{ErrorKind, Write};
@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::store::newtypes::{ChangeId, SnapshotId};
+use crate::store::newtypes::{ChangeId, MutationId, SnapshotId};
 
 /// Maximum number of optimistic publish retries before returning an error.
 pub const MAX_RETRY_ATTEMPTS: usize = 16;
@@ -36,6 +36,36 @@ impl OperationAgent {
     }
 }
 
+/// Operation category for typed audit filtering.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    /// Ordinary repository mutation.
+    #[default]
+    Generic,
+    /// Rewrite transaction (squash, reorder, amend, diffedit).
+    Rewrite,
+}
+
+/// Atomic rewrite transaction payload stored as one OpLog node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RewriteTransaction {
+    /// Strongly-typed transaction id.
+    pub tx_id: MutationId,
+    /// User command label (`squash`, `reorder`, ...).
+    pub command: String,
+    /// Target view name.
+    pub view: String,
+    /// Heads before rewrite.
+    pub before_heads: BTreeSet<ChangeId>,
+    /// Heads after rewrite.
+    pub after_heads: BTreeSet<ChangeId>,
+    /// Old -> new rewritten change map.
+    pub rewrite_map: BTreeMap<ChangeId, ChangeId>,
+    /// Actor attribution.
+    pub agent: OperationAgent,
+}
+
 /// User-facing operation metadata recorded in the OpLog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
@@ -45,6 +75,9 @@ pub struct Operation {
     pub timestamp: u64,
     /// Command name that produced this mutation.
     pub command: String,
+    /// Stable typed operation kind.
+    #[serde(default)]
+    pub kind: OperationKind,
     /// View name this operation targeted.
     pub view: String,
     /// Actor attribution for auditing.
@@ -56,6 +89,12 @@ pub struct Operation {
     /// View heads after applying the mutation.
     #[serde(default)]
     pub after_heads: BTreeSet<ChangeId>,
+    /// Rewrite transaction id when `kind == rewrite`.
+    #[serde(default)]
+    pub tx_id: Option<MutationId>,
+    /// Old -> new rewritten id map for rewrite operations.
+    #[serde(default)]
+    pub rewrite_map: BTreeMap<ChangeId, ChangeId>,
     /// Operation-parent pointers in the OpLog DAG.
     #[serde(default)]
     pub parents: BTreeSet<SnapshotId>,
@@ -110,10 +149,13 @@ impl Operation {
             id: short[..8].to_owned(),
             timestamp,
             command,
+            kind: OperationKind::Generic,
             view,
             agent: OperationAgent::Human,
             before_heads,
             after_heads,
+            tx_id: None,
+            rewrite_map: BTreeMap::new(),
             parents: BTreeSet::new(),
             snapshot: None,
         }
@@ -201,6 +243,21 @@ impl OpLog {
         anyhow::bail!(
             "failed to append operation after {MAX_RETRY_ATTEMPTS} optimistic retries"
         )
+    }
+
+    /// Persist one atomic rewrite transaction operation node.
+    pub fn append_transaction(&self, tx: &RewriteTransaction) -> Result<()> {
+        let mut op = Operation::new_with_agent(
+            tx.command.clone(),
+            tx.view.clone(),
+            tx.before_heads.clone(),
+            tx.after_heads.clone(),
+            tx.agent.clone(),
+        );
+        op.kind = OperationKind::Rewrite;
+        op.tx_id = Some(tx.tx_id);
+        op.rewrite_map = tx.rewrite_map.clone();
+        self.append(&op)
     }
 
     /// Load all reachable operations from current OpLog heads.
@@ -363,10 +420,13 @@ impl OpLog {
         let payload = bincode::serialize(&(
             op.timestamp,
             &op.command,
+            &op.kind,
             &op.view,
             &op.agent,
             &op.before_heads,
             &op.after_heads,
+            &op.tx_id,
+            &op.rewrite_map,
             &op.parents,
         ))
         .context("failed to serialize operation payload")?;
@@ -807,6 +867,30 @@ mod tests {
 
         let ops = OpLog::new(dir.path()).read_all().expect("read_all must succeed");
         assert_eq!(ops.len(), 2);
+    }
+
+    #[test]
+    fn append_transaction_roundtrip() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log = OpLog::new(dir.path());
+
+        let tx = RewriteTransaction {
+            tx_id: MutationId([9u8; 32]),
+            command: "reorder".to_string(),
+            view: "main".to_string(),
+            before_heads: BTreeSet::from([cid(1)]),
+            after_heads: BTreeSet::from([cid(2)]),
+            rewrite_map: BTreeMap::from([(cid(1), cid(2))]),
+            agent: OperationAgent::Human,
+        };
+
+        log.append_transaction(&tx)
+            .expect("append transaction must succeed");
+        let ops = log.read_all().expect("read_all must succeed");
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0].kind, OperationKind::Rewrite));
+        assert_eq!(ops[0].tx_id, Some(tx.tx_id));
+        assert_eq!(ops[0].rewrite_map, tx.rewrite_map);
     }
 
     #[test]

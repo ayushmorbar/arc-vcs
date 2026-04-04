@@ -5,4 +5,6 @@
 //! into user-visible commands:
 //!
 //! - [`spacetime::squash_into`] — fuse a contiguous linear spine into a target change.
+//! - [`mutator`] — rewrite-safe squash/reorder primitives with typed rewrite maps.
+pub mod mutator;
 pub mod spacetime;

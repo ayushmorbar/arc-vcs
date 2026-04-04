@@ -109,6 +109,46 @@ impl Change {
         }
     }
 
+    /// Build a rewritten change while preserving signature only when payload is identical.
+    ///
+    /// If `(deps, atoms, intent, author)` hashes to the same id as `original`
+    /// and the author is unchanged, the original signature is reused.
+    /// Otherwise, a new id is computed and signed with `signing_key`.
+    pub fn rewritten_or_resigned(
+        original: &Self,
+        deps: HashSet<Blake3Hash>,
+        atoms: Vec<Atom>,
+        intent: impl Into<String>,
+        author: Author,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Self {
+        let intent = intent.into();
+        let id = Self::compute_id(&deps, &atoms, &intent, &author);
+
+        if id == original.id && author == original.author {
+            return Self {
+                id,
+                deps,
+                atoms,
+                intent,
+                author,
+                signature: original.signature.clone(),
+                collapsed_from: original.collapsed_from,
+            };
+        }
+
+        let sig: ed25519_dalek::Signature = signing_key.sign(&id);
+        Self {
+            id,
+            deps,
+            atoms,
+            intent,
+            author,
+            signature: Signature(sig.to_bytes()),
+            collapsed_from: original.collapsed_from,
+        }
+    }
+
     /// Build a canonicalized Change from existing fields, signed with a new key.
     /// Used by the server for identity collapsing (Dual-Provenance -- Phase 39).
     ///
@@ -354,6 +394,62 @@ mod tests {
             decoded.verify_signature(),
             "decoded Change must still verify"
         );
+    }
+
+    #[test]
+    fn test_rewritten_or_resigned_reuses_signature_when_payload_identical() {
+        let (author, signing_key) = test_keypair();
+        let original = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["main".into()],
+                content_hash: [7u8; 32],
+            }],
+            "same",
+            author.clone(),
+            &signing_key,
+        );
+
+        let rebuilt = Change::rewritten_or_resigned(
+            &original,
+            original.deps.clone(),
+            original.atoms.clone(),
+            original.intent.clone(),
+            author,
+            &signing_key,
+        );
+
+        assert_eq!(rebuilt.id, original.id);
+        assert_eq!(rebuilt.signature, original.signature);
+        assert!(rebuilt.verify_signature());
+    }
+
+    #[test]
+    fn test_rewritten_or_resigned_re_signs_when_payload_changes() {
+        let (author, signing_key) = test_keypair();
+        let original = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["main".into()],
+                content_hash: [7u8; 32],
+            }],
+            "same",
+            author.clone(),
+            &signing_key,
+        );
+
+        let rebuilt = Change::rewritten_or_resigned(
+            &original,
+            HashSet::from([[9u8; 32]]),
+            original.atoms.clone(),
+            original.intent.clone(),
+            author,
+            &signing_key,
+        );
+
+        assert_ne!(rebuilt.id, original.id);
+        assert_ne!(rebuilt.signature, original.signature);
+        assert!(rebuilt.verify_signature());
     }
 
     /// `collapsed_from` is excluded from `compute_id`, so setting it on an
