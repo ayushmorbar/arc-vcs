@@ -17,6 +17,7 @@ path = "src/main.rs"
 arc-core = { path = "../arc-core" }
 arc-lang = { path = "../arc-lang" }
 arc-net = { path = "../arc-net" }
+arc-git-bridge = { path = "../arc-git-bridge" }
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 clap = { version = "4.6", features = ["derive"] }
 tokio = { version = "1.51.0", features = ["full"] }

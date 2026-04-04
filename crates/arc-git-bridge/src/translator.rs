@@ -34,6 +34,15 @@ impl GitOdb {
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
+
+    pub fn pack_objects(&self) -> Vec<(u8, &[u8])> {
+        let mut ordered: Vec<(&GitSha1, &(u8, Vec<u8>))> = self.objects.iter().collect();
+        ordered.sort_by_key(|(id, _)| **id);
+        ordered
+            .into_iter()
+            .map(|(_, (kind, payload))| (*kind, payload.as_slice()))
+            .collect()
+    }
 }
 
 /// Mapping between arc change IDs and translated Git commit IDs.

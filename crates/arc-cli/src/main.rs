@@ -9,8 +9,15 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_core::ai::{LlmResolver, MockResolver};
 use arc_core::algebra::Blake3Hash;
+use arc_core::algebra::apply::MaterializedState;
 use arc_core::store::author::{Author, load_identity, save_identity};
 use arc_core::store::oplog::OperationAgent;
+use arc_core::store::view::View;
+use arc_git_bridge::http::{discover_refs, push_packfile};
+use arc_git_bridge::object::GitIdentity;
+use arc_git_bridge::pack::encode_packfile;
+use arc_git_bridge::translator::{CommitCompileInput, GitMap, GitOdb, compile_commit, compile_tree};
+use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
 
@@ -340,10 +347,10 @@ enum Command {
     },
     /// Push local changes to a remote repository.
     Push {
-        /// Remote name or URL to push to.
-        remote: String,
-        /// Name of the view to push.
-        view: String,
+        /// Remote URL (or configured remote alias) to push to.
+        remote_url: String,
+        /// Optional view name to push (defaults to the current view).
+        view: Option<String>,
     },
     /// Get or set arc configuration / global aliases.
     Config {
@@ -572,6 +579,63 @@ fn init_tracing() {
             .try_init();
     }
     // Default: no subscriber installed — tracing macros are zero-overhead.
+}
+
+fn git_identity_from_author(author: &Author) -> GitIdentity {
+    let (name, email) = match author {
+        Author::Human { name, email, .. } => (name.clone(), email.clone()),
+        Author::AI { model, .. } => (format!("AI {model}"), "ai@arc.local".to_string()),
+        Author::Server { canonical_id, .. } => {
+            (canonical_id.clone(), "server@arc.local".to_string())
+        }
+        Author::Transient { session_id, .. } => {
+            (session_id.clone(), "transient@arc.local".to_string())
+        }
+    };
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    GitIdentity {
+        name,
+        email,
+        timestamp,
+        timezone: "+0000".to_string(),
+    }
+}
+
+fn projected_files_from_state(
+    state: &MaterializedState,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    let mut filepaths = std::collections::HashSet::new();
+    for key in state.keys() {
+        if key.len() >= 2 && key[0] == "file" {
+            filepaths.insert(key[1].clone());
+        }
+    }
+
+    let plugin = RustPlugin::new();
+    let mut files = std::collections::HashMap::new();
+    for filepath in filepaths {
+        let content = if filepath.ends_with(".rs") {
+            plugin
+                .unparse(state, &filepath)
+                .map_err(|e| anyhow::anyhow!("failed to render '{filepath}' from state: {e}"))?
+        } else {
+            let key = vec!["file".to_string(), filepath.clone()];
+            let bytes = state
+                .get(&key)
+                .ok_or_else(|| anyhow::anyhow!("missing file payload for '{filepath}'"))?;
+            std::str::from_utf8(bytes)
+                .map(|s| s.to_string())
+                .map_err(|_| anyhow::anyhow!("cannot export non-UTF-8 file '{filepath}' to Git"))?
+        };
+        files.insert(filepath, content);
+    }
+
+    Ok(files)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -1354,10 +1418,110 @@ fn main() -> anyhow::Result<()> {
                 arc_cli::semantic_diff::group_and_render(&atoms, &old_texts, &repo.work_root)?;
             }
         }
-        Command::Push { remote, view } => {
+        Command::Push { remote_url, view } => {
             let mut repo = Repository::open(".")?;
-            arc_cli::sync::push(&mut repo, &remote, &view)?;
-            println!("Pushed '{}' \u{2192} {}.", view, remote);
+            let current_view = repo.current_view_name()?;
+            let view_name = view.unwrap_or_else(|| current_view.clone());
+
+            let config = load_merged_config(std::path::Path::new("."))?;
+            let remote = config
+                .remotes
+                .get(&remote_url)
+                .cloned()
+                .unwrap_or(remote_url.clone());
+
+            if !(remote.starts_with("http://") || remote.starts_with("https://")) {
+                arc_cli::sync::push(&mut repo, &remote, &view_name)?;
+                println!("Pushed '{}' \u{2192} {}.", view_name, remote);
+            } else {
+                if view_name == current_view {
+                    let (author, signing_key) =
+                        load_identity_with_ephemeral_fallback(&repo.shared_root)?;
+                    repo.set_identity(author, signing_key);
+                    let _ = repo.snapshot()?;
+                }
+
+                repo.hydrate(&view_name)?;
+
+                let state = repo.materialize(&view_name)?;
+                let projected_files = projected_files_from_state(&state)?;
+
+                let view = View::load(&repo.shared_root, &view_name)
+                    .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+                if view.heads.len() != 1 {
+                    anyhow::bail!(
+                        "git export requires exactly one head on view '{}'; found {}",
+                        view_name,
+                        view.heads.len()
+                    );
+                }
+
+                let head = *view
+                    .heads
+                    .iter()
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("view '{}' has no head to push", view_name))?;
+
+                let graph = repo.graph.load_full();
+                let change = graph
+                    .get(&head)
+                    .ok_or_else(|| anyhow::anyhow!("head change missing from graph"))?;
+
+                let mut odb = GitOdb::default();
+                let mut map = GitMap::default();
+                let tree_id = compile_tree(&projected_files, &mut odb)?;
+
+                let ref_name = format!("refs/heads/{view_name}");
+                let rt =
+                    tokio::runtime::Runtime::new().context("failed to create tokio runtime")?;
+                let refs = rt.block_on(discover_refs(&remote))?;
+                let old_sha_hex = refs
+                    .get(&ref_name)
+                    .cloned()
+                    .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_string());
+
+                let parent_ids = if let Some(parent) =
+                    arc_git_bridge::object::GitSha1::from_hex(&old_sha_hex)
+                {
+                    if old_sha_hex.chars().all(|c| c == '0') {
+                        Vec::new()
+                    } else {
+                        vec![parent]
+                    }
+                } else {
+                    anyhow::bail!(
+                        "remote ref '{}' returned invalid object id '{}'",
+                        ref_name,
+                        old_sha_hex
+                    );
+                };
+
+                let ident = git_identity_from_author(&change.author);
+                let new_commit = compile_commit(
+                    CommitCompileInput {
+                        change,
+                        root_tree: tree_id,
+                        parent_commits: &parent_ids,
+                        author: &ident,
+                        committer: &ident,
+                        projected_state_has_conflict: false,
+                    },
+                    &mut odb,
+                    &mut map,
+                )?;
+
+                let pack_objects = odb.pack_objects();
+                let pack = encode_packfile(&pack_objects);
+                rt.block_on(push_packfile(
+                    &remote,
+                    &old_sha_hex,
+                    &new_commit.to_hex(),
+                    &ref_name,
+                    &pack,
+                ))?;
+
+                println!("Pushed '{}' \u{2192} {}.", view_name, remote);
+            }
         }
         Command::Config { global, action } => match action {
             ConfigAction::Alias { name, expansion } => {

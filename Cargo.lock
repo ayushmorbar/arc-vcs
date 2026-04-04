@@ -123,6 +123,7 @@ version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
  "arc-core",
+ "arc-git-bridge",
  "arc-lang",
  "arc-net",
  "arc-swap",
@@ -187,7 +188,9 @@ dependencies = [
  "anyhow",
  "arc-core",
  "flate2",
+ "reqwest 0.13.2",
  "sha1",
+ "tokio",
 ]
 
 [[package]]
