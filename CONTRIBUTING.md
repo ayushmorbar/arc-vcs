@@ -6,24 +6,36 @@ Thank you for your interest in contributing to arc — a mathematically rigorous
 
 ## Workspace Architecture
 
-arc is a Cargo workspace with four crates arranged in a strict dependency hierarchy:
+arc is a Cargo workspace with six crates arranged in a strict dependency hierarchy:
 
 ```
 arc-core  ◄──  arc-lang
-    ▲               ▲
-    └───── arc-net ──┘
-               ▲
-           arc-cli   (binary + repository orchestration layer)
+    ▲   ▲          ▲
+    │   └──────┐   │
+    │          │   │
+arc-net   arc-git-bridge
+    ▲          ▲
+    └──────┬───┘
+             │
+         arc-cli
+             ▲
+        arc-daemon
 ```
 
 | Crate | Dependencies | Responsibility |
 |-------|-------------|----------------|
-| `arc-core` | — | `Atom`, `Change`, `ChangeGraph`, `ObjectStore`, `Blake3Hash`, `Author`, `commutes()` |
-| `arc-lang` | `arc-core` | Tree-sitter language plugins, `diff()`, `unparse()`, `RustPlugin` |
-| `arc-net` | `arc-core` | `axum`-based HTTP server: read-only CAS + view endpoints |
-| `arc-cli` | all three | `Repository` struct, all arc commands, `main.rs` |
+| `arc-core` | — | Core algebra and storage: `Atom`, `Change`, `ChangeGraph`, `ObjectStore`, `View`, `Author`, revset engine |
+| `arc-lang` | `arc-core` | Language plug-ins and AST projection (`LanguagePlugin`, `RustPlugin`) |
+| `arc-net` | `arc-core` | Network services: HTTP CAS/view API, sync protocol, AI provider integration |
+| `arc-git-bridge` | `arc-core` | Just-in-time Git object translation and Smart HTTP push bridge |
+| `arc-cli` | `arc-core`, `arc-lang`, `arc-net`, `arc-git-bridge` | User-facing command orchestration and repository workflows |
+| `arc-daemon` | `arc-core`, `arc-cli` | JSON-RPC daemon backend for editors and IDE integrations |
 
-**Rule:** `arc-core` must never depend on `arc-lang`, `arc-net`, or `arc-cli`. `arc-lang` and `arc-net` must never depend on each other.
+**Rules:**
+
+- `arc-core` must never depend on higher-layer crates.
+- `arc-daemon` must stay orchestration-only and must not duplicate `arc-cli` repository logic.
+- `arc-git-bridge` stays at the transport boundary and must not become a second repository engine.
 
 ---
 
@@ -42,7 +54,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for a full environment setup walkthrough.
 
 ```sh
 cargo build --workspace
-cargo test --workspace          # 41 tests; 0 failures required
+cargo test --workspace          # 0 failures required
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 

@@ -36,7 +36,7 @@ The workspace compiles with **zero warnings** under `cargo clippy --all-targets 
 ## Running Tests
 
 ```sh
-# All tests (currently 41 across 4 crates; 0 failures required)
+# All tests (count evolves over time; 0 failures required)
 cargo test --workspace
 
 # Single crate
@@ -109,10 +109,12 @@ arc-vcs/
 │       ├── howto/             custom-hooks
 │       └── architecture/ADRs/ 001, 002, 003
 ├── crates/
-│   ├── arc-core/           # algebra + CAS (minimal deps)
+│   ├── arc-core/           # algebra + CAS + graph + author identities
 │   ├── arc-lang/           # tree-sitter language plugins
-│   ├── arc-net/            # axum HTTP server
-│   └── arc-cli/            # binary + repository orchestration
+│   ├── arc-net/            # network services and sync protocol
+│   ├── arc-git-bridge/     # just-in-time Git object translation
+│   ├── arc-cli/            # binary + repository orchestration
+│   └── arc-daemon/         # JSON-RPC daemon backend for editors
 ├── research/               # design notes and reading lists
 └── target/                 # cargo build output (gitignored)
 ```
@@ -159,6 +161,6 @@ cargo audit
 3. `cargo fmt --all -- --check` — clean
 4. `mdbook build docs` — 0 broken links
 5. Update `CHANGELOG.md` with new version and date
-6. Bump version in all 4 crate `Cargo.toml` files
+6. Bump version in all published crate `Cargo.toml` files
 7. `git tag -s v1.0.0 -m "arc 1.0.0 stable"`
-8. `cargo publish -p arc-core && cargo publish -p arc-lang && cargo publish -p arc-net && cargo publish -p arc-cli`
+8. `cargo publish -p arc-core && cargo publish -p arc-lang && cargo publish -p arc-net && cargo publish -p arc-git-bridge && cargo publish -p arc-cli && cargo publish -p arc-daemon`

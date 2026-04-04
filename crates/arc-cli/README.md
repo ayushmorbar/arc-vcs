@@ -1,35 +1,35 @@
 # arc-cli
 
-Command-line interface and repository orchestration for the **arc** version-control system.
+CLI orchestrator crate for arc.
 
-## Commands
+## Purpose
 
-```
-arc init [path]             Initialize a new repository
-arc snap -m <message>       Snapshot working directory as a semantic change
-arc log                     Show the change history
-arc status                  Show uncommitted AST-level changes
-arc cherry-pick <hash>      Port a change into the current view
-arc blame <file>            Semantic blame: author per AST node
-arc stash push/pop/list     Stash dirty changes
-arc view create/switch/merge Manage views (like branches)
-arc ai resolve              AI-powered conflict resolution
-arc import git <path>       Import history from a Git repo
-arc fetch <remote> <view>   Fetch changes from a remote
-arc pull <remote> <view>    Fetch + merge from a remote
-arc verify                  Verify cryptographic provenance of all changes
-arc auth login/whoami       Manage Ed25519 identity
-arc serve [--port]          Start HTTP server
-```
+`arc-cli` is the command-facing orchestration layer. It wires together core algebra/storage, language plugins, network services, and Git bridge interoperability.
 
-## Crate layout
+## Command Surface
 
-```
-arc-cli
-├── lib.rs           – crate root (arc_cli library target)
-├── main.rs          – binary entry point (arc binary target)
-├── repo.rs          – Repository struct: the main orchestrator
-├── sync.rs          – fetch/pull from remote peers
-└── interop/
-    └── git.rs       – Import Git history → arc changes
-```
+Top-level command groups include:
+
+- Repository lifecycle: `init`, `status`, `diff`, `snap`, `log`, `verify`, `info`
+- Change operations: `cherry-pick`, `revert`, `restore`, `amend`, `squash`, `diffedit`
+- View control: `view`, `checkout`, `branch`, `undo`, `op`
+- AI workflows: `ai resolve`, `ai approve`, `ai generate`
+- Sync and remotes: `sync`, `fetch`, `pull`, `push`, `serve`, `remote`
+- Advanced workflows: `sparse`, `mount`, `workspace`, `gc`, `compact`
+
+See repository docs for full syntax: `docs/src/reference/cli-reference.md`.
+
+## Module Layout
+
+- `repo`: repository orchestration and command implementations.
+- `sync`: native synchronization primitives.
+- `interop`: external VCS import and interop helpers.
+- `semantic_diff`: semantic/text diff rendering.
+- `ai_pending`: pending AI change state handling.
+- `bugreport`: diagnostics packaging.
+
+## Dependency Boundaries
+
+- Owns orchestration, not low-level storage primitives.
+- Defers formal model and persistence mechanics to `arc-core`.
+- Defers transport-specific Git protocol details to `arc-git-bridge`.

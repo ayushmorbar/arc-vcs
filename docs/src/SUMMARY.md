@@ -41,11 +41,14 @@
 # How-To Guides
 
 - [Custom Hooks](howto/custom-hooks.md)
+- [Troubleshoot Sync](howto/troubleshoot-sync.md)
+- [Release Docs Checklist](howto/release-docs-checklist.md)
 
 ---
 
 # Architecture & ADRs
 
+- [Architecture Overview](architecture/overview.md)
 - [ADR 001 — BLAKE3 CAS](architecture/ADRs/001-blake3-cas.md)
 - [ADR 002 — AST over Text Diff](architecture/ADRs/002-ast-over-text.md)
 - [ADR 003 — CRDT over OT](architecture/ADRs/003-crdt-over-ot.md)

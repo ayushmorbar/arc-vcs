@@ -25,8 +25,10 @@ Phase 24 shipped the hook engine, Trace2-style telemetry, dual MIT/Apache-2.0 li
 |-------|------|
 | `arc-core` | Algebra, CAS store, change graph, cryptographic identity |
 | `arc-lang` | Language plug-ins: Tree-sitter AST diffing, `RustPlugin` |
-| `arc-net` | HTTP distribution server (read-only CAS + view endpoints) |
+| `arc-net` | Network services: HTTP endpoints, sync protocol, AI provider integration |
+| `arc-git-bridge` | Git Smart HTTP boundary bridge and Git object translation |
 | `arc-cli` | CLI binary and repository orchestration layer |
+| `arc-daemon` | JSON-RPC daemon backend for IDE integrations |
 
 ## Quick Start
 

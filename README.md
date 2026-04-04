@@ -116,11 +116,14 @@ Hooks are parsed by `shlex` and run with `work_root` as the working directory. A
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Tutorial (zero to first snap)                                   | [docs/src/getting-started/tutorial.md](docs/src/getting-started/tutorial.md) |
 | CLI Reference                                                   | [docs/src/reference/cli-reference.md](docs/src/reference/cli-reference.md)   |
+| Architecture Overview                                            | [docs/src/architecture/overview.md](docs/src/architecture/overview.md)       |
 | Patch Theory deep-dive                                          | [docs/src/design/patch_theory.md](docs/src/design/patch_theory.md)           |
 | History Rewriting (squash, diffedit, inversion algebra)         | [docs/src/design/history_rewriting.md](docs/src/design/history_rewriting.md) |
 | Network Transport (DeltaPayload, zero-trust ingress, CRDT sync) | [docs/src/design/network_transport.md](docs/src/design/network_transport.md) |
 | Custom hooks how-to                                             | [docs/src/howto/custom-hooks.md](docs/src/howto/custom-hooks.md)             |
+| Sync troubleshooting                                             | [docs/src/howto/troubleshoot-sync.md](docs/src/howto/troubleshoot-sync.md)   |
 | Architecture Decision Records                                   | [docs/src/architecture/ADRs/](docs/src/architecture/ADRs/)                   |
+| Research index                                                   | [research/README.md](research/README.md)                                     |
 
 Build the full book locally: `just docs` (requires [mdBook](https://rust-lang.github.io/mdBook/)).
 
@@ -130,7 +133,7 @@ See [STABILITY.md](STABILITY.md) for the production-ready API surface and [SHORT
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the 4-crate workspace architecture, commit conventions, and AI-authorship signature protocol.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the 6-crate workspace architecture, commit conventions, and AI-authorship signature protocol.
 
 ## License
 

@@ -1,478 +1,111 @@
 # CLI Reference
 
-Complete reference for all `arc` commands. Run `arc <command> --help` for inline help.
+Command map for the `arc` binary.
 
----
+For command-local flags and newest examples, run `arc <command> --help`.
 
-## Global Options
+## Global
 
-| Flag        | Description                    |
-| ----------- | ------------------------------ |
-| `--version` | Print the arc version and exit |
-| `--help`    | Print help for a command       |
+- `arc --help`
+- `arc --version`
 
-Telemetry is controlled via environment variables, not flags. See [Configuration](config.md).
+## Repository Lifecycle
 
----
+- `arc init [path] [--no-git]`
+- `arc status`
+- `arc diff [--semantic]`
+- `arc snap -m <message> [--interactive] [--auto-msg]`
+- `arc log [-r <revset>] [--intent <query>]`
+- `arc verify`
+- `arc info`
+- `arc bug-report [--output <file>] [--include-raw-intent]`
+- `arc blame <filepath>`
+- `arc tour`
+- `arc commit` (intentionally unsupported compatibility command)
 
-## `arc compact`
+## Change Operations
 
-Compact causally-stable history into a single Genesis base state.
+- `arc cherry-pick <hash>`
+- `arc revert <hash-or-ref>`
+- `arc restore <filepath>`
+- `arc amend [-m <message>]`
+- `arc squash --into <rev>`
+- `arc diffedit --prepare <rev> [-m <message>]`
+- `arc diffedit --apply [-m <message>]`
 
-```sh
-arc compact
-```
+## Views and History Control
 
-Collapses the entire causally-stable DAG into one synthetic **Genesis Change** whose atoms represent the exact materialised state at the compaction boundary. An Epoch Map is written to `.arc/epochs` so future `hydrate` calls transparently redirect compacted IDs to the Genesis node — no live `Change` object is ever rewritten.
+- `arc view create <name>`
+- `arc view switch <name>`
+- `arc view merge <name>`
+- `arc checkout <name>` (alias for `view switch`)
+- `arc branch [name]` (without `name`: list views; with `name`: create)
+- `arc undo`
+- `arc op log`
 
-Prints: `Successfully compacted causally stable history into new base state: <64-char hex>`
+## Stash
 
-Exits with an error if there is no causally-stable history (e.g. a single-view repository with only one commit, or a brand-new repo).
+- `arc stash push`
+- `arc stash pop`
+- `arc stash list`
 
-See [CRDT Sync — PO-Log Compaction & Epoch Maps](../design/crdt_sync.md) for the full technical specification.
+## Tags
 
----
+- `arc tag <name> <hash-or-ref>`
+- `arc tags`
 
-## `arc init`
+## Identity and Configuration
 
-Initialise a new arc repository in the current directory.
+- `arc auth login --name <name> --email <email>`
+- `arc auth whoami`
+- `arc identity --name <name> --email <email>`
+- `arc config [--global] alias <name> <expansion>`
+- `arc config [--global] aliases`
+- `arc config [--global] get <key>`
+- `arc config [--global] set <key> <value>`
+- `arc config [--global] unset <key>`
+- `arc config [--global] list`
 
-```sh
-arc init
-```
+## AI Commands
 
-Creates `.arc/` with `blobs/`, `views/`, and an initial `main` view. Does nothing if `.arc/` already exists (idempotent).
+- `arc ai resolve`
+- `arc ai approve`
+- `arc ai generate --goal <text> [--file <path>]`
 
----
+## Import and Interop
 
-## `arc auth`
+- `arc import git <git_path>`
+- `arc push <remote_url_or_alias> [view]`
 
-Manage your cryptographic identity.
+When the resolved remote is `http` or `https`, push uses the Git Smart HTTP translation bridge from `arc-git-bridge`.
 
-```sh
-arc auth login --name "Ada Lovelace" --email "ada@example.com"
-```
+## Native Sync and Networking
 
-Generates an Ed25519 keypair and stores it in the platform config directory. If a keypair already exists, it is loaded and the metadata is updated. Every `Change` you create is signed with this key.
+- `arc sync <host:port>`
+- `arc fetch <remote_path> <view>`
+- `arc pull <remote_path> <view>`
+- `arc serve [--port <port>]`
+- `arc remote add <name> <url-or-path>`
+- `arc remote list`
+- `arc remote remove <name>`
 
----
+## Workspace and Monorepo Features
 
-## `arc snap`
+- `arc sparse set <path>...`
+- `arc sparse list`
+- `arc sparse reset`
+- `arc mount add --path <path> --url <url-or-path> --target <view>`
+- `arc mount sync`
+- `arc workspace add <path> [--view <name>]`
+- `arc workspace list`
 
-Record a new change from the working-directory delta.
+## Storage Maintenance
 
-```sh
-arc snap -m <message>
-arc snap --message <message>
-arc snap -i -m <message>          # interactive staging
-arc snap --interactive -m <message>
-```
+- `arc gc [--dry-run]`
+- `arc compact`
 
-**Options:**
+## Hidden / Internal
 
-| Flag                    | Description                              |
-| ----------------------- | ---------------------------------------- |
-| `-m`, `--message <msg>` | Commit message (required)                |
-| `-i`, `--interactive`   | Stage individual AST atoms interactively |
+- `arc daemon`
 
-Returns the BLAKE3 hash of the new `Change`. Exits with no output if the working directory is clean (nothing to snap).
-
-Fires the `pre-snap` hook before executing. See [Custom Hooks](../howto/custom-hooks.md).
-
----
-
-## `arc log`
-
-Display the change history for the current view.
-
-```sh
-arc log
-```
-
-Walks the DAG from the current view's heads in topological order. Displays change hash, author, timestamp, and message. Output is coloured via `owo-colors`.
-
----
-
-## `arc status`
-
-Show the working-directory delta against the current view's materialised state.
-
-```sh
-arc status
-```
-
-Prints added, modified, and deleted atoms. Respects `.arcignore` and sparse checkout patterns.
-
----
-
-## `arc diff`
-
-Show uncommitted working-directory changes. Two complementary views are
-available: the default **text diff** (Micro view) and the `--semantic` **AST
-diff** (Macro view). Use them together for a complete picture of every change.
-
-```sh
-arc diff              # text diff — verify execution
-arc diff --semantic   # AST diff  — understand intent
-```
-
-### Default: Sesame-Aligned Text Diff
-
-The plain `arc diff` view re-projects AST atoms back into text and applies
-four layers of improvement over a raw `git diff`:
-
-1. **Refactoring intent annotation** — [`Move`] and [`SemanticsPreserving`]
-   atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines _before_
-   the text hunks so reviewers grasp intent at a glance.
-
-2. **Sesame syntactic alignment** — structural newlines are injected before
-   `{`, after `}`, and after `;` so the line differ aligns brace pairs
-   correctly instead of staggering them across logical blocks.
-
-3. **Inline sub-expression highlighting** — only the exact sub-token that
-   changed is highlighted with a coloured background; the surrounding
-   unchanged text on the same line is shown in a plain foreground colour.
-
-4. **Boilerplate collapse** — if every changed line is a `use` / `import` /
-   `#include` declaration the entire hunk is replaced by a single summary
-   line: `@@ [Boilerplate] Import / use declarations modified @@`.
-
-Files exceeding 1 MB skip the inline LCS calculation and print
-`∆ [Change] File too large for inline diff — AST atoms shown above.`
-
-**Sample output (text diff)**
-
-```
-On view: main
-diff --arc a/src/widget.rs b/src/widget.rs
-  ≈ [Move] fn_render → fn_paint
-- fn render() { let x = 1;
-+ fn paint() { let x = 1;
-  ∑ +1 -1 ~1
-```
-
-### `--semantic`: Structural AST Diff
-
-Passes `--semantic` to render each pending atom as a named structural
-operation (the "Macro" view). Instead of line-level `+`/`-` noise, the output
-describes architectural intent in plain English:
-
-```sh
-arc diff --semantic
-```
-
-Each atom is labelled by its type and the AST node it targets, using the
-`<kind>_<name>` convention in arc NodePaths:
-
-| Atom                                            | Output                                           |
-| ----------------------------------------------- | ------------------------------------------------ |
-| `Insert { at: ["file", "lib.rs", "fn_parse"] }` | `[+] Insert function: 'fn_parse'`                |
-| `Delete { at: ["file", "lib.rs", "field_id"] }` | `[-] Delete field: 'field_id'`                   |
-| `Move { from, to }`                             | `[~] Move 'fn_render' → fn_paint`                |
-| `SemanticsPreserving { description }`           | `[≈] Refactor variable 'obj': renamed to 'item'` |
-
-Cross-file moves show the destination filename in parentheses. Multi-mappings
-(three deletion sites → one extracted method) appear as separate `[-]` lines
-linking to the same extracted target.
-
-**Sample output (semantic diff)**
-
-```
-On view: main
-semantic --arc src/engine.rs
-  [+] Insert function: 'fn_validate'
-  [-] Delete function: 'fn_check'
-  [~] Move 'fn_render' → fn_paint
-  [≈] Refactor variable 'obj': renamed to 'item'
-
-  ∑ +1 -1 ~2
-```
-
-### Recommended Review Workflow
-
-1. **Start with** `arc diff --semantic` — understand the architecture changes
-   in seconds, without reading code.
-2. **Then use** `arc diff` — verify the exact syntax and formatting of each
-   change, with per-token highlighting so nothing slips through.
-
----
-
-## `arc restore`
-
-Revert one or more files to their last-snapped state.
-
-```sh
-arc restore <path> [<path>...]
-arc restore src/widget.rs
-```
-
----
-
-## `arc op log`
-
-Print the spacetime operation log in reverse-chronological order.
-
-```sh
-arc op log
-```
-
-Displays a table of every view-mutating operation recorded in `.arc/oplog.json` — most recent first.
-
-| Column         | Description                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `ID`           | 8-character BLAKE3 operation ID                                                            |
-| `Time`         | Wall-clock timestamp (`YYYY-MM-DD HH:MM:SS`)                                               |
-| `View`         | Name of the view that was mutated                                                          |
-| `Agent`        | `👤 Human` or `🤖 AI`                                                                      |
-| `Command`      | Operation type (`snap`, `merge`, `cherry-pick`, `revert`, `restore`, `mount add`, `amend`) |
-| `Before→After` | 8-char hex of the DAG frontier before and after the operation                              |
-
-The log is local-only and is never pushed or fetched. It is bounded at **1 000 entries** via a sliding-window compaction policy (oldest entries are evicted first).
-
----
-
-## `arc undo`
-
-Rewind the last view-mutating operation using an O(1) pointer-swap.
-
-```sh
-arc undo
-```
-
-Pops the most-recent entry from the spacetime operation log and restores the affected view's head set to its pre-operation state. The working directory is rematerialized to match. This is a **pure pointer update** — no Change objects are deleted from the CAS.
-
-Prints `⏪ Undid '<command>' on view '<view>'. Restored: <after> → <before>`.
-
-Exits with no output if the operation log is empty.
-
-See [Spacetime Operation Log](../design/oplog.md) for the full design.
-
----
-
-## `arc view`
-
-Manage views.
-
-```sh
-arc view create <name>            # create a new view forked from the current heads
-arc view list                     # list all views
-arc view delete <name>            # delete a view (does not delete changes from CAS)
-```
-
----
-
-## `arc switch`
-
-Switch the working directory to a different view.
-
-```sh
-arc switch <view-name>
-arc switch main
-arc switch feature/my-work
-```
-
-Materialises the target view's state into `work_root`. Fails with an error if the working directory is dirty.
-
----
-
-## `arc merge`
-
-Merge another view into the current one.
-
-```sh
-arc merge <view-name>
-arc merge feature/my-work
-```
-
-Runs a full commutativity check. On success, advances the current view's heads to the union. On conflict, writes `.arc/conflict` and reports the conflicting change pair IDs. See `arc resolve`.
-
-Fires the `post-merge` hook on success.
-
----
-
-## `arc resolve`
-
-Resolve a pending semantic conflict using an AI resolver.
-
-```sh
-arc resolve
-```
-
-Reads `.arc/conflict`, invokes the configured `AiResolver`, and commits the resolved `Change`. Requires an AI API key to be configured. See [AI Intents & Resolution](ai-intents.md).
-
----
-
-## `arc tag`
-
-Manage signed tags.
-
-```sh
-arc tag create <name> [<change-hash>]   # tag a change (defaults to current head)
-arc tag list
-arc tag delete <name>
-```
-
----
-
-## `arc remote`
-
-Manage remote aliases.
-
-```sh
-arc remote add <name> <url>
-arc remote list
-```
-
----
-
-## `arc fetch`
-
-Fetch objects and views from a remote.
-
-```sh
-arc fetch <remote-name>
-arc fetch origin
-```
-
----
-
-## `arc pull`
-
-Fetch and merge a remote view.
-
-```sh
-arc pull <remote> <view>
-arc pull origin main
-```
-
----
-
-## `arc push`
-
-Push local changes to a remote.
-
-```sh
-arc push <remote-or-url>
-arc push <remote-or-url> <view>
-arc push https://github.com/<org>/<repo>.git
-```
-
-`remote-or-url` may be:
-
-- a named remote alias (registered with `arc remote add`),
-- a direct filesystem path,
-- or a direct Smart HTTP Git URL.
-
-`view` is optional and defaults to the current view.
-
-For Smart HTTP Git URLs, arc uses a just-in-time translation bridge during push: it materializes the selected view, compiles ephemeral Git tree/commit objects, pack-encodes them, and pushes over `git-receive-pack` without creating a local `.git` object store.
-
-If the resolved remote value is HTTP/HTTPS, arc uses the Git translation bridge. Otherwise, arc uses the native arc sync transport.
-
----
-
-## `arc squash`
-
-Fuse a linear sequence of changes into one canonical change.
-
-```sh
-arc squash --into <rev>
-arc squash --into HEAD~3    # collapse the top 3 changes
-```
-
-**Options:**
-
-| Flag           | Description                                                                           |
-| -------------- | ------------------------------------------------------------------------------------- |
-| `--into <rev>` | Target revision; the linear spine from `HEAD` down to `<rev>` (exclusive) is squashed |
-
-Walks the linear spine from `HEAD` toward `<rev>`, verifies it is a straight line (no merges), assembles the full atom sequence, and rewrites history as a single new Change with the combined intent of all squashed changes.
-
-Exits with an error if the topology is non-linear (merge commits in range).
-
----
-
-## `arc diffedit`
-
-Two-step external-editor history rewrite.
-
-```sh
-# Step 1: materialise a change into a temp file for editing
-arc diffedit --prepare <rev>
-
-# Step 2: apply the edited file back as a new change
-arc diffedit --apply
-```
-
-**Options:**
-
-| Flag              | Description                                                            |
-| ----------------- | ---------------------------------------------------------------------- |
-| `--prepare <rev>` | Materialise change `<rev>` to `.arc/diffedit_target` and lock the repo |
-| `--apply`         | Read the edited file, build a new Change, and unlock the repo          |
-
-The lockfile (`.arc/diffedit_session`) prevents `arc snap` during an active edit session. If `--apply` fails, run `arc diffedit --apply` again after correcting the file.
-
----
-
-## `arc gc`
-
-Run causal-stability garbage collection.
-
-```sh
-arc gc
-```
-
-Prints the number of retained and pruned changes.
-
----
-
-## `arc config`
-
-Read and write repository configuration.
-
-```sh
-arc config get <key>
-arc config set <key> <value>
-arc config alias <name> <expansion>
-```
-
-See [Configuration](config.md) for all supported keys.
-
----
-
-## `arc workspace`
-
-Manage split-root workspaces.
-
-```sh
-arc workspace add <path>           # register a new work root
-arc workspace list                 # list all registered work roots
-```
-
----
-
-## `arc sparse`
-
-Manage semantic sparse checkout patterns.
-
-```sh
-arc sparse set <pattern> [<pattern>...]     # replace all patterns
-arc sparse add <pattern>                    # add a pattern
-arc sparse remove <pattern>                 # remove a pattern
-arc sparse list                             # show active patterns
-```
-
-Patterns are stored as `Atom::Mount` changes in the graph.
-
----
-
-## `arc git-import`
-
-Import a Git repository into arc.
-
-```sh
-arc git-import <path-to-git-repo>
-```
-
-Re-hashes all Git objects with BLAKE3, re-signs changes with your arc identity, and reconstructs the change graph. See [Migrating from Git](../getting-started/git-migration.md).
+Used by editor integrations to start the JSON-RPC daemon backend.

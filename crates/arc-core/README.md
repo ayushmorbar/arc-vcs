@@ -1,28 +1,32 @@
 # arc-core
 
-Pure kernel for the **arc** version-control system. Contains no I/O, no CLI, no language-specific logic — only the formally-verified algebra of atomic changes and the persistent data store.
+Core algebra and storage foundation for arc.
 
-## Crate layout
+## Responsibilities
 
-```
-arc-core
-├── algebra/          – Atom, ASTNode, NodePath, Blake3Hash, patch algebra (apply, commute)
-├── ai/               – Resolver trait and MockResolver for conflict resolution
-└── store/            – CAS, Change, ChangeGraph, View, Author identity
-```
+- Defines semantic change atoms and materialization model.
+- Stores and loads content-addressed changes and blobs.
+- Maintains DAG graph, views, operation log, tags, and author identity.
+- Provides revset parsing/compilation and core error types.
 
-## Mathematical model
+## Module Areas
 
-Every file is an **AST** represented as a Merkle DAG whose leaves are [`Atom`](src/algebra/mod.rs) values. A `Change` is a signed bundle of atoms. Two changes *commute* when their atom-sets are disjoint or semantics-preserving (see [`commute.rs`](src/algebra/commute.rs)).
+- `algebra`: atom model, apply/commute/inverse logic.
+- `store`: CAS, change graph, view/tag/oplog/author primitives.
+- `revset`: query language parser and execution engine.
+- `engine`: core engine scaffolding.
+- `ai`: core AI-facing interfaces and local vector utilities.
+
+## Invariants
+
+- Change identity is deterministic from serialized semantic content.
+- Storage operations are content-addressed and hash-verified.
+- Graph operations preserve DAG constraints.
+- Core crate remains independent from CLI/network/editor layers.
 
 ## Usage
 
 ```toml
 [dependencies]
 arc-core = { path = "../arc-core" }
-```
-
-```rust
-use arc_core::store::view::View;
-use arc_core::algebra::Blake3Hash;
 ```

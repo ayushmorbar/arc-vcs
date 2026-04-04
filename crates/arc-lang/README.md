@@ -1,30 +1,29 @@
 # arc-lang
 
-Language plug-in layer for **arc**. Bridges generic `arc-core` atoms to concrete tree-sitter parse trees and provides the `LanguagePlugin` trait for any language parser.
+Language plugin layer for arc.
 
-## Crate layout
+## Responsibilities
 
-```
-arc-lang
-└── ast/
-    ├── mod.rs           – LanguagePlugin trait, ASTNode ↔ Atom conversion helpers
-    └── rust_plugin.rs   – RustPlugin: Rust language via tree-sitter-rust
-```
+- Bridges generic `arc-core` semantic atoms with concrete language ASTs.
+- Defines plugin contracts for parsing, diffing, and unparsing.
+- Provides Rust implementation via tree-sitter.
 
-## Adding a new language
+## Current Implementation
 
-1. Implement `LanguagePlugin` from `arc_lang::ast`.
-2. Report the tree-sitter grammar in `node_is_interesting` to control granularity.
-3. Register the plugin in `arc-cli`'s `snap` command.
+- `ast/mod.rs`: `LanguagePlugin` trait and shared helpers.
+- `ast/rust_plugin.rs`: Rust parser/unparser and interesting-node filtering.
+
+## Extension Model
+
+To add a language plugin:
+
+1. Implement `LanguagePlugin`.
+2. Define node filtering and path projection strategy.
+3. Register plugin usage in command orchestration (`arc-cli`).
 
 ## Usage
 
 ```toml
 [dependencies]
 arc-lang = { path = "../arc-lang" }
-```
-
-```rust
-use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
-let plugin = RustPlugin::new();
 ```
