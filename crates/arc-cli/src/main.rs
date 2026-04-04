@@ -241,6 +241,11 @@ enum Command {
     },
     /// List all tags in the repository.
     Tags,
+    /// Manage mutable bookmarks pointing at change heads.
+    Bookmark {
+        #[command(subcommand)]
+        action: BookmarkAction,
+    },
     /// Semantically revert a change by rolling back its AST atoms.
     Revert {
         /// Commit reference: 64-char hex, short prefix, view name, or HEAD/HEAD~N.
@@ -520,6 +525,43 @@ enum RemoteAction {
         /// Short name of the remote to delete (e.g. "origin").
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum BookmarkAction {
+    /// Create a new bookmark at a target revision.
+    Create {
+        /// Bookmark name (supports slash namespaces, e.g. trunk/main).
+        name: String,
+        /// Target revision (hash, view, @, HEAD, or prefix).
+        #[arg(default_value = "@")]
+        rev: String,
+    },
+    /// Set a bookmark to a target revision (create if missing).
+    Set {
+        /// Bookmark name (supports slash namespaces, e.g. trunk/main).
+        name: String,
+        /// Target revision (hash, view, @, HEAD, or prefix).
+        #[arg(default_value = "@")]
+        rev: String,
+    },
+    /// Move an existing bookmark, enforcing fast-forward by default.
+    Move {
+        /// Bookmark name to move.
+        name: String,
+        /// New target revision.
+        rev: String,
+        /// Allow moving backwards in history.
+        #[arg(long, default_value_t = false)]
+        allow_backwards: bool,
+    },
+    /// Delete a bookmark.
+    Delete {
+        /// Bookmark name to delete.
+        name: String,
+    },
+    /// List all bookmarks grouped by target change.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -1377,6 +1419,50 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Command::Bookmark { action } => match action {
+            BookmarkAction::Create { name, rev } => {
+                let mut repo = Repository::open(".")?;
+                let target = repo.resolve_rev(&rev)?;
+                repo.create_bookmark(&name, &target)?;
+                let hex: String = target.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Created bookmark '{name}' at {}", &hex[..8]);
+            }
+            BookmarkAction::Set { name, rev } => {
+                let mut repo = Repository::open(".")?;
+                let target = repo.resolve_rev(&rev)?;
+                repo.set_bookmark(&name, &target)?;
+                let hex: String = target.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Set bookmark '{name}' to {}", &hex[..8]);
+            }
+            BookmarkAction::Move {
+                name,
+                rev,
+                allow_backwards,
+            } => {
+                let mut repo = Repository::open(".")?;
+                let target = repo.resolve_rev(&rev)?;
+                repo.move_bookmark(&name, &target, allow_backwards)?;
+                let hex: String = target.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Moved bookmark '{name}' to {}", &hex[..8]);
+            }
+            BookmarkAction::Delete { name } => {
+                let repo = Repository::open(".")?;
+                repo.delete_bookmark(&name)?;
+                println!("Deleted bookmark '{name}'");
+            }
+            BookmarkAction::List => {
+                let repo = Repository::open(".")?;
+                let decorations = repo.bookmark_decorations()?;
+                if decorations.is_empty() {
+                    println!("No bookmarks.");
+                } else {
+                    for (id, names) in decorations {
+                        let hex = id.to_hex();
+                        println!("{}\t{}", &hex[..8], names.join(", "));
+                    }
+                }
+            }
+        },
         Command::Revert { hash } => {
             let mut repo = Repository::open(".")?;
             let (author, signing_key) = load_identity()?;

@@ -200,7 +200,7 @@ where
             let starts = starts_iter.collect::<Vec<_>>();
             Ok(Box::new(AncestorsIterator::new(graph, starts)))
         }
-        "tags" | "remote_branches" => {
+        "tags" | "remote_branches" | "bookmarks" => {
             if !args.is_empty() {
                 bail!("{name}() expects no arguments");
             }
@@ -421,6 +421,33 @@ mod tests {
         let mut refs = |name: &str| -> Result<BTreeSet<ChangeId>> {
             match name {
                 "remote_branches" => Ok(BTreeSet::from([ChangeId::from(a)])),
+                "tags" => Ok(BTreeSet::from([ChangeId::from(b)])),
+                _ => Ok(BTreeSet::new()),
+            }
+        };
+
+        let result: HashSet<ChangeId> =
+            compile_change_ids_with_refs(&ast, Arc::clone(&graph), &mut resolver, &mut refs)
+                .expect("compile should succeed")
+                .collect();
+
+        let expected = HashSet::from([ChangeId::from(a), ChangeId::from(b)]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn unions_bookmarks_with_tags_with_mock_reference_resolver() {
+        let mut graph = ChangeGraph::new();
+        let root = make_change(&mut graph, HashSet::new(), "root");
+        let a = make_change(&mut graph, HashSet::from([root]), "a");
+        let b = make_change(&mut graph, HashSet::from([root]), "b");
+
+        let graph = Arc::new(graph);
+        let ast = parse("bookmarks() | tags()").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+        let mut refs = |name: &str| -> Result<BTreeSet<ChangeId>> {
+            match name {
+                "bookmarks" => Ok(BTreeSet::from([ChangeId::from(a)])),
                 "tags" => Ok(BTreeSet::from([ChangeId::from(b)])),
                 _ => Ok(BTreeSet::new()),
             }

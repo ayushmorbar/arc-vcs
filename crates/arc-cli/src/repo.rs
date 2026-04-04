@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +24,8 @@ use arc_core::store::graph::ChangeGraph;
 use arc_core::store::newtypes::{ChangeId, MutationId};
 use arc_core::store::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
 use arc_core::store::refs::{
-    read_remote_branch_heads, read_remote_branch_map, read_tag_heads, read_tag_map,
+    read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
+    read_tag_heads, read_tag_map,
 };
 use arc_core::store::tag::Tag;
 use arc_core::store::view::View;
@@ -2317,6 +2318,106 @@ impl Repository {
     }
 
     // ------------------------------------------------------------------
+    // Bookmarks
+    // ------------------------------------------------------------------
+
+    /// Create a new bookmark under `.arc/refs/bookmarks/<name>`.
+    pub fn create_bookmark(&mut self, name: &str, target: &Blake3Hash) -> anyhow::Result<()> {
+        let path = self.bookmark_ref_path(name)?;
+        if path.exists() {
+            anyhow::bail!("bookmark '{name}' already exists");
+        }
+        self.write_bookmark_ref(name, target)
+    }
+
+    /// Set (create or replace) a bookmark target.
+    pub fn set_bookmark(&mut self, name: &str, target: &Blake3Hash) -> anyhow::Result<()> {
+        self.write_bookmark_ref(name, target)
+    }
+
+    /// Move an existing bookmark to a new target.
+    ///
+    /// When `allow_backwards` is false, the move must be fast-forward.
+    pub fn move_bookmark(
+        &mut self,
+        name: &str,
+        target: &Blake3Hash,
+        allow_backwards: bool,
+    ) -> anyhow::Result<()> {
+        let path = self.bookmark_ref_path(name)?;
+        if !path.exists() {
+            anyhow::bail!("bookmark '{name}' does not exist");
+        }
+
+        if !allow_backwards {
+            let current_hex = fs::read_to_string(&path)
+                .map_err(|e| anyhow::anyhow!("failed to read bookmark '{name}': {e}"))?;
+            let current = ChangeId::from_hex(current_hex.trim())
+                .map(Blake3Hash::from)
+                .map_err(|_| anyhow::anyhow!("bookmark '{name}' contains an invalid target"))?;
+
+            self.hydrate_heads(&HashSet::from([*target]))?;
+            let ancestors = self.graph.load().ancestors(&HashSet::from([*target]));
+            if !ancestors.contains(&current) {
+                anyhow::bail!(
+                    "refusing non-fast-forward move of bookmark '{name}'; pass --allow-backwards to override"
+                );
+            }
+        }
+
+        self.write_bookmark_ref(name, target)
+    }
+
+    /// Delete an existing bookmark.
+    pub fn delete_bookmark(&self, name: &str) -> anyhow::Result<()> {
+        let path = self.bookmark_ref_path(name)?;
+        if !path.exists() {
+            anyhow::bail!("bookmark '{name}' does not exist");
+        }
+        fs::remove_file(&path)
+            .map_err(|e| anyhow::anyhow!("failed to delete bookmark '{name}': {e}"))?;
+        Ok(())
+    }
+
+    /// Return bookmark decorations keyed by target change id.
+    pub fn bookmark_decorations(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<ChangeId, Vec<String>>> {
+        read_bookmark_map(&self.shared_root)
+    }
+
+    fn write_bookmark_ref(&self, name: &str, target: &Blake3Hash) -> anyhow::Result<()> {
+        let path = self.bookmark_ref_path(name)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, ChangeId::from(*target).to_hex())
+            .map_err(|e| anyhow::anyhow!("failed to write bookmark '{name}': {e}"))
+    }
+
+    fn bookmark_ref_path(&self, name: &str) -> anyhow::Result<PathBuf> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("bookmark name must not be empty");
+        }
+        if trimmed.contains('\\') || trimmed.contains(':') {
+            anyhow::bail!("invalid bookmark name '{name}'");
+        }
+        if !Path::new(trimmed).is_relative() {
+            anyhow::bail!("invalid bookmark name '{name}'");
+        }
+
+        let mut path = self.shared_root.join(".arc").join("refs").join("bookmarks");
+        for component in Path::new(trimmed).components() {
+            match component {
+                Component::Normal(segment) => path.push(segment),
+                _ => anyhow::bail!("invalid bookmark name '{name}'"),
+            }
+        }
+        Ok(path)
+    }
+
+    // ------------------------------------------------------------------
     // Semantic Revert
     // ------------------------------------------------------------------
 
@@ -4045,6 +4146,7 @@ impl Repository {
         match function_name {
             "tags" => read_tag_heads(&self.shared_root),
             "remote_branches" => read_remote_branch_heads(&self.shared_root),
+            "bookmarks" => read_bookmark_heads(&self.shared_root),
             _ => Ok(BTreeSet::new()),
         }
     }
@@ -4100,7 +4202,7 @@ impl Repository {
                 Ok(())
             }
             arc_core::revset::RevsetExpression::Function { name, args } => {
-                if matches!(name.as_str(), "tags" | "remote_branches") {
+                if matches!(name.as_str(), "tags" | "remote_branches" | "bookmarks") {
                     let heads = self.resolve_revset_reference_heads(name)?;
                     if !heads.is_empty() {
                         let hashes: HashSet<Blake3Hash> =
@@ -5715,6 +5817,66 @@ mod tests {
         let mut bad = tags[0].clone();
         bad.target = [99u8; 32];
         assert!(!bad.verify(), "tampered tag must not verify");
+    }
+
+    #[test]
+    fn test_bookmark_operations() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("bookmark_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("lib.rs"), "fn lib() { 1 }\n").unwrap();
+        let first = repo.snap("add lib", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("lib.rs"), "fn lib() { 2 }\n").unwrap();
+        let second = repo.snap("update lib", false).unwrap().unwrap();
+
+        repo.create_bookmark("trunk/main", &first).unwrap();
+        assert!(
+            repo.create_bookmark("trunk/main", &first).is_err(),
+            "duplicate bookmark must be rejected"
+        );
+
+        repo.move_bookmark("trunk/main", &second, false).unwrap();
+        assert!(
+            repo.move_bookmark("trunk/main", &first, false).is_err(),
+            "non-fast-forward move must be rejected by default"
+        );
+        repo.move_bookmark("trunk/main", &first, true).unwrap();
+
+        let decorations = repo.bookmark_decorations().unwrap();
+        assert!(
+            decorations
+                .get(&ChangeId::from(first))
+                .is_some_and(|names| names.contains(&"trunk/main".to_string())),
+            "bookmark decoration must include trunk/main"
+        );
+
+        repo.delete_bookmark("trunk/main").unwrap();
+        assert!(
+            repo.delete_bookmark("trunk/main").is_err(),
+            "deleting missing bookmark must fail"
+        );
+
+        let invalid_names = [
+            "",
+            "   ",
+            "/absolute",
+            "..",
+            "../escape",
+            "feature/../escape",
+            "feature\\..\\escape",
+            "C:\\temp\\escape",
+        ];
+        for name in invalid_names {
+            assert!(
+                repo.create_bookmark(name, &first).is_err(),
+                "invalid bookmark name '{name}' must be rejected"
+            );
+        }
     }
 
     #[test]

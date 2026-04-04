@@ -37,6 +37,11 @@ pub fn read_remote_branch_heads(shared_root: &Path) -> anyhow::Result<BTreeSet<C
         .collect())
 }
 
+/// Resolve all bookmark heads to a strongly-typed set.
+pub fn read_bookmark_heads(shared_root: &Path) -> anyhow::Result<BTreeSet<ChangeId>> {
+    Ok(read_bookmark_map(shared_root)?.keys().copied().collect())
+}
+
 /// Read tags as a map of target change id -> tag names.
 pub fn read_tag_map(shared_root: &Path) -> anyhow::Result<BTreeMap<ChangeId, Vec<String>>> {
     let mut out: BTreeMap<ChangeId, Vec<String>> = BTreeMap::new();
@@ -79,6 +84,32 @@ pub fn read_remote_branch_map(
     for path in gather_files(&base)? {
         let bytes = fs::read(&path)
             .with_context(|| format!("failed to read remote ref file {}", path.display()))?;
+        let ref_name = normalize_ref_name(&base, &path);
+        for id in parse_reference_targets(&bytes) {
+            out.entry(id).or_default().push(ref_name.clone());
+        }
+    }
+
+    for names in out.values_mut() {
+        names.sort();
+        names.dedup();
+    }
+
+    Ok(out)
+}
+
+/// Read bookmarks as a map of target change id -> bookmark names.
+pub fn read_bookmark_map(shared_root: &Path) -> anyhow::Result<BTreeMap<ChangeId, Vec<String>>> {
+    let mut out: BTreeMap<ChangeId, Vec<String>> = BTreeMap::new();
+    let base = shared_root.join(".arc").join("refs").join("bookmarks");
+
+    if !base.exists() {
+        return Ok(out);
+    }
+
+    for path in gather_files(&base)? {
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read bookmark ref file {}", path.display()))?;
         let ref_name = normalize_ref_name(&base, &path);
         for id in parse_reference_targets(&bytes) {
             out.entry(id).or_default().push(ref_name.clone());
@@ -272,6 +303,21 @@ mod tests {
         fs::write(refs_dir.join("origin").join("main"), hex).expect("write remote ref");
 
         let heads = read_remote_branch_heads(root).expect("read remote heads");
+        assert_eq!(heads, BTreeSet::from([ChangeId::from(head)]));
+    }
+
+    #[test]
+    fn reads_bookmark_heads_from_refs_namespace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let refs_dir = root.join(".arc").join("refs").join("bookmarks");
+        fs::create_dir_all(refs_dir.join("feature")).expect("create bookmark refs dir");
+
+        let head = [11u8; 32];
+        let hex = ChangeId::from(head).to_hex();
+        fs::write(refs_dir.join("feature").join("ui"), hex).expect("write bookmark ref");
+
+        let heads = read_bookmark_heads(root).expect("read bookmark heads");
         assert_eq!(heads, BTreeSet::from([ChangeId::from(head)]));
     }
 }
