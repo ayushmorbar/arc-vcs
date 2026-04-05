@@ -15,6 +15,24 @@
 
 ---
 
+# Tutorials
+
+- [Tutorial: First Useful Revset](tutorials/revset-basics.md)
+- [Tutorial: Resolve a Semantic Conflict](tutorials/conflict-resolution-walkthrough.md)
+- [Tutorial: Topological Bisect in Practice](tutorials/topological-bisect-walkthrough.md)
+- [Tutorial: Linked Workspace with Sparse Scope](tutorials/workspace-sparse-onboarding.md)
+
+---
+
+# Concepts
+
+- [Dynamic Revsets](concepts/dynamic-revsets.md)
+- [Conflict Algebra in Arc](concepts/conflict-algebra.md)
+- [Topological Bisect](concepts/topological-bisect.md)
+- [Workspace and Sparse Boundaries](concepts/workspace-boundaries.md)
+
+---
+
 # Reference
 
 - [CLI Reference](reference/cli-reference.md)
@@ -22,6 +40,10 @@
 - [Ignore & Attributes](reference/ignore-and-attributes.md)
 - [AI Intents & Resolution](reference/ai-intents.md)
 - [Debugging and Hyper-Observability](reference/debugging.md)
+- [Revsets](reference/revsets.md)
+- [Conflict Resolution Protocol](reference/conflicts.md)
+- [Bisect and Bench Reference](reference/bisect-and-bench.md)
+- [Workspaces, Sparse, and Mounts](reference/workspaces-sparse-mounts.md)
 
 ---
 
@@ -46,6 +68,10 @@
 
 - [Time-Travel With Operation Log](howto/oplog-time-travel.md)
 - [Custom Hooks](howto/custom-hooks.md)
+- [Revset-Driven Investigation](howto/revset-driven-investigation.md)
+- [Resolve Conflicts with AI or Merge Tool](howto/resolve-conflicts-with-ai-or-merge-tool.md)
+- [Isolate Regressions with Bisect and Bench](howto/isolate-regressions-with-bisect-and-bench.md)
+- [Safe Linked Workspaces](howto/safe-linked-workspaces.md)
 - [CI Integration (GitHub Actions and GitLab CI)](howto/ci-integration.md)
 - [Troubleshoot Sync](howto/troubleshoot-sync.md)
 - [Release Docs Checklist](howto/release-docs-checklist.md)
