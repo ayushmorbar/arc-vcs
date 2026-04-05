@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use arc_algebra_types::Blake3Hash;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
+use crate::lock::LockFile;
 use crate::StoreError;
 
 /// A `View` is arc's replacement for a Git branch.
@@ -32,8 +34,15 @@ impl View {
 
     /// Persist this view to `.arc/views/{name}` using `bincode`.
     ///
-    /// Uses an atomic rename pattern (write to `.tmp`, then rename) to
-    /// prevent corruption when multiple AI agents write concurrently.
+    /// Uses a lock-file write/commit protocol:
+    ///
+    /// 1. acquire `<view>.lock` exclusively,
+    /// 2. write full payload into the lock file,
+    /// 3. fsync and atomically publish into the view path.
+    ///
+    /// Drop-guard semantics ensure lock cleanup if the process panics or exits
+    /// before commit.
+    #[instrument(skip_all, fields(view = %self.name))]
     pub fn save(&self, arc_root: impl AsRef<Path>) -> Result<(), StoreError> {
         let path = view_path(arc_root.as_ref(), &self.name);
         if let Some(parent) = path.parent() {
@@ -41,16 +50,15 @@ impl View {
         }
         let bytes = bincode::serialize(self)?;
 
-        // Atomic write: tmp → rename prevents half-written files under
-        // concurrent multi-agent access.
-        let tmp_path = path.with_extension("tmp");
-        fs::write(&tmp_path, &bytes)?;
-        fs::rename(&tmp_path, &path)?;
+        let mut lock = LockFile::acquire_for_update(&path)?;
+        lock.write_all(&bytes)?;
+        lock.commit()?;
 
         Ok(())
     }
 
     /// Load a view from `.arc/views/{name}`.
+    #[instrument(skip_all, fields(view = %name))]
     pub fn load(arc_root: impl AsRef<Path>, name: &str) -> Result<Self, StoreError> {
         let path = view_path(arc_root.as_ref(), name);
         let bytes = fs::read(&path)?;

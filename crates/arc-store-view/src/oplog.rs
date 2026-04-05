@@ -1,19 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs::{self, File, OpenOptions};
-use std::io::Read;
-use std::io::{ErrorKind, Write};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use arc_store_types::newtypes::{ChangeId, MutationId, SnapshotId};
 
+use crate::lock::{LockFile, LockMarker};
+
 /// Maximum number of optimistic publish retries before returning an error.
 pub const MAX_RETRY_ATTEMPTS: usize = 16;
-const STALE_LOCK_TTL_MILLIS: u128 = 30_000;
 
 /// Human or AI actor attribution for an operation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +211,7 @@ impl OpLog {
     }
 
     /// Persist one operation node and publish it into the head set.
+    #[instrument(skip_all)]
     pub fn append(&self, operation: &Operation) -> Result<()> {
         self.migrate_legacy_json_if_present()?;
         self.ensure_layout()?;
@@ -244,6 +245,7 @@ impl OpLog {
     }
 
     /// Persist one atomic rewrite transaction operation node.
+    #[instrument(skip_all)]
     pub fn append_transaction(&self, tx: &RewriteTransaction) -> Result<()> {
         let mut op = Operation::new_with_agent(
             tx.command.clone(),
@@ -259,6 +261,7 @@ impl OpLog {
     }
 
     /// Load all reachable operations from current OpLog heads.
+    #[instrument(skip_all)]
     pub fn read_all(&self) -> Result<Vec<Operation>> {
         self.migrate_legacy_json_if_present()?;
         if !self.heads_file().exists() {
@@ -295,6 +298,7 @@ impl OpLog {
     }
 
     /// Load all reachable operations in reverse chronological order.
+    #[instrument(skip_all)]
     pub fn read_reversed(&self) -> Result<Vec<Operation>> {
         let mut all = self.read_all()?;
         all.reverse();
@@ -302,14 +306,15 @@ impl OpLog {
     }
 
     /// Rewind one published operation from heads and return it.
+    #[instrument(skip_all)]
     pub fn pop(&self) -> Result<Option<Operation>> {
         self.migrate_legacy_json_if_present()?;
         self.ensure_layout()?;
-        let lock = PublishLock::acquire(&self.publish_lock_file())?;
+        let lock = LockMarker::acquire(&self.publish_lock_file())?;
 
         let (heads_state, _) = self.load_heads_state()?;
         if heads_state.heads.is_empty() {
-            drop(lock);
+            lock.release()?;
             return Ok(None);
         }
 
@@ -341,7 +346,7 @@ impl OpLog {
         self.write_heads_state(&candidate)?;
         let _ = self.write_legacy_projection();
 
-        drop(lock);
+        lock.release()?;
         Ok(Some(selected.operation))
     }
 
@@ -491,16 +496,16 @@ impl OpLog {
     }
 
     fn publish_heads_cas(&self, expected: &[u8; 32], candidate: &HeadsState) -> Result<bool> {
-        let lock = PublishLock::acquire(&self.publish_lock_file())?;
+        let lock = LockMarker::acquire(&self.publish_lock_file())?;
 
         let (_, current_fingerprint) = self.load_heads_state()?;
         if &current_fingerprint != expected {
-            drop(lock);
+            lock.release()?;
             return Ok(false);
         }
 
         self.write_heads_state(candidate)?;
-        drop(lock);
+        lock.release()?;
         Ok(true)
     }
 
@@ -541,216 +546,14 @@ impl OpLog {
     }
 }
 
-struct PublishLock {
-    path: PathBuf,
-}
-
-impl PublishLock {
-    fn acquire(path: &Path) -> Result<Self> {
-        let mut retries = 0usize;
-        loop {
-            match OpenOptions::new().write(true).create_new(true).open(path) {
-                Ok(mut file) => {
-                    let pid = std::process::id();
-                    let _ = writeln!(file, "{pid} {}", now_millis());
-                    file.sync_all().ok();
-                    return Ok(Self {
-                        path: path.to_path_buf(),
-                    });
-                }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
-                    if is_stale_lock(path)? {
-                        let _ = fs::remove_file(path);
-                        continue;
-                    }
-                    retries += 1;
-                    if retries > MAX_RETRY_ATTEMPTS * 8 {
-                        anyhow::bail!("timed out acquiring oplog publish lock");
-                    }
-                    thread::sleep(Duration::from_millis(2));
-                }
-                Err(err) => return Err(err).context("failed to acquire publish lock"),
-            }
-        }
-    }
-}
-
-impl Drop for PublishLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
 fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
-    fs::create_dir_all(parent)?;
-
-    let tmp_name = format!(
-        ".{}.tmp-{}-{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("op"),
-        std::process::id(),
-        now_nanos()
-    );
-    let tmp_path = parent.join(tmp_name);
-
-    {
-        let mut file = File::create(&tmp_path)
-            .with_context(|| format!("failed to create temp file {}", tmp_path.display()))?;
-        file.write_all(bytes)
-            .with_context(|| format!("failed to write temp file {}", tmp_path.display()))?;
-        file.sync_all()
-            .with_context(|| format!("failed to fsync temp file {}", tmp_path.display()))?;
-    }
-
-    #[cfg(windows)]
-    {
-        let backup_path = parent.join(format!(
-            "{}.bak",
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("target")
-        ));
-        let staged_backup_path = parent.join(format!(
-            "{}.bak.new",
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("target")
-        ));
-
-        if staged_backup_path.exists() {
-            fs::remove_file(&staged_backup_path).with_context(|| {
-                format!(
-                    "failed to remove stale staged backup {}",
-                    staged_backup_path.display()
-                )
-            })?;
-        }
-
-        if path.exists() {
-            fs::rename(path, &staged_backup_path).with_context(|| {
-                format!(
-                    "failed to rotate existing target {} -> {}",
-                    path.display(),
-                    staged_backup_path.display()
-                )
-            })?;
-        }
-
-        if let Err(err) = fs::rename(&tmp_path, path) {
-            if staged_backup_path.exists() {
-                let _ = fs::rename(&staged_backup_path, path);
-            }
-            return Err(err).with_context(|| {
-                format!(
-                    "failed to atomically rename {} -> {}",
-                    tmp_path.display(),
-                    path.display()
-                )
-            });
-        }
-
-        if staged_backup_path.exists() {
-            if backup_path.exists() {
-                fs::remove_file(&backup_path).with_context(|| {
-                    format!(
-                        "failed to replace previous backup {}",
-                        backup_path.display()
-                    )
-                })?;
-            }
-            fs::rename(&staged_backup_path, &backup_path).with_context(|| {
-                format!(
-                    "failed to finalize backup {} -> {}",
-                    staged_backup_path.display(),
-                    backup_path.display()
-                )
-            })?;
-        }
-    }
-
-    #[cfg(not(windows))]
-    fs::rename(&tmp_path, path).with_context(|| {
-        format!(
-            "failed to atomically rename {} -> {}",
-            tmp_path.display(),
-            path.display()
-        )
-    })?;
-
-    sync_directory(parent)?;
+    let mut lock = LockFile::acquire_for_update(path)
+        .with_context(|| format!("failed to acquire lock for {}", path.display()))?;
+    lock.write_all(bytes)
+        .with_context(|| format!("failed to write staged payload for {}", path.display()))?;
+    lock.commit()
+        .with_context(|| format!("failed to commit locked write for {}", path.display()))?;
     Ok(())
-}
-
-fn sync_directory(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        File::open(path)?.sync_all()?;
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
-        let open_result = OpenOptions::new()
-            .read(true)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(path);
-        match open_result {
-            Ok(file) => {
-                if let Err(err) = file.sync_all()
-                    && err.kind() != ErrorKind::PermissionDenied
-                {
-                    return Err(err.into());
-                }
-            }
-            Err(err) if err.kind() == ErrorKind::PermissionDenied => {
-                // Best effort on Windows environments where directory sync is
-                // restricted by filesystem policy.
-            }
-            Err(err) => return Err(err.into()),
-        }
-        Ok(())
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = path;
-        Ok(())
-    }
-}
-
-fn now_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-}
-
-fn now_millis() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-}
-
-fn is_stale_lock(path: &Path) -> Result<bool> {
-    let mut file = match File::open(path) {
-        Ok(file) => file,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(err) => return Err(err.into()),
-    };
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    let Some(ts) = contents.split_whitespace().nth(1) else {
-        return Ok(true);
-    };
-    let Ok(locked_at) = ts.parse::<u128>() else {
-        return Ok(true);
-    };
-    Ok(now_millis().saturating_sub(locked_at) > STALE_LOCK_TTL_MILLIS)
 }
 
 fn heads_short(heads: &BTreeSet<ChangeId>) -> String {
