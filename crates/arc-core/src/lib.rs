@@ -20,7 +20,7 @@
 
 #![warn(missing_docs)]
 
-pub mod ai;
+pub use arc_ai as ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
 /// Spacetime engine: algebraic history rewriting (squash, diffedit).
@@ -28,8 +28,8 @@ pub mod engine;
 /// Error types for this crate.
 #[allow(missing_docs)]
 pub mod error;
-/// Pure‑Rust Git interoperability bridge for reading legacy repositories.
-pub mod git_bridge;
+/// Pure-Rust Git interoperability bridge for reading legacy repositories.
+pub use arc_git as git_bridge;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS).
 pub mod network;
 /// Revset grammar and parser for DAG query expressions.

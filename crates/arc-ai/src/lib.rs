@@ -13,8 +13,8 @@
 //!
 //! | Variable | Default | Purpose |
 //! |---|---|---|
-//! | `ARC_AI_KEY` | — (required) | Bearer token for the provider |
-//! | `ARC_AI_URL` | `https://api.openai.com` | Base URL — any OpenAI-schema endpoint |
+//! | `ARC_AI_KEY` | - (required) | Bearer token for the provider |
+//! | `ARC_AI_URL` | `https://api.openai.com` | Base URL - any OpenAI-schema endpoint |
 //! | `ARC_AI_MODEL` | `gpt-4o-mini` | Model identifier |
 //! | `ARC_AI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model (API fallback only) |
 
@@ -34,7 +34,7 @@ use serde_json::json;
 ///
 /// # Errors
 /// Returns `Err` if `ARC_AI_KEY` is unset (hard configuration failure) or if the HTTP
-/// request itself fails (transient — callers should offer an interactive fallback).
+/// request itself fails (transient - callers should offer an interactive fallback).
 pub async fn generate_message(diff_summary: &str) -> Result<String> {
     let api_key = std::env::var("ARC_AI_KEY").context(
         "ARC_AI_KEY environment variable must be set. Export it before using --auto-msg.",
@@ -100,7 +100,7 @@ pub trait AiResolver {
     ) -> Result<Vec<u8>, String>;
 }
 
-/// Extract content from the first code fence (\`\`\` … \`\`\`) in `text`.
+/// Extract content from the first code fence (``` ... ```) in `text`.
 ///
 /// If the text contains no fence, the entire trimmed string is returned.
 /// This is shared by [`LlmResolver`] and `generate_code` so both strip
@@ -193,7 +193,7 @@ pub struct LlmResolver {
 impl LlmResolver {
     /// Construct from the standard arc AI environment variables.
     ///
-    /// Returns `None` if `ARC_AI_KEY` is unset — callers should fall back to
+    /// Returns `None` if `ARC_AI_KEY` is unset - callers should fall back to
     /// [`MockResolver`] for offline / CI scenarios.
     pub fn from_env() -> Option<Self> {
         let api_key = std::env::var("ARC_AI_KEY").ok()?;
@@ -269,7 +269,7 @@ impl AiResolver for LlmResolver {
 
 /// A deterministic mock resolver for testing.
 ///
-/// Concatenates both sides separated by a newline — just enough to verify
+/// Concatenates both sides separated by a newline - just enough to verify
 /// the resolution pipeline without an actual AI model.
 pub struct MockResolver;
 

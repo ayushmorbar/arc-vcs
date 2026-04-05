@@ -1,25 +1,25 @@
-//! Pure‑Rust Git history reader.
+//! Pure-Rust Git history reader.
 //!
 //! Opens a legacy Git repository, decompresses loose and packed objects,
-//! parses commit metadata, and walks the DAG from HEAD — without linking
+//! parses commit metadata, and walks the DAG from HEAD - without linking
 //! to libgit2 or depending on the `gix` crate.  Only [`flate2`] is used
 //! for zlib decompression.
 //!
 //! # Design (inspired by gitoxide)
 //!
-//! The `gix` project splits Git I/O across many fine‑grained crates
-//! (`gix-odb`, `gix-pack`, `gix-object`, `gix-revwalk`, …).  We follow
-//! the same logical layering inside a single module: ref resolution →
-//! object I/O (loose + pack) → commit parsing → DAG traversal.
+//! The `gix` project splits Git I/O across many fine-grained crates
+//! (`gix-odb`, `gix-pack`, `gix-object`, `gix-revwalk`, ...).  We follow
+//! the same logical layering inside a single module: ref resolution ->
+//! object I/O (loose + pack) -> commit parsing -> DAG traversal.
 
 use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-// ── types ──────────────────────────────────────────────────────────────
+// -- types --------------------------------------------------------------------
 
-/// A 20‑byte SHA‑1 object identifier — Git's native hash format.
+/// A 20-byte SHA-1 object identifier - Git's native hash format.
 pub type GitOid = [u8; 20];
 
 /// Git object type tag.
@@ -40,9 +40,9 @@ struct RawObject {
 /// Parsed metadata extracted from a single Git commit object.
 #[derive(Debug, Clone)]
 pub struct GitCommit {
-    /// SHA‑1 hash of this commit.
+    /// SHA-1 hash of this commit.
     pub oid: GitOid,
-    /// SHA‑1 of the root tree object.
+    /// SHA-1 of the root tree object.
     pub tree: GitOid,
     /// Parent commit OIDs (empty for root commits).
     pub parents: Vec<GitOid>,
@@ -50,7 +50,7 @@ pub struct GitCommit {
     pub author_name: String,
     /// Author email.
     pub author_email: String,
-    /// Author‑date as a Unix timestamp (seconds since epoch).
+    /// Author-date as a Unix timestamp (seconds since epoch).
     pub author_timestamp: i64,
     /// Committer name.
     pub committer_name: String,
@@ -65,7 +65,7 @@ pub struct GitCommit {
 pub struct GitAnalysis {
     /// Filesystem path that was analysed.
     pub path: PathBuf,
-    /// HEAD commit as a 40‑char lowercase hex string.
+    /// HEAD commit as a 40-char lowercase hex string.
     pub head_hex: String,
     /// Total number of reachable commits.
     pub commit_count: usize,
@@ -73,10 +73,10 @@ pub struct GitAnalysis {
     pub commits: Vec<GitCommit>,
 }
 
-// ── public API ─────────────────────────────────────────────────────────
+// -- public API ---------------------------------------------------------------
 
 /// Open the Git repository at `path`, walk every reachable commit from
-/// HEAD, and return structured analysis with commits **oldest‑first**.
+/// HEAD, and return structured analysis with commits **oldest-first**.
 pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
     let git_dir = resolve_git_dir(path)?;
     let head_oid = resolve_head(&git_dir)?;
@@ -102,7 +102,7 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
         commits.push(commit);
     }
 
-    // Reverse BFS order → oldest commit first (natural for replaying).
+    // Reverse BFS order -> oldest commit first (natural for replaying).
     commits.reverse();
 
     Ok(GitAnalysis {
@@ -113,12 +113,12 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
     })
 }
 
-/// Render a [`GitOid`] as a 40‑char lowercase hex string.
+/// Render a [`GitOid`] as a 40-char lowercase hex string.
 pub fn oid_hex(oid: &GitOid) -> String {
     oid.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-// ── git dir resolution ─────────────────────────────────────────────────
+// -- git dir resolution -------------------------------------------------------
 
 /// Locate the `.git` directory for the repository rooted at `path`.
 ///
@@ -158,7 +158,7 @@ fn resolve_head(git_dir: &Path) -> Result<GitOid> {
     }
 }
 
-/// Resolve a ref name (e.g. `refs/heads/main`) → OID.
+/// Resolve a ref name (e.g. `refs/heads/main`) -> OID.
 /// Checks the loose file first, then falls back to `packed-refs`.
 fn resolve_ref(git_dir: &Path, refpath: &str) -> Result<GitOid> {
     // Loose ref
@@ -185,7 +185,7 @@ fn resolve_ref(git_dir: &Path, refpath: &str) -> Result<GitOid> {
     bail!("cannot resolve ref '{refpath}'");
 }
 
-// ── object I/O ─────────────────────────────────────────────────────────
+// -- object I/O ---------------------------------------------------------------
 
 fn read_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     read_loose_object(git_dir, oid)
@@ -210,7 +210,7 @@ fn read_loose_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     })
 }
 
-// ── pack files ─────────────────────────────────────────────────────────
+// -- pack files ---------------------------------------------------------------
 
 fn read_packed_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     let pack_dir = git_dir.join("objects").join("pack");
@@ -245,7 +245,7 @@ fn lookup_in_pack(
     let idx = std::fs::read(idx_path)?;
     let pack = std::fs::read(pack_path)?;
 
-    // ── v2 index header ─────────────────────────────────────────────
+    // -- v2 index header ------------------------------------------------
     //  0..4   magic  0xff 't' 'O' 'c'
     //  4..8   version (2)
     //  8..1032  256-entry fan-out table (4 bytes each, big-endian)
@@ -292,7 +292,7 @@ fn lookup_in_pack(
         found.context("OID not in this pack")?
     };
 
-    // Read 4-byte offset (MSB set → index into the 8-byte large table).
+    // Read 4-byte offset (MSB set -> index into the 8-byte large table).
     let raw_off =
         u32::from_be_bytes(idx[off_table + idx_pos * 4..off_table + idx_pos * 4 + 4].try_into()?);
     let pack_offset = if raw_off & 0x8000_0000 != 0 {
@@ -318,7 +318,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
                 data,
             })
         }
-        // OFS_DELTA — base referenced by negative offset within this pack.
+        // OFS_DELTA - base referenced by negative offset within this pack.
         6 => {
             let (neg_off, delta_pos) = parse_ofs_delta_header(pack, data_pos)?;
             let base_off = offset
@@ -332,7 +332,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
                 data,
             })
         }
-        // REF_DELTA — base referenced by 20-byte OID (may be in any source).
+        // REF_DELTA - base referenced by 20-byte OID (may be in any source).
         7 => {
             let base_oid: GitOid = pack[data_pos..data_pos + 20]
                 .try_into()
@@ -349,7 +349,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
     }
 }
 
-/// Variable‑length pack object header → `(type, uncompressed_size, data_pos)`.
+/// Variable-length pack object header -> `(type, uncompressed_size, data_pos)`.
 fn parse_pack_header(pack: &[u8], mut pos: usize) -> Result<(u8, usize, usize)> {
     let b = *pack.get(pos).context("truncated pack header")?;
     pos += 1;
@@ -370,7 +370,7 @@ fn parse_pack_header(pack: &[u8], mut pos: usize) -> Result<(u8, usize, usize)> 
     Ok((obj_type, size, pos))
 }
 
-/// OFS_DELTA negative‑offset header → `(negative_offset, delta_data_pos)`.
+/// OFS_DELTA negative-offset header -> `(negative_offset, delta_data_pos)`.
 fn parse_ofs_delta_header(pack: &[u8], mut pos: usize) -> Result<(usize, usize)> {
     let b = *pack.get(pos).context("truncated OFS_DELTA offset")?;
     pos += 1;
@@ -388,14 +388,14 @@ fn parse_ofs_delta_header(pack: &[u8], mut pos: usize) -> Result<(usize, usize)>
     Ok((off, pos))
 }
 
-// ── delta application ──────────────────────────────────────────────────
+// -- delta application --------------------------------------------------------
 
 /// Apply a Git delta instruction stream to a base payload.
 ///
 /// The binary format (documented in `Documentation/gitformat-pack.txt`):
-///   1. source‑size (variable‑length LE int)
-///   2. target‑size (variable‑length LE int)
-///   3. instruction stream  — copy‑from‑source **or** insert‑literal
+///   1. source-size (variable-length LE int)
+///   2. target-size (variable-length LE int)
+///   3. instruction stream  - copy-from-source **or** insert-literal
 fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
     let (src_len, mut pos) = read_varint_le(delta, 0)?;
     let (tgt_len, next) = read_varint_le(delta, pos)?;
@@ -415,7 +415,7 @@ fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
         pos += 1;
 
         if cmd & 0x80 != 0 {
-            // ── copy from base ──────────────────────────────────────
+            // -- copy from base -----------------------------------------
             let mut cp_off = 0usize;
             let mut cp_len = 0usize;
             for i in 0..4u8 {
@@ -438,7 +438,7 @@ fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
                     .context("delta copy out of bounds")?,
             );
         } else if cmd != 0 {
-            // ── insert literal bytes ────────────────────────────────
+            // -- insert literal bytes -----------------------------------
             let n = cmd as usize;
             out.extend_from_slice(
                 delta
@@ -460,7 +460,7 @@ fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Read a variable‑length little‑endian integer from a delta stream.
+/// Read a variable-length little-endian integer from a delta stream.
 fn read_varint_le(buf: &[u8], mut pos: usize) -> Result<(usize, usize)> {
     let mut val = 0usize;
     let mut shift = 0u32;
@@ -476,10 +476,10 @@ fn read_varint_le(buf: &[u8], mut pos: usize) -> Result<(usize, usize)> {
     Ok((val, pos))
 }
 
-// ── commit parsing ─────────────────────────────────────────────────────
+// -- commit parsing -----------------------------------------------------------
 
 fn parse_commit(oid: &GitOid, data: &[u8]) -> Result<GitCommit> {
-    let text = std::str::from_utf8(data).context("commit body is not UTF‑8")?;
+    let text = std::str::from_utf8(data).context("commit body is not UTF-8")?;
 
     let mut tree = [0u8; 20];
     let mut parents = Vec::new();
@@ -503,7 +503,7 @@ fn parse_commit(oid: &GitOid, data: &[u8]) -> Result<GitCommit> {
             in_body = true;
             continue;
         }
-        // Continuation line (multi‑line headers like gpgsig) — skip.
+        // Continuation line (multi-line headers like gpgsig) - skip.
         if line.starts_with(' ') {
             continue;
         }
@@ -521,7 +521,7 @@ fn parse_commit(oid: &GitOid, data: &[u8]) -> Result<GitCommit> {
             committer_name = n;
             committer_email = e;
         }
-        // encoding, mergetag, etc. — ignored
+        // encoding, mergetag, etc. - ignored
     }
 
     Ok(GitCommit {
@@ -552,7 +552,7 @@ fn parse_ident(s: &str) -> Result<(String, String, i64)> {
     Ok((name, email, ts))
 }
 
-// ── helpers ────────────────────────────────────────────────────────────
+// -- helpers ------------------------------------------------------------------
 
 fn parse_hex_oid(hex: &str) -> Result<GitOid> {
     if hex.len() != 40 {
@@ -591,7 +591,7 @@ fn zlib_decompress(data: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-// ── Tree & Blob Extraction Layer ─────────────────────────────
+// -- Tree & Blob Extraction Layer ---------------------------------------------
 
 /// A single entry inside a Git tree object.
 ///
@@ -637,14 +637,14 @@ pub fn parse_tree(raw_data: &[u8]) -> Result<GitTree> {
     let mut i = 0;
 
     while i < raw_data.len() {
-        // ── mode (terminated by SP) ───────────────────────────────────
+        // -- mode (terminated by SP) -----------------------------------
         let space_idx = match raw_data[i..].iter().position(|&b| b == b' ') {
             Some(rel) => i + rel,
-            None => break, // malformed — stop gracefully
+            None => break, // malformed - stop gracefully
         };
         let mode = String::from_utf8_lossy(&raw_data[i..space_idx]).into_owned();
 
-        // ── name (terminated by NUL) ──────────────────────────────────
+        // -- name (terminated by NUL) ----------------------------------
         let name_start = space_idx + 1;
         let null_idx = match raw_data[name_start..].iter().position(|&b| b == 0) {
             Some(rel) => name_start + rel,
@@ -652,11 +652,11 @@ pub fn parse_tree(raw_data: &[u8]) -> Result<GitTree> {
         };
         let name = String::from_utf8_lossy(&raw_data[name_start..null_idx]).into_owned();
 
-        // ── 20-byte binary OID ────────────────────────────────────────
+        // -- 20-byte binary OID ----------------------------------------
         let oid_start = null_idx + 1;
         let oid_end = oid_start + 20;
         if oid_end > raw_data.len() {
-            break; // truncated entry — stop gracefully
+            break; // truncated entry - stop gracefully
         }
         let oid =
             raw_data[oid_start..oid_end]
@@ -715,7 +715,7 @@ pub fn extract_tree_to_memory(
         };
         let oid = parse_hex_oid(&entry.oid)?;
         if entry.mode == "40000" || entry.mode == "040000" {
-            // Subdirectory — recurse.
+            // Subdirectory - recurse.
             extract_tree_to_memory(git_dir, &oid, &path, out)?;
         } else if entry.mode.starts_with("100") || entry.mode.starts_with("120") {
             // Regular file (100644 / 100755) or symlink (120000).
@@ -724,7 +724,7 @@ pub fn extract_tree_to_memory(
                 out.insert(path, blob_obj.data);
             }
         }
-        // mode "160000" (gitlink/submodule) — skip.
+        // mode "160000" (gitlink/submodule) - skip.
     }
     Ok(())
 }
@@ -743,7 +743,7 @@ pub fn list_branch_heads(path: &Path) -> Result<HashMap<String, GitOid>> {
         collect_loose_refs(&heads_dir, &heads_dir, &mut branches)?;
     }
 
-    // packed-refs (only fills gaps — loose refs take priority)
+    // packed-refs (only fills gaps - loose refs take priority)
     let packed = git_dir.join("packed-refs");
     if packed.is_file() {
         for line in std::fs::read_to_string(&packed)?.lines() {

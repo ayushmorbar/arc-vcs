@@ -118,6 +118,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "arc-ai"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "directories",
+ "fastembed",
+ "reqwest 0.13.2",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "arc-cli"
 version = "0.1.0-beta.6"
 dependencies = [
@@ -173,23 +186,21 @@ name = "arc-core"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
+ "arc-ai",
  "arc-content-hash-derive",
+ "arc-git",
  "arc-swap",
  "bincode",
  "blake3",
  "dashmap",
  "directories",
  "ed25519-dalek",
- "fastembed",
- "flate2",
- "gix-features",
  "ignore",
  "memmap2",
  "pest",
  "pest_derive",
  "rand_core 0.6.4",
  "reqwest 0.13.2",
- "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -209,6 +220,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "arc-git"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "tempfile",
 ]
 
 [[package]]

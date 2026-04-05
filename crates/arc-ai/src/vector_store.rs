@@ -93,7 +93,7 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// -- Tests --------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -110,7 +110,7 @@ mod tests {
         store.upsert("bbb", &[0.0_f32, 1.0]).unwrap();
         store.upsert("ccc", &[0.7_f32, 0.7]).unwrap();
 
-        // Query most similar to [1.0, 0.0] → "aaa" should rank first.
+        // Query most similar to [1.0, 0.0] -> "aaa" should rank first.
         let results = store.search(&[1.0_f32, 0.0], 3).unwrap();
         assert_eq!(results[0].0, "aaa");
         assert!(results[0].1 > results[1].1);

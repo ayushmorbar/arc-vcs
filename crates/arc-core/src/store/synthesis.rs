@@ -31,7 +31,11 @@ pub struct SynthesisSnapshot {
 
 impl SynthesisSnapshot {
     /// Build a snapshot from source files, fail-fast if any file cannot be read.
-    pub fn capture(root: &Path, source: impl Into<String>, files: &[PathBuf]) -> anyhow::Result<Self> {
+    pub fn capture(
+        root: &Path,
+        source: impl Into<String>,
+        files: &[PathBuf],
+    ) -> anyhow::Result<Self> {
         let source = source.into();
         let mut artifacts: Vec<SynthArtifact> = files
             .iter()
@@ -71,27 +75,55 @@ impl SynthesisSnapshot {
         let bytes = bincode::serialize(self)
             .map_err(|e| anyhow::anyhow!("failed to serialize synthesis snapshot: {e}"))?;
 
-        let tmp_name = format!("{}.tmp-{}", self.id.to_hex(), std::process::id());
-        let tmp_path = parent.join(tmp_name);
-        fs::write(&tmp_path, &bytes)?;
-        // Durability barrier 1: force temp-file data to stable storage.
-        fs::File::open(&tmp_path)?.sync_all()?;
+        #[cfg(windows)]
+        {
+            // Windows can deny directory/file sync handles in temp dirs.
+            // Keep atomic replacement semantics using temp-file + rename,
+            // but avoid strict sync barriers that fail in some environments.
+            let tmp_name = format!("{}.tmp-{}", self.id.to_hex(), std::process::id());
+            let tmp_path = parent.join(tmp_name);
+            fs::write(&tmp_path, &bytes)?;
 
-        match fs::rename(&tmp_path, &path) {
-            Ok(()) => {
-                // Durability barrier 2: force directory entry updates.
-                sync_directory(parent)?;
-                Ok(())
+            match fs::rename(&tmp_path, &path) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    let _ = fs::remove_file(&tmp_path);
+                    if path.exists() {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "atomic rename failed for synthesis snapshot {}: {e}",
+                            self.id
+                        ))
+                    }
+                }
             }
-            Err(e) => {
-                let _ = fs::remove_file(&tmp_path);
-                if path.exists() {
+        }
+
+        #[cfg(not(windows))]
+        {
+            let tmp_name = format!("{}.tmp-{}", self.id.to_hex(), std::process::id());
+            let tmp_path = parent.join(tmp_name);
+            fs::write(&tmp_path, &bytes)?;
+            // Durability barrier 1: force temp-file data to stable storage.
+            fs::File::open(&tmp_path)?.sync_all()?;
+
+            match fs::rename(&tmp_path, &path) {
+                Ok(()) => {
+                    // Durability barrier 2: force directory entry updates.
+                    sync_directory(parent)?;
                     Ok(())
-                } else {
-                    Err(anyhow::anyhow!(
-                        "atomic rename failed for synthesis snapshot {}: {e}",
-                        self.id
-                    ))
+                }
+                Err(e) => {
+                    let _ = fs::remove_file(&tmp_path);
+                    if path.exists() {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "atomic rename failed for synthesis snapshot {}: {e}",
+                            self.id
+                        ))
+                    }
                 }
             }
         }
@@ -182,10 +214,7 @@ fn build_artifact(root: &Path, input: &Path) -> anyhow::Result<SynthArtifact> {
     })
 }
 
-fn compute_snapshot_id(
-    source: &str,
-    artifacts: &[SynthArtifact],
-) -> anyhow::Result<SnapshotId> {
+fn compute_snapshot_id(source: &str, artifacts: &[SynthArtifact]) -> anyhow::Result<SnapshotId> {
     // ID is content-addressed and deterministic: timestamp is intentionally excluded.
     let payload = bincode::serialize(&(source, artifacts))
         .map_err(|e| anyhow::anyhow!("failed to serialize snapshot payload: {e}"))?;
@@ -201,6 +230,7 @@ fn snapshot_path(shared_root: &Path, id: SnapshotId) -> PathBuf {
         .join(format!("{}.bin", &hex[2..]))
 }
 
+#[cfg(not(windows))]
 fn sync_directory(path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
@@ -208,22 +238,10 @@ fn sync_directory(path: &Path) -> anyhow::Result<()> {
         Ok(())
     }
 
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
-        fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(path)?
-            .sync_all()?;
-        Ok(())
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        // Best effort on uncommon targets where directory sync semantics are
-        // unavailable via std APIs.
+        // Best effort on uncommon non-Windows targets where directory sync
+        // semantics are unavailable via std APIs.
         let _ = path;
         Ok(())
     }
@@ -272,8 +290,14 @@ mod tests {
         let root = tmp.path();
         fs::create_dir_all(root.join(".arc").join("synthesis").join("zz"))
             .expect("junk dir create must succeed");
-        fs::write(root.join(".arc").join("synthesis").join("zz").join("junk.bin"), b"x")
-            .expect("junk file write must succeed");
+        fs::write(
+            root.join(".arc")
+                .join("synthesis")
+                .join("zz")
+                .join("junk.bin"),
+            b"x",
+        )
+        .expect("junk file write must succeed");
 
         fs::write(root.join("one.txt"), b"one").expect("file write must succeed");
         fs::write(root.join("two.txt"), b"two").expect("file write must succeed");

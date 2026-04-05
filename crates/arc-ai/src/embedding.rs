@@ -2,11 +2,11 @@
 //!
 //! Implements a three-tier hybrid strategy:
 //!
-//! 1. **Local** — `fastembed` with `AllMiniLML6V2` (384-dim, ~23 MB model
+//! 1. **Local** - `fastembed` with `AllMiniLML6V2` (384-dim, ~23 MB model
 //!    downloaded to `~/.arc/models/` on first call, then cached permanently).
-//! 2. **API** — OpenAI-compatible `/v1/embeddings` endpoint (same
+//! 2. **API** - OpenAI-compatible `/v1/embeddings` endpoint (same
 //!    `ARC_AI_KEY` / `ARC_AI_URL` env vars as `generate_message`).
-//! 3. **Hybrid** — tries Local first, falls back to API if local init fails.
+//! 3. **Hybrid** - tries Local first, falls back to API if local init fails.
 //!
 //! All returned vectors are 384-dimensional and unit-norm, enabling
 //! dot-product cosine similarity in the
@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::json;
 
-// ── Trait ─────────────────────────────────────────────────────────────────────
+// -- Trait --------------------------------------------------------------------
 
 /// Trait for computing a dense float embedding vector from a text string.
 pub trait EmbeddingProvider: Send + Sync {
@@ -24,7 +24,7 @@ pub trait EmbeddingProvider: Send + Sync {
     fn embed(&self, text: &str) -> Result<Vec<f32>>;
 }
 
-// ── LocalProvider ─────────────────────────────────────────────────────────────
+// -- LocalProvider ------------------------------------------------------------
 
 /// Local embedding provider using `fastembed` with `AllMiniLML6V2`.
 ///
@@ -78,7 +78,7 @@ impl EmbeddingProvider for LocalProvider {
     }
 }
 
-// ── ApiProvider ───────────────────────────────────────────────────────────────
+// -- ApiProvider --------------------------------------------------------------
 
 /// API-based embedding provider using any OpenAI-compatible `/v1/embeddings`
 /// endpoint.
@@ -147,7 +147,7 @@ impl EmbeddingProvider for ApiProvider {
     }
 }
 
-// ── HybridProvider ────────────────────────────────────────────────────────────
+// -- HybridProvider -----------------------------------------------------------
 
 /// A provider that tries [`LocalProvider`] first, falling back to
 /// [`ApiProvider`] if local initialization fails.
