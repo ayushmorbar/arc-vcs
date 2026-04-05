@@ -131,6 +131,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-algebra"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-store-cas",
+ "arc-store-types",
+ "bincode",
+ "blake3",
+ "ed25519-dalek",
+ "ignore",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "arc-algebra-types"
 version = "0.1.0-beta.6"
 dependencies = [
@@ -207,6 +224,7 @@ version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
  "arc-ai",
+ "arc-algebra",
  "arc-algebra-types",
  "arc-change",
  "arc-git",

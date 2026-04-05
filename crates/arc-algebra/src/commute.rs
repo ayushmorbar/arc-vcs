@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use crate::algebra::{Atom, NodePath};
-use crate::store::author::Author;
-use crate::store::change::Change;
+use arc_algebra_types::{Atom, NodePath};
+use arc_change::Change;
+use arc_store_types::author::Author;
 
 /// Two changes commute if and only if:
 /// 1. Neither depends on the other (no causal ordering).
@@ -11,6 +11,10 @@ use crate::store::change::Change;
 /// Sharing a common dependency is harmless — two branches forked from the
 /// same ancestor naturally share that ancestor in their dep sets. Only a
 /// *direct* causal link (`a ∈ b.deps` or `b ∈ a.deps`) prevents commutativity.
+///
+/// Mathematical guarantee: when this returns `true`, swapping the pair does
+/// not change reachable state under patch-theory replay because there is no
+/// explicit causal edge and no overlapping subtree writes.
 pub fn commutes(a: &Change, b: &Change) -> bool {
     // Fast path: explicit causal dependency
     if b.deps.contains(&a.id) || a.deps.contains(&b.id) {
@@ -221,8 +225,10 @@ fn paths_overlap(a: &NodePath, b: &NodePath) -> bool {
 mod tests {
     use std::collections::HashSet;
 
+    use arc_algebra_types::Atom;
+    use arc_store_types::author;
+
     use super::*;
-    use crate::algebra::Atom;
 
     /// Helper: build a `Change` whose atoms are all `Insert`s at the given paths.
     ///
@@ -236,7 +242,7 @@ mod tests {
                 content_hash: [0u8; 32],
             })
             .collect();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         Change::new(deps, atoms, "test", author, &signing_key)
     }
 
@@ -291,7 +297,7 @@ mod tests {
     /// A `Delete` and an `Insert` that target the same AST path must NOT commute.
     #[test]
     fn test_no_commute_delete_insert_same_path() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         let a = Change::new(
             HashSet::new(),
             vec![Atom::Delete {
@@ -322,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_commute_pair_disjoint_succeeds() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         let a = make_change(HashSet::new(), vec![vec!["module_a".into()]]);
         let b = make_change(HashSet::new(), vec![vec!["module_b".into()]]);
 
@@ -339,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_commute_pair_explicit_dep_fails() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         let a = make_change(HashSet::new(), vec![vec!["mod_a".into()]]);
         let b = make_change(HashSet::from([a.id]), vec![vec!["mod_b".into()]]);
 
@@ -352,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_commute_pair_ghost_conflict_fails() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         // Delete P in a, Insert P in b — same terminal path.
         let a = Change::new(
             HashSet::new(),
@@ -378,8 +384,8 @@ mod tests {
             &a,
             &b,
             &(
-                crate::store::author::test_keypair().0,
-                crate::store::author::test_keypair().1,
+                author::test_keypair().0,
+                author::test_keypair().1,
             ),
         );
         assert!(
@@ -390,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_commute_pair_move_rewrites_paths() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         // a: Insert at ["old_mod", "fn_x"]
         let a = Change::new(

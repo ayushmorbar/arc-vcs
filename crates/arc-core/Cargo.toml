@@ -7,6 +7,7 @@ description = "arc algebraic foundation: atoms, CAS, change graph, cryptographic
 
 [dependencies]
 arc-ai = { path = "../arc-ai" }
+arc-algebra = { path = "../arc-algebra" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-git = { path = "../arc-git" }

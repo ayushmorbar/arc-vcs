@@ -14,29 +14,42 @@
 
 use std::collections::HashSet;
 
-use thiserror::Error;
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_change::Change;
+use arc_store_types::author::Author;
 
-use crate::algebra::{Atom, Blake3Hash};
-use crate::store::author::Author;
-use crate::store::cas::ObjectStore;
-use crate::store::change::Change;
+use crate::BlobStore;
 
 /// Inversion failed.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum InvertError {
     /// The blob required to reconstruct the inverse is missing from the CAS.
-    #[error("blob {0:?} is missing from the CAS — cannot invert")]
     CasMissing(Blake3Hash),
     /// This atom variant has no defined inverse (e.g. `SemanticsPreserving`).
-    #[error("atom type does not support inversion")]
     Unsupported,
 }
+
+impl std::fmt::Display for InvertError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvertError::CasMissing(hash) => {
+                write!(
+                    f,
+                    "blob {hash:?} is missing from the store boundary - cannot invert"
+                )
+            }
+            InvertError::Unsupported => write!(f, "atom type does not support inversion"),
+        }
+    }
+}
+
+impl std::error::Error for InvertError {}
 
 /// Compute the semantic inverse of a single [`Atom`].
 ///
 /// Verifies that the referenced blob exists in `store` before returning.
 /// Does **not** write any new objects to the store.
-pub fn invert_atom(atom: &Atom, store: &ObjectStore) -> Result<Atom, InvertError> {
+pub fn invert_atom(atom: &Atom, store: &impl BlobStore) -> Result<Atom, InvertError> {
     match atom {
         Atom::Insert { at, content_hash } => {
             if !store.contains_blob(content_hash) {
@@ -74,7 +87,7 @@ pub fn invert_atom(atom: &Atom, store: &ObjectStore) -> Result<Atom, InvertError
 /// - Sets `intent` to `"Revert: {original_intent}"`.
 pub fn invert_change(
     change: &Change,
-    store: &ObjectStore,
+    store: &impl BlobStore,
     signer: &(Author, ed25519_dalek::SigningKey),
 ) -> Result<Change, InvertError> {
     let mut inverted_atoms = Vec::with_capacity(change.atoms.len());
@@ -97,8 +110,10 @@ pub fn invert_change(
 mod tests {
     use std::collections::HashSet;
 
+    use arc_store_cas::cas::ObjectStore;
+    use arc_store_types::author;
+
     use super::*;
-    use crate::store::cas::ObjectStore;
 
     fn make_store() -> (tempfile::TempDir, ObjectStore) {
         let dir = tempfile::tempdir().unwrap();
@@ -189,7 +204,7 @@ mod tests {
     fn test_invert_change_depends_on_original() {
         let (_dir, store) = make_store();
         let hash = store.write_blob(b"content").unwrap();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         let original = Change::new(
             HashSet::new(),

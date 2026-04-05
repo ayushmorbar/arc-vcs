@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use arc_algebra_types::{Atom, Blake3Hash, NodePath};
+use arc_change::Change;
+use arc_store_types::author::Author;
 use ignore::gitignore::Gitignore;
 
-use crate::algebra::sparse::SparseMatcher;
-use crate::algebra::{Atom, Blake3Hash, NodePath};
-use crate::store::author::Author;
-use crate::store::cas::ObjectStore;
-use crate::store::change::Change;
+use crate::BlobStore;
+use crate::sparse::SparseMatcher;
 
 /// A materialized state is the result of replaying a sequence of changes
 /// onto an empty tree. Each key is an AST node path; each value is the
@@ -23,12 +23,17 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 ///
 /// # Replay Law
 ///
-/// - `Insert { at, content_hash }` reads the blob from the CAS and writes it
+/// - `Insert { at, content_hash }` reads the blob from the provided
+///   [`BlobStore`] boundary and writes it
 ///   to the state at `at`.
 /// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is
 ///   not consulted during application — it is used for inversion).
 /// - `Directory { path }` records a bare directory existence (empty value).
-/// - `Move` and `SemanticsPreserving` are not yet implemented.
+/// - `Blob { path, hash }` stores an `ARC_BLOB_REF:` token with the blob hash.
+/// - `Mount { path, url, target }` stores an `ARC_MOUNT:` token.
+/// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the
+///   serialized conflict payload.
+/// - `Move` and `SemanticsPreserving` currently return an error.
 ///
 /// # AI Security Boundary
 ///
@@ -37,10 +42,13 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 /// security-violation error. Additionally, no AI author may ever modify
 /// `.agentignore` itself — this zero-trust policy is hardcoded and cannot
 /// be overridden by the rules inside the file.
+///
+/// Mathematical guarantee: given the same initial state, change atom sequence,
+/// and blob lookup boundary, this function is deterministic and replay-stable.
 pub fn apply_change(
     state: &mut MaterializedState,
     change: &Change,
-    store: &ObjectStore,
+    store: &impl BlobStore,
     agent_ignore: &Gitignore,
     mut blame: Option<&mut BlameState>,
 ) -> Result<(), String> {
@@ -54,7 +62,7 @@ pub fn apply_change(
 pub fn apply_change_scoped(
     state: &mut MaterializedState,
     change: &Change,
-    store: &ObjectStore,
+    store: &impl BlobStore,
     agent_ignore: &Gitignore,
     sparse: Option<&SparseMatcher>,
     mut blame: Option<&mut BlameState>,
@@ -100,7 +108,7 @@ pub fn apply_change_scoped(
                 let bytes = store
                     .read_blob(content_hash)
                     .map_err(|e| format!("CAS read error for Insert at {at:?}: {e}"))?;
-                state.insert(at.clone(), bytes.to_vec());
+                state.insert(at.clone(), bytes);
                 if let Some(ref mut b) = blame {
                     b.insert(at.clone(), change.id);
                 }
@@ -172,8 +180,22 @@ pub fn apply_change_scoped(
 mod tests {
     use std::collections::HashSet;
 
+    use arc_store_cas::cas::ObjectStore;
+    use arc_store_types::author;
+
     use super::*;
-    use crate::store::cas::ObjectStore;
+
+    impl BlobStore for ObjectStore {
+        fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, String> {
+            self.read_blob(hash)
+                .map(|bytes| bytes.to_vec())
+                .map_err(|e| format!("{e}"))
+        }
+
+        fn contains_blob(&self, hash: &Blake3Hash) -> bool {
+            self.contains_blob(hash)
+        }
+    }
 
     /// Helper: create a temporary `ObjectStore` and write a blob, returning its hash.
     fn make_store_and_hash(content: &[u8]) -> (tempfile::TempDir, ObjectStore, Blake3Hash) {
@@ -190,7 +212,7 @@ mod tests {
         let ret_hash = store.write_blob(b"x + 1").unwrap();
         let del_hash = store.write_blob(b"x + 1").unwrap(); // same content as ret
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         // Apply a change that inserts two paths.
         let insert_change = Change::new(
@@ -253,7 +275,7 @@ mod tests {
     fn test_apply_delete_nonexistent_path_errors() {
         let (dir, store, prior_hash) = make_store_and_hash(b"ghost content");
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         let bad_delete = Change::new(
             HashSet::new(),
@@ -283,9 +305,9 @@ mod tests {
         let malicious_hash = store.write_blob(b"malicious").unwrap();
         let erase_hash = store.write_blob(b"remove all rules").unwrap();
         let mut state = MaterializedState::new();
-        let (_, signing_key) = crate::store::author::test_keypair();
+        let (_, signing_key) = author::test_keypair();
         let key = signing_key.verifying_key().to_bytes();
-        let ai_author = crate::store::author::Author::AI {
+        let ai_author = author::Author::AI {
             model: "gpt-99".to_string(),
             human_sponsor: key,
         };
@@ -344,7 +366,7 @@ mod tests {
     fn test_apply_directory_atom() {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         let change = Change::new(
             HashSet::new(),
@@ -375,7 +397,7 @@ mod tests {
     fn test_apply_blob_atom() {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         let hash = [0xab_u8; 32];
 
         let change = Change::new(
@@ -411,7 +433,7 @@ mod tests {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let blob_hash = store.write_blob(b"let x = 1;").unwrap();
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         let change = Change::new(
             HashSet::new(),
             vec![Atom::Insert {
@@ -444,7 +466,7 @@ mod tests {
     fn test_apply_move_atom_returns_error() {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         let change = Change::new(
             HashSet::new(),
@@ -478,7 +500,7 @@ mod tests {
         let fn_a_prior = store.write_blob(b"fn a() {}").unwrap();
         let mut state = MaterializedState::new();
         let mut blame = BlameState::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
 
         let change = Change::new(
             HashSet::new(),
@@ -518,7 +540,7 @@ mod tests {
         );
 
         // Delete fn_a — blame entry must be removed.
-        let (author2, signing_key2) = crate::store::author::test_keypair();
+        let (author2, signing_key2) = author::test_keypair();
         let del = Change::new(
             HashSet::from([change.id]),
             vec![Atom::Delete {

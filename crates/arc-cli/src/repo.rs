@@ -3835,11 +3835,8 @@ impl Repository {
             }
         }
 
-        let exact_short_matches: Vec<Operation> = ops
-            .iter()
-            .filter(|op| op.id == op_id)
-            .cloned()
-            .collect();
+        let exact_short_matches: Vec<Operation> =
+            ops.iter().filter(|op| op.id == op_id).cloned().collect();
 
         match exact_short_matches.as_slice() {
             [] => {}
@@ -3909,7 +3906,8 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         let before_heads = current_view.heads.clone();
 
-        let after_hashes: HashSet<Blake3Hash> = next_heads.into_iter().map(Blake3Hash::from).collect();
+        let after_hashes: HashSet<Blake3Hash> =
+            next_heads.into_iter().map(Blake3Hash::from).collect();
         self.hydrate_heads(&after_hashes)?;
 
         let before_state = if before_heads.is_empty() {
@@ -3929,14 +3927,21 @@ impl Repository {
             self.materialize_heads(&after_hashes)?
         };
 
-        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &after_state) {
+        if let Err(err) =
+            write_state_to_working_dir(&self.work_root, &self.shared_root, &after_state)
+        {
             let rollback_view = View::new(&view_name, before_heads.clone());
             let _ = rollback_view.save(&self.shared_root);
             let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
             return Err(err);
         }
 
-        if let Err(err) = self.log_operation(command_label, &view_name, before_heads.clone(), after_hashes) {
+        if let Err(err) = self.log_operation(
+            command_label,
+            &view_name,
+            before_heads.clone(),
+            after_hashes,
+        ) {
             let rollback_view = View::new(&view_name, before_heads);
             let _ = rollback_view.save(&self.shared_root);
             let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
@@ -5310,9 +5315,10 @@ fn constrain_touched_to_current_view(
 
 fn contains_function(expr: &arc_core::revset::RevsetExpression, name: &str) -> bool {
     match expr {
-        arc_core::revset::RevsetExpression::Function { name: fn_name, args } => {
-            fn_name == name || args.iter().any(|arg| contains_function(arg, name))
-        }
+        arc_core::revset::RevsetExpression::Function {
+            name: fn_name,
+            args,
+        } => fn_name == name || args.iter().any(|arg| contains_function(arg, name)),
         arc_core::revset::RevsetExpression::Intersection(left, right)
         | arc_core::revset::RevsetExpression::Union(left, right) => {
             contains_function(left, name) || contains_function(right, name)
@@ -5479,8 +5485,8 @@ fn run_external_merge_tool_once(
         "merge tool '{program}' exited with status {status}"
     );
 
-    let resolved =
-        fs::read(&output_file).map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
+    let resolved = fs::read(&output_file)
+        .map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
     anyhow::ensure!(
         !resolved.is_empty(),
         "merge tool '{tool_name}' produced empty output"
@@ -6686,7 +6692,11 @@ mod tests {
 
         repo.create_view("feature").unwrap();
         repo.switch_view("feature").unwrap();
-        fs::write(repo_path.join("main.rs"), "fn main() { let feature = 2; }\n").unwrap();
+        fs::write(
+            repo_path.join("main.rs"),
+            "fn main() { let feature = 2; }\n",
+        )
+        .unwrap();
         let feature_main_id = repo.snap("feature main", false).unwrap().unwrap();
 
         repo.switch_view("main").unwrap();
@@ -6695,7 +6705,8 @@ mod tests {
         reopened.set_identity(author2, signing_key2);
 
         let selected = reopened.log_revset("touched(\"main.rs\")").unwrap();
-        let selected_ids: HashSet<Blake3Hash> = selected.into_iter().map(|change| change.id).collect();
+        let selected_ids: HashSet<Blake3Hash> =
+            selected.into_iter().map(|change| change.id).collect();
 
         assert!(selected_ids.contains(&main_id));
         assert!(!selected_ids.contains(&util_id));

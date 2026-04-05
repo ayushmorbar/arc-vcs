@@ -1,0 +1,21 @@
+[package]
+name = "arc-algebra"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Pure CRDT patch-theory math: application, commutation, inversion, sparse boundaries"
+
+[dependencies]
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-change = { path = "../arc-change" }
+arc-store-types = { path = "../arc-store-types" }
+serde = { version = "1.0.228", features = ["derive"] }
+anyhow = "1.0.102"
+ignore = "0.4.25"
+bincode = "1.3.2"
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+
+[dev-dependencies]
+arc-store-cas = { path = "../arc-store-cas" }
+blake3 = "1.8.4"
+tempfile = "3.27.0"

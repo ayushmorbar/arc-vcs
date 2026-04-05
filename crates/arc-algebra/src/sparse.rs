@@ -1,4 +1,4 @@
-use crate::algebra::{Atom, NodePath};
+use arc_algebra_types::{Atom, NodePath};
 
 /// One normalized sparse include prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,7 +99,7 @@ fn normalize_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::algebra::Atom;
+    use arc_algebra_types::Atom;
 
     use super::SparseMatcher;
 
