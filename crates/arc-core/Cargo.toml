@@ -8,7 +8,9 @@ description = "arc algebraic foundation: atoms, CAS, change graph, cryptographic
 [dependencies]
 arc-content-hash-derive = { path = "../arc-content-hash-derive" }
 arc-ai = { path = "../arc-ai" }
+arc-algebra-types = { path = "../arc-algebra-types" }
 arc-git = { path = "../arc-git" }
+arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
 arc-swap = "1.9.0"
 dashmap = "6.1.0"

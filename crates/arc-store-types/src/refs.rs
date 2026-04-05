@@ -6,9 +6,9 @@ use anyhow::Context as _;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::algebra::Blake3Hash;
-use crate::store::newtypes::ChangeId;
-use crate::store::tag::Tag;
+use crate::Blake3Hash;
+use crate::newtypes::ChangeId;
+use crate::tag::Tag;
 
 #[derive(Debug, Deserialize)]
 struct GenericRefFile {
@@ -267,7 +267,7 @@ fn collect_hashes_from_json(value: &Value, out: &mut Vec<ChangeId>) {
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::store::author::test_keypair;
+    use crate::author::test_keypair;
 
     use super::*;
 

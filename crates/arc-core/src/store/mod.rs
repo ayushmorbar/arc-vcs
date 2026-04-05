@@ -1,7 +1,5 @@
 //! arc object store: CAS, changes, graph, views, author identity, and oplog.
 
-/// Author identity and signing-key management.
-pub mod author;
 /// Deterministic DAG bisect state machine and persistence.
 pub mod bisect;
 /// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
@@ -14,10 +12,6 @@ pub mod change;
 pub mod content_hash;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
-/// Strongly-typed content IDs (NewType wrappers).
-pub mod newtypes;
-/// Reference metadata readers for tags and remote-tracking branches.
-pub mod refs;
 /// Crash-consistent synthesized architecture snapshots.
 pub mod synthesis;
 /// Signal-safe temporary-file registry.
@@ -27,10 +21,17 @@ pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 /// Append-only spacetime operation log for O(1) undo.
 pub mod oplog;
-/// Cryptographically-signed immutable tags.
-pub mod tag;
 /// Virtual views (branches) over the change DAG.
 pub mod view;
+
+pub use arc_store_types::author;
+pub use arc_store_types::author::*;
+pub use arc_store_types::newtypes;
+pub use arc_store_types::newtypes::*;
+pub use arc_store_types::refs;
+pub use arc_store_types::refs::*;
+pub use arc_store_types::tag;
+pub use arc_store_types::tag::*;
 
 /// Errors produced by the arc object store.
 #[derive(Debug, thiserror::Error)]

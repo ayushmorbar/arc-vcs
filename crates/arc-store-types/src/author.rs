@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A 32-byte Ed25519 public key.
 pub type PublicKeyBytes = [u8; 32];
 
-/// The identity of a change's author, carried inside every [`Change`](crate::store::change::Change).
+/// The identity of a change's author, carried inside every `Change`.
 ///
 /// This enum is part of the BLAKE3 hash payload, so changing the author
 /// of a change changes its content-addressed identity.

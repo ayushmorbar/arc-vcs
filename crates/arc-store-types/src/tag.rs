@@ -1,18 +1,18 @@
 //! Cryptographically-signed immutable tags.
 //!
-//! A [`Tag`](crate::store::tag::Tag) is arc's equivalent of Git's annotated tag: a human-readable name
-//! permanently bound to a [`Blake3Hash`](crate::algebra::Blake3Hash).  Unlike a
-//! [`View`](crate::store::view::View), a tag never moves.  Every tag is
+//! A [`Tag`](crate::tag::Tag) is arc's equivalent of Git's annotated tag: a human-readable name
+//! permanently bound to a [`Blake3Hash`](crate::Blake3Hash).  Unlike a
+//! `View`, a tag never moves.  Every tag is
 //! signed with the author's Ed25519 key, making supply-chain spoofing
 //! detectable without any external PKI.
 
 use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::Blake3Hash;
-use crate::store::author::{Author, PublicKeyBytes, Signature};
+use crate::Blake3Hash;
+use crate::author::{Author, PublicKeyBytes, Signature};
 
-/// An immutable, cryptographically-signed pointer to a specific [`Change`](crate::store::change::Change).
+/// An immutable, cryptographically-signed pointer to a specific `Change`.
 ///
 /// # Cryptographic Guarantee
 ///
@@ -24,7 +24,7 @@ use crate::store::author::{Author, PublicKeyBytes, Signature};
 pub struct Tag {
     /// Human-readable tag name, e.g. `"v1.0.0"` or `"release-2026-03-07"`.
     pub name: String,
-    /// The [`Blake3Hash`] of the [`Change`](crate::store::change::Change) this
+    /// The [`Blake3Hash`] this
     /// tag permanently points to.
     pub target: Blake3Hash,
     /// Identity of the author who created this tag.
@@ -96,7 +96,7 @@ impl Tag {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::author::test_keypair;
+    use crate::author::test_keypair;
 
     #[test]
     fn test_tag_verify() {
