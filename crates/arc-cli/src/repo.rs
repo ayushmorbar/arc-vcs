@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -248,7 +249,8 @@ pub fn synthesized_defaults_config() -> ArcConfig {
 
     cfg.aliases.insert("b".to_string(), "bookmark".to_string());
     cfg.aliases.insert("ci".to_string(), "commit".to_string());
-    cfg.aliases.insert("desc".to_string(), "describe".to_string());
+    cfg.aliases
+        .insert("desc".to_string(), "describe".to_string());
     cfg.aliases.insert("st".to_string(), "status".to_string());
 
     cfg.ui.color = "auto".to_string();
@@ -291,18 +293,22 @@ pub fn synthesized_defaults_config() -> ArcConfig {
         .insert("show".to_string(), "builtin_log_detailed".to_string());
     cfg.templates
         .insert("op_log".to_string(), "builtin_op_log_compact".to_string());
-    cfg.templates
-        .insert("commit_summary".to_string(), "format_commit_summary_with_refs(self, format_commit_ref_names(bookmarks))".to_string());
+    cfg.templates.insert(
+        "commit_summary".to_string(),
+        "format_commit_summary_with_refs(self, format_commit_ref_names(bookmarks))".to_string(),
+    );
 
     cfg.colors.insert("error".to_string(), "bold".to_string());
     cfg.colors
         .insert("warning".to_string(), "yellow bold".to_string());
     cfg.colors
         .insert("hint".to_string(), "cyan bold".to_string());
-    cfg.colors.insert("commit_id".to_string(), "blue".to_string());
+    cfg.colors
+        .insert("commit_id".to_string(), "blue".to_string());
     cfg.colors
         .insert("change_id".to_string(), "magenta".to_string());
-    cfg.colors.insert("author".to_string(), "yellow".to_string());
+    cfg.colors
+        .insert("author".to_string(), "yellow".to_string());
     cfg.colors
         .insert("timestamp".to_string(), "cyan".to_string());
     cfg.colors.insert("conflict".to_string(), "red".to_string());
@@ -1800,6 +1806,148 @@ impl Repository {
         Ok(())
     }
 
+    /// Resolve a pending conflict using a configured external merge tool and
+    /// stage the result as a Ghost Node pending approval.
+    #[tracing::instrument(skip(self), fields(tool = ?tool_name))]
+    pub fn resolve_conflict_with_merge_tool(
+        &mut self,
+        tool_name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let conflict_path = self.shared_root.join(".arc").join("conflict");
+        if !conflict_path.exists() {
+            anyhow::bail!("no pending conflict - nothing to resolve");
+        }
+        if has_pending_ai(&self.shared_root) {
+            anyhow::bail!(
+                "An AI change is already pending approval.\n\
+                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+            );
+        }
+
+        let cfg = load_merged_config(&self.shared_root)?;
+        let selected_name = tool_name
+            .map(ToOwned::to_owned)
+            .or_else(|| cfg.merge.tool.clone())
+            .ok_or_else(|| anyhow::anyhow!("no merge tool configured; set merge.tool first"))?;
+        let selected_tool = cfg
+            .merge_tools
+            .get(&selected_name)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!("merge tool '{selected_name}' is not defined in [merge-tools]")
+            })?;
+
+        let conflict_bytes = fs::read(&conflict_path)?;
+        let conflict: PendingConflict = bincode::deserialize(&conflict_bytes)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize conflict: {e}"))?;
+
+        self.hydrate(&conflict.current_view)?;
+        self.hydrate_heads(&conflict.target_heads)?;
+
+        let current_view = View::load(&self.shared_root, &conflict.current_view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
+
+        let lca_heads = self
+            .graph
+            .load()
+            .merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_state = if lca_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&lca_heads)?
+        };
+
+        let current_state = self.materialize_heads(&current_view.heads)?;
+        let target_state = self.materialize_heads(&conflict.target_heads)?;
+
+        let mut merge_atoms = Vec::new();
+        let mut combined_intent = format!("merge-tool({selected_name}): ");
+        let mut affected_files: Vec<PathBuf> = Vec::new();
+
+        let g = self.graph.load_full();
+        for (id_a, id_b) in &conflict.conflicting_pairs {
+            let change_a = g
+                .get(id_a)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+            let change_b = g
+                .get(id_b)
+                .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?
+                .clone();
+
+            let overlap = find_overlapping_path(&change_a.atoms, &change_b.atoms);
+            let path = overlap
+                .ok_or_else(|| anyhow::anyhow!("no overlapping path found for conflicting pair"))?;
+
+            let base_content = extract_content_at_path(&lca_state, &path);
+            let mut ours_content = extract_content_at_path(&current_state, &path);
+            let mut theirs_content = extract_content_at_path(&target_state, &path);
+            let mut base_content = base_content;
+
+            if let Some((bases, sides)) = decode_conflict_projection(&ours_content) {
+                if let Some(base_hash) = bases.first() {
+                    base_content = read_blob_bytes(&self.shared_root, base_hash)?;
+                }
+                if let Some(side_a) = sides.first() {
+                    ours_content = read_blob_bytes(&self.shared_root, side_a)?;
+                }
+                if let Some(side_b) = sides.get(1) {
+                    theirs_content = read_blob_bytes(&self.shared_root, side_b)?;
+                }
+            }
+
+            let resolved = run_external_merge_tool_once(
+                &selected_name,
+                &selected_tool,
+                &path,
+                &base_content,
+                &ours_content,
+                &theirs_content,
+            )?;
+
+            self.verify_resolved_output(&path, &resolved)?;
+
+            let content_hash = self
+                .store
+                .write_blob(&resolved)
+                .map_err(|e| anyhow::anyhow!("merge-tool store write failed: {e}"))?;
+            merge_atoms.push(Atom::Insert {
+                at: path.clone(),
+                content_hash,
+            });
+
+            if path.len() >= 2 && path[0] == "file" {
+                let file_path = self.work_root.join(&path[1]);
+                if let Some(parent) = file_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&file_path, &resolved)
+                    .map_err(|e| anyhow::anyhow!("failed to write resolved file: {e}"))?;
+                affected_files.push(PathBuf::from(&path[1]));
+            }
+
+            combined_intent.push_str(&change_a.intent);
+            combined_intent.push_str(" + ");
+            combined_intent.push_str(&change_b.intent);
+            combined_intent.push_str("; ");
+        }
+
+        let mut merge_deps = current_view.heads.clone();
+        merge_deps.extend(&conflict.target_heads);
+
+        let pending = PendingAiChange::new_resolve(
+            format!("merge-tool:{selected_name}"),
+            combined_intent,
+            affected_files,
+            merge_atoms,
+            merge_deps.into_iter().collect(),
+        );
+        save_pending_ai(&self.shared_root, &pending)?;
+
+        fs::remove_file(&conflict_path)?;
+        Ok(())
+    }
+
     fn verify_resolved_output(&self, path: &[String], resolved: &[u8]) -> anyhow::Result<()> {
         if path.len() < 2 || path[0] != "file" {
             return Ok(());
@@ -2228,7 +2376,11 @@ impl Repository {
 
     /// Start a new bisect session from a revset range.
     #[tracing::instrument(skip_all, fields(range = %range_revset, find_good = find_good))]
-    pub fn bisect_start(&mut self, range_revset: &str, find_good: bool) -> anyhow::Result<BisectState> {
+    pub fn bisect_start(
+        &mut self,
+        range_revset: &str,
+        find_good: bool,
+    ) -> anyhow::Result<BisectState> {
         self.acquire_lock()?;
         let selected = self.resolve_revset_ids(range_revset)?;
         anyhow::ensure!(
@@ -2366,7 +2518,10 @@ impl Repository {
             let start = Instant::now();
             let mut hits = 0usize;
             for change in graph.iter() {
-                if ChangeId::from(change.id).to_hex().starts_with(&prefix_lower) {
+                if ChangeId::from(change.id)
+                    .to_hex()
+                    .starts_with(&prefix_lower)
+                {
                     hits += 1;
                 }
             }
@@ -2712,12 +2867,7 @@ impl Repository {
     ///
     /// Existing tags are only moved when `allow_move` is true.
     #[tracing::instrument(skip_all, fields(tag = %name, allow_move = allow_move))]
-    pub fn set_tag(
-        &self,
-        name: &str,
-        target: &Blake3Hash,
-        allow_move: bool,
-    ) -> anyhow::Result<()> {
+    pub fn set_tag(&self, name: &str, target: &Blake3Hash, allow_move: bool) -> anyhow::Result<()> {
         let (author, signing_key) = self.signing_identity()?;
         let tag = Tag::new(name, *target, author.clone(), signing_key);
 
@@ -2727,9 +2877,7 @@ impl Repository {
         let safe_name = name.replace('/', "-");
         let path = tag_dir.join(format!("{safe_name}.json"));
         if path.exists() && !allow_move {
-            anyhow::bail!(
-                "refusing to move existing tag '{name}'. Pass --allow-move to update it"
-            );
+            anyhow::bail!("refusing to move existing tag '{name}'. Pass --allow-move to update it");
         }
         fs::write(&path, serde_json::to_string_pretty(&tag)?)
             .map_err(|e| anyhow::anyhow!("failed to write tag '{name}': {e}"))
@@ -3225,12 +3373,8 @@ impl Repository {
         }
         let raw = fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("failed to read redo stack '{}': {e}", path.display()))?;
-        serde_json::from_str::<Vec<Operation>>(&raw).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse redo stack '{}': {e}",
-                path.display()
-            )
-        })
+        serde_json::from_str::<Vec<Operation>>(&raw)
+            .map_err(|e| anyhow::anyhow!("failed to parse redo stack '{}': {e}", path.display()))
     }
 
     fn save_redo_stack(&self, stack: &[Operation]) -> anyhow::Result<()> {
@@ -3245,10 +3389,7 @@ impl Repository {
         let payload = serde_json::to_string_pretty(stack)
             .map_err(|e| anyhow::anyhow!("failed to serialize redo stack: {e}"))?;
         fs::write(&tmp, payload).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to write redo stack temp '{}': {e}",
-                tmp.display()
-            )
+            anyhow::anyhow!("failed to write redo stack temp '{}': {e}", tmp.display())
         })?;
 
         if staged_backup.exists() {
@@ -3567,7 +3708,8 @@ impl Repository {
             self.materialize_heads(&restored_heads)?
         };
 
-        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)
+        if let Err(err) =
+            write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)
         {
             let _ = View::new(&op.view, expected_heads).save(&self.shared_root);
             let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
@@ -3575,7 +3717,8 @@ impl Repository {
         }
 
         if let Err(err) = OpLog::new(&self.shared_root.join(".arc")).append(&op) {
-            let _ = View::new(&op.view, change_ids_to_hashes(&op.before_heads)).save(&self.shared_root);
+            let _ =
+                View::new(&op.view, change_ids_to_hashes(&op.before_heads)).save(&self.shared_root);
             let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
             return Err(anyhow::anyhow!("failed to append redo operation: {err}"));
         }
@@ -3613,10 +3756,9 @@ impl Repository {
             if !new_heads.remove(&id) {
                 continue;
             }
-            let change = self
-                .store
-                .read_change(&id)
-                .map_err(|e| anyhow::anyhow!("failed to load abandoned change {}: {e}", _hex(&id)))?;
+            let change = self.store.read_change(&id).map_err(|e| {
+                anyhow::anyhow!("failed to load abandoned change {}: {e}", _hex(&id))
+            })?;
             new_heads.extend(change.deps);
             abandoned.push(id);
         }
@@ -3915,7 +4057,10 @@ impl Repository {
     pub fn workspace_rename(&self, old_path: &Path, new_path: &Path) -> anyhow::Result<()> {
         self.ensure_linked_workspace_path(old_path)?;
         if new_path.exists() {
-            anyhow::bail!("target workspace path '{}' already exists", new_path.display());
+            anyhow::bail!(
+                "target workspace path '{}' already exists",
+                new_path.display()
+            );
         }
         fs::rename(old_path, new_path).map_err(|e| {
             anyhow::anyhow!(
@@ -5059,6 +5204,82 @@ fn read_blob_text(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<Strin
     Ok(String::from_utf8_lossy(&data).to_string())
 }
 
+fn interpolate_tool_args(args: &[String], vars: &HashMap<&str, String>) -> Vec<String> {
+    args.iter()
+        .map(|arg| {
+            let mut interpolated = arg.clone();
+            for (name, value) in vars {
+                interpolated = interpolated.replace(&format!("${name}"), value);
+            }
+            interpolated
+        })
+        .collect()
+}
+
+#[tracing::instrument(skip(base_content, ours_content, theirs_content, tool))]
+fn run_external_merge_tool_once(
+    tool_name: &str,
+    tool: &MergeToolConfig,
+    repo_path: &NodePath,
+    base_content: &[u8],
+    ours_content: &[u8],
+    theirs_content: &[u8],
+) -> anyhow::Result<Vec<u8>> {
+    let program = tool
+        .program
+        .clone()
+        .unwrap_or_else(|| tool_name.to_string());
+    anyhow::ensure!(
+        !tool.merge_args.is_empty(),
+        "merge tool '{tool_name}' has no merge_args configured"
+    );
+
+    let temp_dir = tempfile::Builder::new()
+        .prefix("arc-resolve-")
+        .tempdir()
+        .map_err(|e| anyhow::anyhow!("failed to create merge temp directory: {e}"))?;
+
+    let base_file = temp_dir.path().join("base.tmp");
+    let left_file = temp_dir.path().join("left.tmp");
+    let right_file = temp_dir.path().join("right.tmp");
+    let output_file = temp_dir.path().join("output.tmp");
+
+    fs::write(&base_file, base_content)
+        .map_err(|e| anyhow::anyhow!("failed to write merge base temp file: {e}"))?;
+    fs::write(&left_file, ours_content)
+        .map_err(|e| anyhow::anyhow!("failed to write merge left temp file: {e}"))?;
+    fs::write(&right_file, theirs_content)
+        .map_err(|e| anyhow::anyhow!("failed to write merge right temp file: {e}"))?;
+    fs::write(&output_file, ours_content)
+        .map_err(|e| anyhow::anyhow!("failed to write merge output temp file: {e}"))?;
+
+    let mut vars = HashMap::new();
+    vars.insert("base", base_file.to_string_lossy().to_string());
+    vars.insert("left", left_file.to_string_lossy().to_string());
+    vars.insert("right", right_file.to_string_lossy().to_string());
+    vars.insert("output", output_file.to_string_lossy().to_string());
+    vars.insert("path", repo_path.join("/"));
+    let args = interpolate_tool_args(&tool.merge_args, &vars);
+
+    tracing::info!(tool = %tool_name, program = %program, ?args, "invoking merge tool");
+    let status = Command::new(&program)
+        .args(&args)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to execute merge tool '{program}': {e}"))?;
+    anyhow::ensure!(
+        status.success(),
+        "merge tool '{program}' exited with status {status}"
+    );
+
+    let resolved = fs::read(&output_file)
+        .map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
+    anyhow::ensure!(
+        !resolved.is_empty() && resolved != ours_content,
+        "merge tool '{tool_name}' produced unchanged or empty output"
+    );
+    Ok(resolved)
+}
+
 /// Render Git-style conflict markers from CAS blob hashes.
 fn render_conflict_markers(
     shared_root: &Path,
@@ -6127,13 +6348,19 @@ mod tests {
         let second = repo.snap("changed", false).unwrap().unwrap();
 
         let undone = repo.undo().unwrap().unwrap();
-        assert_eq!(undone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
+        assert_eq!(
+            undone.after_heads,
+            std::collections::BTreeSet::from([ChangeId::from(second)])
+        );
 
         let after_undo = View::load(&repo.shared_root, "main").unwrap();
         assert_eq!(after_undo.heads, HashSet::from([first]));
 
         let redone = repo.redo().unwrap().unwrap();
-        assert_eq!(redone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
+        assert_eq!(
+            redone.after_heads,
+            std::collections::BTreeSet::from([ChangeId::from(second)])
+        );
 
         let after_redo = View::load(&repo.shared_root, "main").unwrap();
         assert_eq!(after_redo.heads, HashSet::from([second]));
@@ -6160,7 +6387,13 @@ mod tests {
 
         let started = repo.bisect_start("ancestors(@)", false).unwrap();
         assert!(started.current.is_some());
-        assert!(repo_path.join(".arc").join("bisect").join("state.bin").exists());
+        assert!(
+            repo_path
+                .join(".arc")
+                .join("bisect")
+                .join("state.bin")
+                .exists()
+        );
 
         let after_mark = repo.bisect_mark_good().unwrap();
         // After marking current as good, either we have a next candidate or session converged.
@@ -6482,6 +6715,164 @@ mod tests {
         assert!(
             ops.iter().any(|op| op.command == "ai resolve"),
             "approval flow should record 'ai resolve' operation"
+        );
+    }
+
+    fn configure_test_merge_tool(repo_path: &Path, behavior: &str) {
+        let script_path = if cfg!(windows) {
+            repo_path.join("merge-tool.cmd")
+        } else {
+            repo_path.join("merge-tool.sh")
+        };
+
+        let script_content = if cfg!(windows) {
+            match behavior {
+                "copy-theirs" => "@echo off\r\ntype \"%3\" > \"%4\"\r\nexit /b 0\r\n",
+                "copy-ours" => "@echo off\r\ntype \"%2\" > \"%4\"\r\nexit /b 0\r\n",
+                _ => "@echo off\r\nexit /b 9\r\n",
+            }
+        } else {
+            match behavior {
+                "copy-theirs" => "#!/bin/sh\ncat \"$3\" > \"$4\"\n",
+                "copy-ours" => "#!/bin/sh\ncat \"$2\" > \"$4\"\n",
+                _ => "#!/bin/sh\nexit 9\n",
+            }
+        };
+        fs::write(&script_path, script_content).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mut perms = fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        let mut cfg = ArcConfig::default();
+        cfg.merge.tool = Some("testtool".to_string());
+        cfg.merge_tools.insert(
+            "testtool".to_string(),
+            MergeToolConfig {
+                program: Some(if cfg!(windows) {
+                    "cmd".to_string()
+                } else {
+                    "sh".to_string()
+                }),
+                merge_args: if cfg!(windows) {
+                    vec![
+                        "/C".to_string(),
+                        script_path.to_string_lossy().to_string(),
+                        "$base".to_string(),
+                        "$left".to_string(),
+                        "$right".to_string(),
+                        "$output".to_string(),
+                    ]
+                } else {
+                    vec![
+                        script_path.to_string_lossy().to_string(),
+                        "$base".to_string(),
+                        "$left".to_string(),
+                        "$right".to_string(),
+                        "$output".to_string(),
+                    ]
+                },
+                edit_args: Vec::new(),
+                diff_args: Vec::new(),
+            },
+        );
+        save_local_config(&cfg, repo_path).unwrap();
+    }
+
+    #[test]
+    fn test_merge_tool_conflict_resolution_stages_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("merge_tool_resolve_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }\n").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
+
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }\n").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
+        repo.merge_view("feature").unwrap();
+
+        configure_test_merge_tool(&repo_path, "copy-theirs");
+
+        repo.resolve_conflict_with_merge_tool(None).unwrap();
+
+        assert!(
+            !repo_path.join(".arc").join("conflict").exists(),
+            "conflict metadata should be cleared after staging merge-tool resolution"
+        );
+        assert!(
+            repo_path
+                .join(".arc")
+                .join("ai")
+                .join("pending.json")
+                .exists(),
+            "pending ghost node should be staged"
+        );
+
+        let pending = load_pending_ai(&repo_path).expect("pending ghost node should load");
+        assert!(
+            pending.model.starts_with("merge-tool:"),
+            "model marker should indicate merge-tool provenance"
+        );
+
+        let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
+        assert!(
+            content.contains("let a = 1") || content.contains("let b = 2"),
+            "merge-tool output should contain one resolved side"
+        );
+        assert!(
+            !content.contains("<<<<<<< side_a"),
+            "resolved file should no longer contain conflict markers"
+        );
+    }
+
+    #[test]
+    fn test_merge_tool_resolution_rejects_unchanged_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("merge_tool_unchanged_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }\n").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
+
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }\n").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
+        repo.merge_view("feature").unwrap();
+
+        configure_test_merge_tool(&repo_path, "copy-ours");
+
+        let err = repo.resolve_conflict_with_merge_tool(None).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("unchanged or empty output"));
+        assert!(repo_path.join(".arc").join("conflict").exists());
+        assert!(
+            !repo_path
+                .join(".arc")
+                .join("ai")
+                .join("pending.json")
+                .exists()
         );
     }
 
@@ -7231,7 +7622,9 @@ mod tests {
         let root = primary.workspace_root(Some(&ws_path)).unwrap();
         assert!(root.ends_with("workspace-a"));
 
-        primary.workspace_rename(&ws_path, &ws_path_renamed).unwrap();
+        primary
+            .workspace_rename(&ws_path, &ws_path_renamed)
+            .unwrap();
         assert!(ws_path_renamed.join(".arc-workspace").exists());
 
         primary.workspace_forget(&ws_path_renamed).unwrap();

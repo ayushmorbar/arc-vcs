@@ -1376,34 +1376,43 @@ fn main() -> anyhow::Result<()> {
                 repo.set_identity(author, signing_key);
 
                 let cfg = load_merged_config(std::path::Path::new("."))?;
-                let provider_name = cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
-                let model = cfg
-                    .ai
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "gpt-4o-mini".to_string());
-                let endpoint = cfg.ai.endpoint.clone();
-                let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
-                    anyhow::anyhow!(
-                        "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
-                    )
-                })?;
+                if let Some(tool) = cfg.merge.tool.as_deref() {
+                    eprintln!("[arc] Using merge tool '{}' for conflict resolution.", tool);
+                    repo.resolve_conflict_with_merge_tool(Some(tool))?;
+                    println!(
+                        "[arc] Resolution staged as Ghost Node. \
+                         Review changes then run 'arc ai approve'."
+                    );
+                } else {
+                    let provider_name = cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
+                    let model = cfg
+                        .ai
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                    let endpoint = cfg.ai.endpoint.clone();
+                    let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
+                        anyhow::anyhow!(
+                            "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
+                        )
+                    })?;
 
-                let provider = build_provider(provider_name, &model, endpoint, api_key)?;
-                eprintln!(
-                    "[arc] Using AI provider '{}' with model '{}'.",
-                    provider_name, model
-                );
+                    let provider = build_provider(provider_name, &model, endpoint, api_key)?;
+                    eprintln!(
+                        "[arc] Using AI provider '{}' with model '{}'.",
+                        provider_name, model
+                    );
 
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()?;
-                rt.block_on(repo.resolve_conflict_with_provider(provider.as_ref(), &model))?;
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?;
+                    rt.block_on(repo.resolve_conflict_with_provider(provider.as_ref(), &model))?;
 
-                println!(
-                    "[arc] Resolution staged as Ghost Node. \
-                     Review changes then run 'arc ai approve'."
-                );
+                    println!(
+                        "[arc] Resolution staged as Ghost Node. \
+                         Review changes then run 'arc ai approve'."
+                    );
+                }
             }
             AiAction::Approve => {
                 let mut repo = Repository::open(".")?;
