@@ -2363,6 +2363,7 @@ impl Repository {
     pub fn log_revset(&mut self, revset: &str) -> anyhow::Result<Vec<Change>> {
         let expr = arc_core::revset::parse(revset)
             .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
+        let expr = constrain_touched_to_current_view(&expr);
         self.prepare_revset(&expr)?;
 
         let graph = self.graph_snapshot();
@@ -2555,9 +2556,11 @@ impl Repository {
         Ok((total_nanos, last_count))
     }
 
+    #[tracing::instrument(skip_all, fields(revset = %revset))]
     fn resolve_revset_ids(&mut self, revset: &str) -> anyhow::Result<BTreeSet<ChangeId>> {
         let expr = arc_core::revset::parse(revset)
             .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
+        let expr = constrain_touched_to_current_view(&expr);
         self.prepare_revset(&expr)?;
 
         let graph = self.graph_snapshot();
@@ -5090,6 +5093,7 @@ impl Repository {
 
                 Ok(())
             }
+            arc_core::revset::RevsetExpression::StringLiteral(_) => Ok(()),
             arc_core::revset::RevsetExpression::Function { name, args } => {
                 if matches!(name.as_str(), "tags" | "remote_branches" | "bookmarks") {
                     let heads = self.resolve_revset_reference_heads(name)?;
@@ -5122,6 +5126,36 @@ impl Repository {
         self.store
             .read_change(id)
             .map_err(|e| anyhow::anyhow!("failed to read change {}: {e}", _hex(id)))
+    }
+}
+
+fn constrain_touched_to_current_view(
+    expr: &arc_core::revset::RevsetExpression,
+) -> arc_core::revset::RevsetExpression {
+    if !contains_function(expr, "touched") {
+        return expr.clone();
+    }
+
+    arc_core::revset::RevsetExpression::Intersection(
+        Box::new(expr.clone()),
+        Box::new(arc_core::revset::RevsetExpression::Function {
+            name: "ancestors".to_string(),
+            args: vec![arc_core::revset::RevsetExpression::Symbol("@".to_string())],
+        }),
+    )
+}
+
+fn contains_function(expr: &arc_core::revset::RevsetExpression, name: &str) -> bool {
+    match expr {
+        arc_core::revset::RevsetExpression::Function { name: fn_name, args } => {
+            fn_name == name || args.iter().any(|arg| contains_function(arg, name))
+        }
+        arc_core::revset::RevsetExpression::Intersection(left, right)
+        | arc_core::revset::RevsetExpression::Union(left, right) => {
+            contains_function(left, name) || contains_function(right, name)
+        }
+        arc_core::revset::RevsetExpression::Symbol(_)
+        | arc_core::revset::RevsetExpression::StringLiteral(_) => false,
     }
 }
 
@@ -6469,6 +6503,42 @@ mod tests {
         assert!(
             ids.contains(&main_head),
             "revset must include feature ancestor"
+        );
+    }
+
+    #[test]
+    fn test_log_revset_touched_filters_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("revset_touched_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("main.rs"), "fn main() { let a = 1; }\n").unwrap();
+        let main_id = repo.snap("main", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("util.rs"), "pub fn util() {}\n").unwrap();
+        let util_id = repo.snap("util", false).unwrap().unwrap();
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("main.rs"), "fn main() { let feature = 2; }\n").unwrap();
+        let feature_main_id = repo.snap("feature main", false).unwrap().unwrap();
+
+        repo.switch_view("main").unwrap();
+        let mut reopened = Repository::open(&repo_path).unwrap();
+        let (author2, signing_key2) = arc_core::store::author::test_keypair();
+        reopened.set_identity(author2, signing_key2);
+
+        let selected = reopened.log_revset("touched(\"main.rs\")").unwrap();
+        let selected_ids: HashSet<Blake3Hash> = selected.into_iter().map(|change| change.id).collect();
+
+        assert!(selected_ids.contains(&main_id));
+        assert!(!selected_ids.contains(&util_id));
+        assert!(
+            !selected_ids.contains(&feature_main_id),
+            "touched() should be scoped to current view ancestry"
         );
     }
 

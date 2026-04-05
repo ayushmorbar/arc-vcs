@@ -124,6 +124,9 @@ where
 {
     match expr {
         RevsetExpression::Symbol(name) => compile_symbol(name, resolve_symbol),
+        RevsetExpression::StringLiteral(_) => {
+            bail!("string literals are only valid as function arguments")
+        }
         RevsetExpression::Union(left, right) => {
             let left_iter = compile_impl_change_ids(
                 left,
@@ -207,8 +210,39 @@ where
             let heads = resolve_refs.resolve_reference_heads(name)?;
             Ok(Box::new(heads.into_iter()))
         }
+        "touched" => {
+            let path = parse_single_string_arg(name, args)?;
+            let selected: BTreeSet<ChangeId> = graph
+                .iter()
+                .filter(|change| change_touches_repo_path(change, &path))
+                .map(|change| ChangeId::from(change.id))
+                .collect();
+            Ok(Box::new(selected.into_iter()))
+        }
         _ => bail!("unsupported revset function '{name}'"),
     }
+}
+
+fn parse_single_string_arg(name: &str, args: &[RevsetExpression]) -> Result<String> {
+    if args.len() != 1 {
+        bail!("{name}() expects exactly one argument");
+    }
+
+    match args.first() {
+        Some(RevsetExpression::StringLiteral(value)) => Ok(value.clone()),
+        _ => bail!("{name}() expects a string path argument"),
+    }
+}
+
+fn change_touches_repo_path(change: &crate::store::change::Change, path: &str) -> bool {
+    change.atoms.iter().any(|atom| {
+        atom.paths().into_iter().any(|node_path| {
+            if node_path.first().is_some_and(|segment| segment == "file") {
+                return node_path.get(1).is_some_and(|segment| segment == path);
+            }
+            node_path.first().is_some_and(|segment| segment == path)
+        })
+    })
 }
 
 struct UnionIterator<'a> {
@@ -460,5 +494,86 @@ mod tests {
 
         let expected = HashSet::from([ChangeId::from(a), ChangeId::from(b)]);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn touched_selects_changes_by_path() {
+        let mut graph = ChangeGraph::new();
+        let root = make_change(&mut graph, HashSet::new(), "root");
+
+        let (author, key) = test_keypair();
+        let main_hash: [u8; 32] = *blake3::hash(b"main").as_bytes();
+        let util_hash: [u8; 32] = *blake3::hash(b"util").as_bytes();
+
+        let main_change = Change::new(
+            HashSet::from([root]),
+            vec![Atom::Insert {
+                at: vec!["file".to_string(), "src/main.rs".to_string(), "fn_main".to_string()],
+                content_hash: main_hash,
+            }],
+            "touch main",
+            author.clone(),
+            &key,
+        );
+        let main_id = main_change.id;
+        graph.add_change(main_change);
+
+        let util_change = Change::new(
+            HashSet::from([root]),
+            vec![Atom::Insert {
+                at: vec!["file".to_string(), "src/util.rs".to_string(), "fn_util".to_string()],
+                content_hash: util_hash,
+            }],
+            "touch util",
+            author,
+            &key,
+        );
+        graph.add_change(util_change);
+
+        let graph = Arc::new(graph);
+        let ast = parse("touched(\"src/main.rs\")").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let result: HashSet<ChangeId> = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should work")
+            .collect();
+
+        assert_eq!(result, HashSet::from([ChangeId::from(main_id)]));
+    }
+
+    #[test]
+    fn touched_rejects_non_string_argument() {
+        let mut graph = ChangeGraph::new();
+        let _ = make_change(&mut graph, HashSet::new(), "root");
+        let graph = Arc::new(graph);
+        let ast = parse("touched(@)").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("compile should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("expects a string path argument"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn touched_rejects_wrong_arity() {
+        let mut graph = ChangeGraph::new();
+        let _ = make_change(&mut graph, HashSet::new(), "root");
+        let graph = Arc::new(graph);
+        let ast = parse("touched()").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("compile should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("exactly one argument"),
+            "unexpected error: {err}"
+        );
     }
 }

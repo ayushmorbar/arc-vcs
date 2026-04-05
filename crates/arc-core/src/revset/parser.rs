@@ -19,6 +19,8 @@ use pest::Parser;
 pub enum RevsetExpression {
     /// A single symbol such as a view name, hash prefix, or `@`.
     Symbol(String),
+    /// A quoted string literal argument.
+    StringLiteral(String),
     /// A function call with zero or more expression arguments.
     Function {
         /// Function name.
@@ -62,9 +64,37 @@ fn build_expression(pair: Pair<Rule>) -> Result<RevsetExpression> {
             build_expression(inner)
         }
         Rule::function_call => build_function(pair),
+        Rule::string_literal => Ok(RevsetExpression::StringLiteral(
+            unescape_string_literal(pair.as_str())?,
+        )),
         Rule::symbol => Ok(RevsetExpression::Symbol(pair.as_str().to_string())),
         _ => bail!("unexpected parse rule: {:?}", pair.as_rule()),
     }
+}
+
+fn unescape_string_literal(raw: &str) -> Result<String> {
+    if raw.len() < 2 || !raw.starts_with('"') || !raw.ends_with('"') {
+        bail!("invalid string literal: {raw}");
+    }
+
+    let mut out = String::with_capacity(raw.len().saturating_sub(2));
+    let mut chars = raw[1..raw.len() - 1].chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let escaped = chars
+                .next()
+                .ok_or_else(|| anyhow!("unterminated escape in string literal"))?;
+            match escaped {
+                '\\' => out.push('\\'),
+                '"' => out.push('"'),
+                other => bail!("unsupported escape sequence: \\{other}"),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+
+    Ok(out)
 }
 
 fn build_union(pair: Pair<Rule>) -> Result<RevsetExpression> {
@@ -132,5 +162,23 @@ mod tests {
         );
 
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn parses_touched_with_string_path_argument() {
+        let parsed = parse("touched(\"src/main.rs\")").expect("revset should parse");
+
+        let expected = RevsetExpression::Function {
+            name: "touched".to_string(),
+            args: vec![RevsetExpression::StringLiteral("src/main.rs".to_string())],
+        };
+
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn rejects_unterminated_string_literal() {
+        let err = parse("touched(\"src/main.rs)").expect_err("unterminated literal must fail");
+        assert!(!err.to_string().is_empty());
     }
 }
