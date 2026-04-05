@@ -3808,6 +3808,169 @@ impl Repository {
         OpLog::new(&self.shared_root.join(".arc")).read_reversed()
     }
 
+    fn resolve_operation_by_id(&self, op_id: &str) -> anyhow::Result<Operation> {
+        let ops = self.op_log()?;
+        anyhow::ensure!(!ops.is_empty(), "operation log is empty");
+
+        let exact_snapshot_matches: Vec<Operation> = ops
+            .iter()
+            .filter(|op| {
+                op.snapshot
+                    .is_some_and(|snapshot| snapshot.to_hex() == op_id)
+            })
+            .cloned()
+            .collect();
+
+        match exact_snapshot_matches.as_slice() {
+            [] => {}
+            [single] => return Ok(single.clone()),
+            many => {
+                let ids = many
+                    .iter()
+                    .filter_map(|op| op.snapshot)
+                    .map(|snapshot| snapshot.to_hex()[..12].to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!("operation id '{op_id}' is ambiguous: {ids}");
+            }
+        }
+
+        let exact_short_matches: Vec<Operation> = ops
+            .iter()
+            .filter(|op| op.id == op_id)
+            .cloned()
+            .collect();
+
+        match exact_short_matches.as_slice() {
+            [] => {}
+            [single] => return Ok(single.clone()),
+            many => {
+                let ids = many
+                    .iter()
+                    .map(|op| {
+                        op.snapshot
+                            .map(|snapshot| snapshot.to_hex()[..12].to_string())
+                            .unwrap_or_else(|| op.id.clone())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!("operation id '{op_id}' is ambiguous: {ids}");
+            }
+        }
+
+        let prefix_matches: Vec<Operation> = ops
+            .iter()
+            .filter(|op| {
+                op.id.starts_with(op_id)
+                    || op
+                        .snapshot
+                        .is_some_and(|snapshot| snapshot.to_hex().starts_with(op_id))
+            })
+            .cloned()
+            .collect();
+
+        match prefix_matches.as_slice() {
+            [] => anyhow::bail!(
+                "operation '{op_id}' not found. Run `arc op log` to list available operation IDs"
+            ),
+            [single] => Ok(single.clone()),
+            many => {
+                let ids = many
+                    .iter()
+                    .map(|op| {
+                        op.snapshot
+                            .map(|snapshot| snapshot.to_hex()[..12].to_string())
+                            .unwrap_or_else(|| op.id.clone())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!("operation id '{op_id}' is ambiguous: {ids}");
+            }
+        }
+    }
+
+    fn apply_operation_heads(
+        &mut self,
+        target_op: &Operation,
+        next_heads: BTreeSet<ChangeId>,
+        command_label: &str,
+    ) -> anyhow::Result<()> {
+        self.acquire_lock()?;
+        let view_name = self.current_view_name()?;
+        anyhow::ensure!(
+            target_op.view == view_name,
+            "operation belongs to view '{}' but current view is '{}'",
+            target_op.view,
+            view_name
+        );
+
+        self.hydrate(&view_name)?;
+        let current_view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let before_heads = current_view.heads.clone();
+
+        let after_hashes: HashSet<Blake3Hash> = next_heads.into_iter().map(Blake3Hash::from).collect();
+        self.hydrate_heads(&after_hashes)?;
+
+        let before_state = if before_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&before_heads)?
+        };
+
+        let updated_view = View::new(&view_name, after_hashes.clone());
+        updated_view
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to save view '{view_name}': {e}"))?;
+
+        let after_state = if after_hashes.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&after_hashes)?
+        };
+
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &after_state) {
+            let rollback_view = View::new(&view_name, before_heads.clone());
+            let _ = rollback_view.save(&self.shared_root);
+            let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
+            return Err(err);
+        }
+
+        if let Err(err) = self.log_operation(command_label, &view_name, before_heads.clone(), after_hashes) {
+            let rollback_view = View::new(&view_name, before_heads);
+            let _ = rollback_view.save(&self.shared_root);
+            let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
+            return Err(anyhow::anyhow!(
+                "failed to append operation log entry for '{command_label}': {err}"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Restore the current view to the post-operation state of `op_id`.
+    #[tracing::instrument(skip_all, fields(op_id = %op_id))]
+    pub fn op_restore(&mut self, op_id: &str) -> anyhow::Result<Operation> {
+        let target = self.resolve_operation_by_id(op_id)?;
+        self.apply_operation_heads(
+            &target,
+            target.after_heads.clone(),
+            &format!("op restore {op_id}"),
+        )?;
+        Ok(target)
+    }
+
+    /// Revert `op_id` by restoring the operation's pre-state head set.
+    #[tracing::instrument(skip_all, fields(op_id = %op_id))]
+    pub fn op_revert(&mut self, op_id: &str) -> anyhow::Result<Operation> {
+        let target = self.resolve_operation_by_id(op_id)?;
+        self.apply_operation_heads(
+            &target,
+            target.before_heads.clone(),
+            &format!("op revert {op_id}"),
+        )?;
+        Ok(target)
+    }
+
     // ------------------------------------------------------------------
     // Sparse checkout
     // ------------------------------------------------------------------
@@ -7608,6 +7771,91 @@ mod tests {
         repo.undo().unwrap().expect("undo should pop rewrite op");
         let restored = View::load(&repo_path, "main").unwrap().heads;
         assert_eq!(restored, before, "undo must restore original heads");
+    }
+
+    #[test]
+    fn test_op_restore_and_revert_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("op_restore_revert_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
+        let v1 = repo.snap("v1", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("main.rs"), "fn v2() {}\n").unwrap();
+        let v2 = repo.snap("v2", false).unwrap().unwrap();
+
+        let op_v1 = repo
+            .op_log()
+            .unwrap()
+            .into_iter()
+            .find(|op| op.after_heads.contains(&ChangeId::from(v1)))
+            .expect("must find operation that introduced v1");
+
+        let op_v2 = repo
+            .op_log()
+            .unwrap()
+            .into_iter()
+            .find(|op| {
+                op.after_heads.contains(&ChangeId::from(v2))
+                    && op.before_heads.contains(&ChangeId::from(v1))
+            })
+            .expect("must find operation that introduced v2");
+
+        let op_v1_selector = op_v1
+            .snapshot
+            .map(|snapshot| snapshot.to_hex()[..12].to_string())
+            .unwrap_or_else(|| op_v1.id.clone());
+        let op_v2_selector = op_v2
+            .snapshot
+            .map(|snapshot| snapshot.to_hex()[..12].to_string())
+            .unwrap_or_else(|| op_v2.id.clone());
+
+        repo.op_restore(&op_v1_selector).unwrap();
+
+        let view_after_restore = View::load(&repo_path, "main").unwrap();
+        assert_eq!(
+            view_after_restore.heads,
+            HashSet::from([v1]),
+            "op restore must move heads to selected operation state"
+        );
+        assert!(
+            fs::read_to_string(repo_path.join("main.rs"))
+                .unwrap()
+                .contains("v1")
+        );
+
+        repo.op_revert(&op_v2_selector).unwrap();
+        let view_after_revert = View::load(&repo_path, "main").unwrap();
+        assert_eq!(
+            view_after_revert.heads,
+            HashSet::from([v1]),
+            "op revert of v2 operation should restore pre-v2 heads"
+        );
+    }
+
+    #[test]
+    fn test_op_restore_missing_id_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("op_missing_id_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
+        repo.snap("v1", false).unwrap().unwrap();
+
+        let err = repo
+            .op_restore("does-not-exist")
+            .expect_err("missing operation id must error");
+        assert!(
+            err.to_string().contains("not found"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Sparse Safety Law: files outside the active cone must be absent from

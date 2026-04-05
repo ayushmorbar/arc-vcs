@@ -489,6 +489,16 @@ enum Command {
 enum OpAction {
     /// Print the operation log in reverse-chronological order.
     Log,
+    /// Restore the current view to the state after the selected operation.
+    Restore {
+        /// Operation id (short id or snapshot prefix) shown by `arc op log`.
+        op_id: String,
+    },
+    /// Revert the selected operation by restoring its pre-operation heads.
+    Revert {
+        /// Operation id (short id or snapshot prefix) shown by `arc op log`.
+        op_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2042,12 +2052,16 @@ fn main() -> anyhow::Result<()> {
                         Cell::new("Before→After"),
                     ]);
                     for op in &ops {
+                        let display_id = op
+                            .snapshot
+                            .map(|snapshot| snapshot.to_hex()[..12].to_string())
+                            .unwrap_or_else(|| op.id.clone());
                         let agent_label = match op.agent {
                             OperationAgent::Human => op.agent.label().to_string(),
                             OperationAgent::Ai => op.agent.label().cyan().to_string(),
                         };
                         table.add_row(vec![
-                            Cell::new(&op.id).fg(Color::Cyan),
+                            Cell::new(display_id).fg(Color::Cyan),
                             Cell::new(op.formatted_time()),
                             Cell::new(&op.view).fg(Color::Yellow),
                             Cell::new(agent_label),
@@ -2057,6 +2071,28 @@ fn main() -> anyhow::Result<()> {
                     }
                     println!("{table}");
                 }
+            }
+            OpAction::Restore { op_id } => {
+                let mut repo = Repository::open(".")?;
+                let target = repo.op_restore(&op_id)?;
+                println!(
+                    "Restored operation {} on view '{}': {} → {}",
+                    op_id.cyan(),
+                    target.view.yellow(),
+                    target.before_short(),
+                    target.after_short()
+                );
+            }
+            OpAction::Revert { op_id } => {
+                let mut repo = Repository::open(".")?;
+                let target = repo.op_revert(&op_id)?;
+                println!(
+                    "Reverted operation {} on view '{}': {} → {}",
+                    op_id.cyan(),
+                    target.view.yellow(),
+                    target.after_short(),
+                    target.before_short()
+                );
             }
         },
         Command::Sparse { action } => match action {
