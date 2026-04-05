@@ -4,6 +4,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_types::newtypes::ChangeId;
+use tracing::instrument;
 
 #[derive(Default)]
 struct Blake3Hasher(u64);
@@ -247,47 +248,63 @@ impl ChangeGraph {
     /// An LCA is a common ancestor that is not a *strict* ancestor of any
     /// other common ancestor. In a DAG there can be multiple LCAs —
     /// unlike Git's single-LCA assumption.
+    #[instrument(skip_all)]
     pub fn merge_base(
         &self,
         heads_a: &HashSet<Blake3Hash>,
         heads_b: &HashSet<Blake3Hash>,
     ) -> HashSet<Blake3Hash> {
+        self.merge_bases_ordered(heads_a, heads_b).into_iter().collect()
+    }
+
+    /// Find the **Lowest Common Ancestors** between two sets of heads in
+    /// deterministic sorted order.
+    ///
+    /// This keeps the same semantics as [`Self::merge_base`] while avoiding
+    /// repeated ancestor flood-fills for each common node.
+    #[instrument(skip_all)]
+    pub fn merge_bases_ordered(
+        &self,
+        heads_a: &HashSet<Blake3Hash>,
+        heads_b: &HashSet<Blake3Hash>,
+    ) -> BTreeSet<Blake3Hash> {
         let ancestors_a = self.ancestors(heads_a);
         let ancestors_b = self.ancestors(heads_b);
 
         let common: HashSet<Blake3Hash> = ancestors_a.intersection(&ancestors_b).copied().collect();
 
         if common.is_empty() {
-            return HashSet::new();
+            return BTreeSet::new();
         }
 
-        // Collect strict ancestors of every common ancestor (within
-        // the `common` set). LCAs = common − strict_ancestors.
-        let mut strict_ancestors = HashSet::new();
+        // A common node cannot be an LCA if one of its children is also in the
+        // common subgraph. This single pass yields the same LCA semantics with
+        // less work than repeated strict-ancestor BFS per node.
+        let mut non_lca = HashSet::new();
         for &id in &common {
-            if let Some(deps) = self.edges.get(&id) {
-                for &dep in deps {
-                    if common.contains(&dep) {
-                        let mut queue: VecDeque<Blake3Hash> = VecDeque::new();
-                        queue.push_back(dep);
-                        while let Some(cur) = queue.pop_front() {
-                            if !strict_ancestors.insert(cur) {
-                                continue;
-                            }
-                            if let Some(parent_deps) = self.edges.get(&cur) {
-                                for &p in parent_deps {
-                                    if common.contains(&p) && !strict_ancestors.contains(&p) {
-                                        queue.push_back(p);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(children) = self.reverse_edges.get(&id)
+                && children.iter().any(|child| common.contains(child))
+            {
+                non_lca.insert(id);
             }
         }
 
-        common.difference(&strict_ancestors).copied().collect()
+        common
+            .into_iter()
+            .filter(|id| !non_lca.contains(id))
+            .collect()
+    }
+
+    /// Return one deterministic merge-base when multiple LCAs exist.
+    ///
+    /// Selection policy: lexical order of BLAKE3 ids.
+    #[instrument(skip_all)]
+    pub fn merge_base_deterministic(
+        &self,
+        heads_a: &HashSet<Blake3Hash>,
+        heads_b: &HashSet<Blake3Hash>,
+    ) -> Option<Blake3Hash> {
+        self.merge_bases_ordered(heads_a, heads_b).into_iter().next()
     }
 }
 
@@ -426,5 +443,108 @@ mod tests {
 
         let lca = g.merge_base(&HashSet::from([cid]), &HashSet::from([did]));
         assert_eq!(lca, HashSet::from([aid, bid]), "both A and B are LCAs");
+    }
+
+    #[test]
+    fn test_merge_bases_ordered_matches_legacy_set() {
+        let (g, a, _b, _c, d) = diamond();
+        let e = make_change(HashSet::from([a]), "e");
+        let eid = e.id;
+        let mut g = g;
+        g.add_change(e);
+
+        let legacy = g.merge_base(&HashSet::from([d]), &HashSet::from([eid]));
+        let ordered = g.merge_bases_ordered(&HashSet::from([d]), &HashSet::from([eid]));
+
+        assert_eq!(legacy, ordered.into_iter().collect::<HashSet<_>>());
+    }
+
+    #[test]
+    fn test_merge_base_deterministic_no_common_ancestor() {
+        let mut g = ChangeGraph::new();
+        let x = make_change(HashSet::new(), "x");
+        let y = make_change(HashSet::new(), "y");
+        let (xid, yid) = (x.id, y.id);
+        g.add_change(x);
+        g.add_change(y);
+
+        let picked = g.merge_base_deterministic(&HashSet::from([xid]), &HashSet::from([yid]));
+        assert!(picked.is_none(), "disjoint graphs must have no deterministic base");
+    }
+
+    #[test]
+    fn test_merge_base_deterministic_unique_lca() {
+        let (g, a, _b, _c, d) = diamond();
+        let e = make_change(HashSet::from([a]), "e");
+        let eid = e.id;
+        let mut g = g;
+        g.add_change(e);
+
+        let picked = g
+            .merge_base_deterministic(&HashSet::from([d]), &HashSet::from([eid]))
+            .expect("must have a common base");
+        assert_eq!(picked, a);
+    }
+
+    #[test]
+    fn test_merge_base_deterministic_lexical_tie_break() {
+        let mut g = ChangeGraph::new();
+        let a = make_change(HashSet::new(), "a");
+        let b = make_change(HashSet::new(), "b");
+        let c = make_change(HashSet::from([a.id, b.id]), "c");
+        let d = make_change(HashSet::from([a.id, b.id]), "d");
+        let (aid, bid, cid, did) = (a.id, b.id, c.id, d.id);
+        g.add_change(a);
+        g.add_change(b);
+        g.add_change(c);
+        g.add_change(d);
+
+        let picked = g
+            .merge_base_deterministic(&HashSet::from([cid]), &HashSet::from([did]))
+            .expect("multi-lca case must pick one");
+        let expected = aid.min(bid);
+        assert_eq!(picked, expected);
+    }
+
+    #[test]
+    fn test_merge_base_deterministic_stable_across_calls() {
+        let mut g = ChangeGraph::new();
+        let a = make_change(HashSet::new(), "a");
+        let b = make_change(HashSet::new(), "b");
+        let c = make_change(HashSet::from([a.id, b.id]), "c");
+        let d = make_change(HashSet::from([a.id, b.id]), "d");
+        let (cid, did) = (c.id, d.id);
+        g.add_change(a);
+        g.add_change(b);
+        g.add_change(c);
+        g.add_change(d);
+
+        let left = g
+            .merge_base_deterministic(&HashSet::from([cid]), &HashSet::from([did]))
+            .expect("must pick a deterministic base");
+        let right = g
+            .merge_base_deterministic(&HashSet::from([cid]), &HashSet::from([did]))
+            .expect("must pick a deterministic base");
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn test_merge_bases_ordered_is_lexically_sorted() {
+        let mut g = ChangeGraph::new();
+        let a = make_change(HashSet::new(), "a");
+        let b = make_change(HashSet::new(), "b");
+        let c = make_change(HashSet::from([a.id, b.id]), "c");
+        let d = make_change(HashSet::from([a.id, b.id]), "d");
+        let (aid, bid, cid, did) = (a.id, b.id, c.id, d.id);
+        g.add_change(a);
+        g.add_change(b);
+        g.add_change(c);
+        g.add_change(d);
+
+        let ordered: Vec<Blake3Hash> = g
+            .merge_bases_ordered(&HashSet::from([cid]), &HashSet::from([did]))
+            .into_iter()
+            .collect();
+        assert_eq!(ordered, vec![aid.min(bid), aid.max(bid)]);
     }
 }

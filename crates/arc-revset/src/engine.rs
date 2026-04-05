@@ -6,6 +6,7 @@ use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_graph::ChangeGraph;
 use arc_store_types::newtypes::ChangeId;
+use tracing::instrument;
 
 use crate::parser::RevsetExpression;
 
@@ -129,7 +130,7 @@ where
     R: ReferenceResolver,
 {
     match expr {
-        RevsetExpression::Symbol(name) => compile_symbol(name, resolve_symbol),
+        RevsetExpression::Symbol(name) => compile_symbol(name, &graph, resolve_symbol),
         RevsetExpression::StringLiteral(_) => {
             bail!("string literals are only valid as function arguments")
         }
@@ -154,15 +155,25 @@ where
     }
 }
 
-fn compile_symbol<'a, F>(name: &str, resolve_symbol: &mut F) -> Result<RevsetChangeIdIterator<'a>>
+fn compile_symbol<'a, F>(
+    name: &str,
+    graph: &ChangeGraph,
+    resolve_symbol: &mut F,
+) -> Result<RevsetChangeIdIterator<'a>>
 where
     F: FnMut(&str) -> Result<Option<ChangeId>>,
 {
     if let Ok(id) = ChangeId::from_hex(name) {
+        if graph.get(&Blake3Hash::from(id)).is_none() {
+            bail!("unknown revset symbol '{name}'");
+        }
         return Ok(Box::new(std::iter::once(id)));
     }
 
     if let Some(hash) = parse_hex_hash(name) {
+        if graph.get(&hash).is_none() {
+            bail!("unknown revset symbol '{name}'");
+        }
         return Ok(Box::new(std::iter::once(ChangeId::from(hash))));
     }
 
@@ -213,8 +224,71 @@ where
                 .collect();
             Ok(Box::new(selected.into_iter()))
         }
+        "range" => {
+            let [from_arg, to_arg] = expect_two_args(name, args)?;
+            let from_heads = eval_as_head_set(from_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let to_heads = eval_as_head_set(to_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+
+            let from_ancestors = graph.ancestors(&from_heads);
+            let to_ancestors = graph.ancestors(&to_heads);
+            let selected: BTreeSet<ChangeId> = to_ancestors
+                .difference(&from_ancestors)
+                .copied()
+                .map(ChangeId::from)
+                .collect();
+            Ok(Box::new(selected.into_iter()))
+        }
+        "symmetric" => {
+            let [left_arg, right_arg] = expect_two_args(name, args)?;
+            let left_heads = eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let right_heads = eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+
+            let left_ancestors = graph.ancestors(&left_heads);
+            let right_ancestors = graph.ancestors(&right_heads);
+
+            let selected: BTreeSet<ChangeId> = left_ancestors
+                .symmetric_difference(&right_ancestors)
+                .copied()
+                .map(ChangeId::from)
+                .collect();
+            Ok(Box::new(selected.into_iter()))
+        }
+        "merge_base" => {
+            let [left_arg, right_arg] = expect_two_args(name, args)?;
+            let left_heads = eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let right_heads = eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+
+            let selected = graph
+                .merge_base_deterministic(&left_heads, &right_heads)
+                .map(ChangeId::from)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            Ok(Box::new(selected.into_iter()))
+        }
         _ => bail!("unsupported revset function '{name}'"),
     }
+}
+
+fn expect_two_args<'a>(name: &str, args: &'a [RevsetExpression]) -> Result<[&'a RevsetExpression; 2]> {
+    match args {
+        [left, right] => Ok([left, right]),
+        _ => bail!("{name}() expects exactly two arguments"),
+    }
+}
+
+#[instrument(skip_all)]
+fn eval_as_head_set<F, R>(
+    expr: &RevsetExpression,
+    graph: Arc<ChangeGraph>,
+    resolve_symbol: &mut F,
+    resolve_refs: &mut R,
+) -> Result<HashSet<Blake3Hash>>
+where
+    F: FnMut(&str) -> Result<Option<ChangeId>>,
+    R: ReferenceResolver,
+{
+    let iter = compile_impl_change_ids(expr, graph, resolve_symbol, resolve_refs)?;
+    Ok(iter.map(Blake3Hash::from).collect())
 }
 
 fn parse_single_string_arg(name: &str, args: &[RevsetExpression]) -> Result<String> {
@@ -578,5 +652,171 @@ mod tests {
             err.to_string().contains("exactly one argument"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn range_selects_to_ancestors_minus_from_ancestors() {
+        let mut graph = ChangeGraph::new();
+        let root = make_change(&mut graph, HashSet::new(), "root");
+        let a = make_change(&mut graph, HashSet::from([root]), "a");
+        let b = make_change(&mut graph, HashSet::from([a]), "b");
+        let c = make_change(&mut graph, HashSet::from([a]), "c");
+        let d = make_change(&mut graph, HashSet::from([b, c]), "d");
+
+        let graph = Arc::new(graph);
+        let ast = parse("range(A, D)").expect("query should parse");
+        let mut resolver = move |name: &str| -> Result<Option<ChangeId>> {
+            match name {
+                "A" => Ok(Some(ChangeId::from(a))),
+                "D" => Ok(Some(ChangeId::from(d))),
+                _ => Ok(None),
+            }
+        };
+
+        let result: HashSet<ChangeId> = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should succeed")
+            .collect();
+
+        let expected = HashSet::from([ChangeId::from(b), ChangeId::from(c), ChangeId::from(d)]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn symmetric_returns_xor_of_ancestor_sets() {
+        let mut graph = ChangeGraph::new();
+        let root = make_change(&mut graph, HashSet::new(), "root");
+        let a = make_change(&mut graph, HashSet::from([root]), "a");
+        let b = make_change(&mut graph, HashSet::from([a]), "b");
+        let c = make_change(&mut graph, HashSet::from([a]), "c");
+        let d = make_change(&mut graph, HashSet::from([b, c]), "d");
+        let e = make_change(&mut graph, HashSet::from([a]), "e");
+
+        let graph = Arc::new(graph);
+        let ast = parse("symmetric(D, E)").expect("query should parse");
+        let mut resolver = move |name: &str| -> Result<Option<ChangeId>> {
+            match name {
+                "D" => Ok(Some(ChangeId::from(d))),
+                "E" => Ok(Some(ChangeId::from(e))),
+                _ => Ok(None),
+            }
+        };
+
+        let result: HashSet<ChangeId> = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should succeed")
+            .collect();
+
+        let expected = HashSet::from([ChangeId::from(b), ChangeId::from(c), ChangeId::from(d), ChangeId::from(e)]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn merge_base_returns_single_deterministic_base() {
+        let mut graph = ChangeGraph::new();
+        let a = make_change(&mut graph, HashSet::new(), "a");
+        let b = make_change(&mut graph, HashSet::new(), "b");
+        let c = make_change(&mut graph, HashSet::from([a, b]), "c");
+        let d = make_change(&mut graph, HashSet::from([a, b]), "d");
+
+        let graph = Arc::new(graph);
+        let ast = parse("merge_base(C, D)").expect("query should parse");
+        let mut resolver = move |name: &str| -> Result<Option<ChangeId>> {
+            match name {
+                "C" => Ok(Some(ChangeId::from(c))),
+                "D" => Ok(Some(ChangeId::from(d))),
+                _ => Ok(None),
+            }
+        };
+
+        let result: Vec<ChangeId> = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should succeed")
+            .collect();
+
+        assert_eq!(result.len(), 1, "merge_base must return a single deterministic id");
+        let expected = ChangeId::from(a.min(b));
+        assert_eq!(result[0], expected);
+    }
+
+    #[test]
+    fn range_rejects_wrong_arity() {
+        let graph = Arc::new(ChangeGraph::new());
+        let ast = parse("range(@)").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("range() must reject wrong arity"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("exactly two arguments"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn symmetric_rejects_wrong_arity() {
+        let graph = Arc::new(ChangeGraph::new());
+        let ast = parse("symmetric(@)").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("symmetric() must reject wrong arity"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("exactly two arguments"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn merge_base_rejects_wrong_arity() {
+        let graph = Arc::new(ChangeGraph::new());
+        let ast = parse("merge_base(@)").expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("merge_base() must reject wrong arity"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("exactly two arguments"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn merge_base_disjoint_returns_empty() {
+        let mut graph = ChangeGraph::new();
+        let x = make_change(&mut graph, HashSet::new(), "x");
+        let y = make_change(&mut graph, HashSet::new(), "y");
+
+        let graph = Arc::new(graph);
+        let ast = parse("merge_base(X, Y)").expect("query should parse");
+        let mut resolver = move |name: &str| -> Result<Option<ChangeId>> {
+            match name {
+                "X" => Ok(Some(ChangeId::from(x))),
+                "Y" => Ok(Some(ChangeId::from(y))),
+                _ => Ok(None),
+            }
+        };
+
+        let result: Vec<ChangeId> = compile_change_ids(&ast, Arc::clone(&graph), &mut resolver)
+            .expect("compile should succeed")
+            .collect();
+        assert!(result.is_empty(), "disjoint heads have no merge-base");
+    }
+
+    #[test]
+    fn rejects_unknown_literal_hash_symbol() {
+        let graph = Arc::new(ChangeGraph::new());
+        let unknown = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let ast = parse(unknown).expect("query should parse");
+        let mut resolver = |_name: &str| -> Result<Option<ChangeId>> { Ok(None) };
+
+        let err = match compile_change_ids(&ast, Arc::clone(&graph), &mut resolver) {
+            Ok(_) => panic!("unknown literal hash must fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("unknown revset symbol"));
     }
 }

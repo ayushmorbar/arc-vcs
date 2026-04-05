@@ -396,6 +396,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -428,6 +429,7 @@ dependencies = [
  "dashmap",
  "serde",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

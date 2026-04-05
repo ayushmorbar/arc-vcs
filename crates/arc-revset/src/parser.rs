@@ -181,4 +181,43 @@ mod tests {
         let err = parse("touched(\"src/main.rs)").expect_err("unterminated literal must fail");
         assert!(!err.to_string().is_empty());
     }
+
+    #[test]
+    fn parses_range_function_with_two_symbols() {
+        let parsed = parse("range(main, @)").expect("revset should parse");
+        let expected = RevsetExpression::Function {
+            name: "range".to_string(),
+            args: vec![
+                RevsetExpression::Symbol("main".to_string()),
+                RevsetExpression::Symbol("@".to_string()),
+            ],
+        };
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn parses_symmetric_function_with_two_symbols() {
+        let parsed = parse("symmetric(left, right)").expect("revset should parse");
+        let expected = RevsetExpression::Function {
+            name: "symmetric".to_string(),
+            args: vec![
+                RevsetExpression::Symbol("left".to_string()),
+                RevsetExpression::Symbol("right".to_string()),
+            ],
+        };
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn parses_merge_base_function_with_two_symbols() {
+        let parsed = parse("merge_base(lhs, rhs)").expect("revset should parse");
+        let expected = RevsetExpression::Function {
+            name: "merge_base".to_string(),
+            args: vec![
+                RevsetExpression::Symbol("lhs".to_string()),
+                RevsetExpression::Symbol("rhs".to_string()),
+            ],
+        };
+        assert_eq!(parsed, expected);
+    }
 }
