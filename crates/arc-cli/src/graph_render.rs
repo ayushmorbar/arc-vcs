@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use arc_algebra_types::Atom;
 use arc_change::Change;
@@ -19,6 +19,12 @@ pub struct GraphDecorations {
     pub tags: BTreeMap<ChangeId, Vec<String>>,
     /// Remote-tracking branch names by tracked head id.
     pub remotes: BTreeMap<ChangeId, Vec<String>>,
+    /// Current checkout change id (rendered as `@`).
+    pub current: Option<ChangeId>,
+    /// Active local heads in the current view.
+    pub active_heads: BTreeSet<ChangeId>,
+    /// Stable ancestors that should be visually de-emphasized.
+    pub stable_ancestors: BTreeSet<ChangeId>,
 }
 
 /// Parsed user template for `arc log` row labels.
@@ -53,6 +59,14 @@ struct TemplateContext<'a> {
     state_badges: &'a str,
     ref_badges: &'a str,
     badges: &'a str,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RowFlags {
+    is_ai: bool,
+    has_conflict: bool,
+    is_current: bool,
+    is_active_head: bool,
 }
 
 impl LogTemplate {
@@ -145,6 +159,9 @@ impl Default for GraphRenderer {
 }
 
 impl GraphRenderer {
+    const ELISION_HEAD_ROWS: usize = 40;
+    const ELISION_TAIL_ROWS: usize = 20;
+
     /// Create a renderer that emits ANSI colors and semantic markers.
     pub fn new() -> Self {
         Self::default()
@@ -178,7 +195,7 @@ impl GraphRenderer {
     ) -> Vec<String> {
         let visible: HashSet<ChangeId> = changes.iter().map(|c| ChangeId::from(c.id)).collect();
         let mut active: Vec<ChangeId> = Vec::new();
-        let mut lines = Vec::new();
+        let mut rows: Vec<(String, bool)> = Vec::new();
 
         for change in changes {
             let id = ChangeId::from(change.id);
@@ -198,7 +215,17 @@ impl GraphRenderer {
                 0
             };
 
-            let symbol = self.node_symbol(change);
+            let is_ai = change_is_ai(change);
+            let has_conflict = change_has_conflict(change);
+            let is_current = decorations.current == Some(id);
+            let is_active_head = decorations.active_heads.contains(&id);
+            let flags = RowFlags {
+                is_ai,
+                has_conflict,
+                is_current,
+                is_active_head,
+            };
+            let symbol = self.node_symbol(change, id, decorations);
             let mut graph_prefix = String::new();
             for (idx, _) in active.iter().enumerate() {
                 if idx > 0 {
@@ -211,17 +238,22 @@ impl GraphRenderer {
                 }
             }
 
-            lines.push(format!(
+            let line = format!(
                 "{} {}",
                 graph_prefix,
-                self.row_label(
-                    change,
-                    change_is_ai(change),
-                    change_has_conflict(change),
-                    decorations,
-                    template,
-                )
-            ));
+                self.row_label(change, flags, decorations, template,)
+            );
+
+            let has_ref_badges =
+                decorations.tags.contains_key(&id) || decorations.remotes.contains_key(&id);
+            let linear_simple = parents.len() <= 1
+                && !has_ref_badges
+                && !is_ai
+                && !has_conflict
+                && !is_current
+                && !is_active_head;
+
+            rows.push((line, linear_simple));
 
             if parents.is_empty() {
                 active.remove(col);
@@ -237,11 +269,58 @@ impl GraphRenderer {
             dedupe_columns(&mut active);
 
             if parents.len() > 1 {
-                lines.push(self.merge_edge_line(&active, col, parents.len()));
+                rows.push((self.merge_edge_line(&active, col, parents.len()), false));
             }
         }
 
-        lines
+        self.collapse_linear_rows(rows)
+    }
+
+    fn collapse_linear_rows(&self, rows: Vec<(String, bool)>) -> Vec<String> {
+        if rows.len() <= Self::ELISION_HEAD_ROWS + Self::ELISION_TAIL_ROWS {
+            return rows.into_iter().map(|(line, _)| line).collect();
+        }
+
+        let mut output = Vec::new();
+        let mut dropped = 0usize;
+        let middle_start = Self::ELISION_HEAD_ROWS;
+        let middle_end = rows.len().saturating_sub(Self::ELISION_TAIL_ROWS);
+
+        for (idx, (line, simple)) in rows.into_iter().enumerate() {
+            if idx < middle_start || idx >= middle_end {
+                if dropped > 0 {
+                    output.push(self.elision_row(dropped));
+                    dropped = 0;
+                }
+                output.push(line);
+                continue;
+            }
+
+            if simple {
+                dropped += 1;
+            } else {
+                if dropped > 0 {
+                    output.push(self.elision_row(dropped));
+                    dropped = 0;
+                }
+                output.push(line);
+            }
+        }
+
+        if dropped > 0 {
+            output.push(self.elision_row(dropped));
+        }
+
+        output
+    }
+
+    fn elision_row(&self, dropped: usize) -> String {
+        let row = format!("┆ … {} commits elided …", dropped);
+        if self.use_color {
+            row.bright_black().to_string()
+        } else {
+            row
+        }
     }
 
     fn merge_edge_line(&self, active: &[ChangeId], from_col: usize, parent_count: usize) -> String {
@@ -271,23 +350,47 @@ impl GraphRenderer {
         cells
     }
 
-    fn node_symbol(&self, change: &Change) -> String {
+    fn node_symbol(
+        &self,
+        change: &Change,
+        change_id: ChangeId,
+        decorations: &GraphDecorations,
+    ) -> String {
         let is_ai = change_is_ai(change);
         let has_conflict = change_has_conflict(change);
+        let is_current = decorations.current == Some(change_id);
+        let is_active_head = decorations.active_heads.contains(&change_id);
+        let is_stable = decorations.stable_ancestors.contains(&change_id);
 
         if !self.use_color {
-            return if has_conflict || is_ai {
+            return if is_current {
+                "@".to_string()
+            } else if has_conflict {
+                "⊗".to_string()
+            } else if is_ai {
                 "◉".to_string()
+            } else if is_active_head {
+                "●".to_string()
             } else {
                 "○".to_string()
             };
         }
 
+        if is_current {
+            return "@".bright_blue().bold().to_string();
+        }
+        if is_active_head {
+            return "●".bright_green().bold().to_string();
+        }
+
         if has_conflict {
-            return "◉".red().bold().to_string();
+            return "⊗".red().bold().to_string();
         }
         if is_ai {
             return "◉".magenta().bold().to_string();
+        }
+        if is_stable {
+            return "○".bright_black().to_string();
         }
         "○".cyan().to_string()
     }
@@ -295,8 +398,7 @@ impl GraphRenderer {
     fn row_label(
         &self,
         change: &Change,
-        is_ai: bool,
-        has_conflict: bool,
+        flags: RowFlags,
         decorations: &GraphDecorations,
         template: Option<&LogTemplate>,
     ) -> String {
@@ -306,18 +408,25 @@ impl GraphRenderer {
         let author = author_label(&change.author);
         let mut state_badges = Vec::new();
 
-        if has_conflict {
+        if flags.has_conflict {
             state_badges.push(if self.use_color {
                 "⚠".red().bold().to_string()
             } else {
                 "⚠".to_string()
             });
         }
-        if is_ai {
+        if flags.is_ai {
             state_badges.push(if self.use_color {
                 "🤖".magenta().bold().to_string()
             } else {
                 "🤖".to_string()
+            });
+        }
+        if flags.is_current {
+            state_badges.push(if self.use_color {
+                "@".bright_blue().bold().to_string()
+            } else {
+                "@".to_string()
             });
         }
 
@@ -357,13 +466,25 @@ impl GraphRenderer {
             });
         }
 
-        if badges_text.is_empty() {
+        let label = if badges_text.is_empty() {
             format!("{} {} | {}", short_id, author, change.intent)
         } else {
             format!(
                 "{} {} {} | {}",
                 short_id, badges_text, author, change.intent
             )
+        };
+
+        if self.use_color
+            && decorations.stable_ancestors.contains(&change_id)
+            && !flags.is_active_head
+            && !flags.is_current
+            && !flags.is_ai
+            && !flags.has_conflict
+        {
+            label.bright_black().to_string()
+        } else {
+            label
         }
     }
 
@@ -525,5 +646,24 @@ mod tests {
     fn rejects_unknown_template_field() {
         let err = LogTemplate::parse("{unknown}").unwrap_err();
         assert!(err.contains("unsupported template field"));
+    }
+
+    #[test]
+    fn collapses_distant_linear_history_with_elision_row() {
+        let mut changes = Vec::new();
+        let mut parent = None;
+
+        for i in 0..90 {
+            let deps = parent.into_iter().collect();
+            let change = mk_change(deps, &format!("c{i}"), false, false);
+            parent = Some(change.id);
+            changes.push(change);
+        }
+
+        let mut newest_first = changes;
+        newest_first.reverse();
+
+        let lines = GraphRenderer::monochrome().render(&newest_first);
+        assert!(lines.iter().any(|line| line.contains("commits elided")));
     }
 }

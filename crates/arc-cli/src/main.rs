@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use clap::{CommandFactory, Parser, Subcommand};
+use std::collections::{BTreeSet, HashSet};
 use tracing_subscriber::EnvFilter;
 
 use arc_algebra::apply::MaterializedState;
@@ -142,8 +143,8 @@ enum Command {
         #[arg(long)]
         intent: Option<String>,
         /// Revset query expression used to select which changes to show.
-        #[arg(short = 'r', long, default_value = "ancestors(@)")]
-        revset: String,
+        #[arg(short = 'r', long)]
+        revset: Option<String>,
         /// Row template for non-semantic log output.
         /// Supported placeholders: {id}, {id_short}, {author}, {intent},
         /// {state_badges}, {ref_badges}, {badges}
@@ -381,6 +382,14 @@ enum Command {
         /// New commit message.  If omitted, the original message is kept.
         #[arg(short, long)]
         message: Option<String>,
+    },
+    /// Absorb working-copy edits into existing history.
+    ///
+    /// Current scaffold supports `--ast` mode with conservative safety checks.
+    Absorb {
+        /// Use AST-aware absorption mode.
+        #[arg(long, default_value_t = false)]
+        ast: bool,
     },
     /// Squash a contiguous linear spine of changes into a single change.
     ///
@@ -1227,10 +1236,10 @@ fn main() -> anyhow::Result<()> {
                     println!("{table}");
                 }
             } else {
-                let changes = if revset.trim() == "ancestors(@)" {
-                    repo.log()?
+                let changes = if let Some(query) = revset.as_deref() {
+                    repo.log_revset(query)?
                 } else {
-                    repo.log_revset(&revset)?
+                    repo.log_smartlog()?
                 };
                 let parsed_template = if let Some(raw_template) = template.as_deref() {
                     let config = load_merged_config(std::path::Path::new("."))?;
@@ -1245,9 +1254,37 @@ fn main() -> anyhow::Result<()> {
                 if changes.is_empty() {
                     println!("No changes yet. Use 'arc snap' to create your first change.");
                 } else {
+                    let current = repo.resolve_revset_symbol_typed("@")?;
+                    let current_view = repo.current_view_name()?;
+                    let active_heads: BTreeSet<ChangeId> = View::load(&repo.shared_root, &current_view)
+                        .map(|view| view.heads.into_iter().map(ChangeId::from).collect())
+                        .unwrap_or_default();
+
+                    let mut stable_anchor_heads: HashSet<Blake3Hash> = HashSet::new();
+                    for function_name in ["remote_branches", "tags", "bookmarks"] {
+                        let heads = repo.resolve_revset_reference_heads(function_name)?;
+                        stable_anchor_heads.extend(heads.into_iter().map(Blake3Hash::from));
+                    }
+                    if !stable_anchor_heads.is_empty() {
+                        repo.hydrate_heads(&stable_anchor_heads)?;
+                    }
+                    let stable_ancestors: BTreeSet<ChangeId> = if stable_anchor_heads.is_empty() {
+                        BTreeSet::new()
+                    } else {
+                        repo.graph
+                            .load()
+                            .ancestors(&stable_anchor_heads)
+                            .into_iter()
+                            .map(ChangeId::from)
+                            .collect()
+                    };
+
                     let decorations = GraphDecorations {
                         tags: repo.tag_decorations()?,
                         remotes: repo.remote_branch_decorations()?,
+                        current,
+                        active_heads,
+                        stable_ancestors,
                     };
                     let renderer = GraphRenderer::new();
                     for line in renderer.render_with_decorations_and_template(
@@ -2416,6 +2453,37 @@ fn main() -> anyhow::Result<()> {
             let new_id = repo.amend(message.as_deref())?;
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Amended → {}", &hex[..8]);
+        }
+        Command::Absorb { ast } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+
+            if !ast {
+                anyhow::bail!("absorb currently requires --ast");
+            }
+
+            let result = repo.absorb_ast()?;
+            let target_hex: String = result
+                .selected_target
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+
+            match result.new_head {
+                Some(new_head) => {
+                    let new_hex: String = new_head.iter().map(|b| format!("{b:02x}")).collect();
+                    println!(
+                        "Absorbed {} AST atom(s) into {} → {}",
+                        result.absorbed_atoms,
+                        &target_hex[..8],
+                        &new_hex[..8]
+                    );
+                }
+                None => {
+                    println!("No working-copy changes to absorb (target {}).", &target_hex[..8]);
+                }
+            }
         }
         Command::Squash { into } => {
             let mut repo = Repository::open(".")?;

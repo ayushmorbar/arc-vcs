@@ -1,3 +1,4 @@
+mod absorb;
 mod core;
 mod merge;
 mod revset;

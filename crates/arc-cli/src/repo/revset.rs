@@ -7,7 +7,30 @@ use arc_store_types::newtypes::ChangeId;
 
 use super::core::*;
 
+const SMARTLOG_NEIGHBORHOOD_REVSET: &str = "@ \
+| range(remote_branches(), @) \
+| range(bookmarks(), @) \
+| range(tags(), @) \
+| merge_base(remote_branches(), @) \
+| merge_base(bookmarks(), @) \
+| merge_base(tags(), @)";
+
 impl Repository {
+    /// Return a Smartlog-style neighborhood around the current checkout.
+    ///
+    /// Falls back to full local ancestry when no reference heads are present.
+    pub fn log_smartlog(&mut self) -> anyhow::Result<Vec<Change>> {
+        let has_reference_heads = !self.resolve_revset_reference_heads("remote_branches")?.is_empty()
+            || !self.resolve_revset_reference_heads("bookmarks")?.is_empty()
+            || !self.resolve_revset_reference_heads("tags")?.is_empty();
+
+        if !has_reference_heads {
+            return self.log();
+        }
+
+        self.log_revset(SMARTLOG_NEIGHBORHOOD_REVSET)
+    }
+
     /// Return all changes selected by `revset`, newest-first.
     pub fn log_revset(&mut self, revset: &str) -> anyhow::Result<Vec<Change>> {
         let expr = arc_revset::parse(revset)
