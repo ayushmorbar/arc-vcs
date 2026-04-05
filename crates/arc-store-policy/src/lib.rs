@@ -307,10 +307,52 @@ fn config_candidates(workspace_root: &Path) -> Vec<(PathBuf, TrustLevel)> {
 
     out.push((
         workspace_root.join(".arc").join("config.toml"),
-        TrustLevel::Repo,
+        repo_trust_level(workspace_root),
     ));
 
     out
+}
+
+/// Determine trust level for repository-local policy files.
+pub fn repo_trust_level(workspace_root: &Path) -> TrustLevel {
+    if is_workspace_owned_by_current_user(workspace_root).unwrap_or(false) {
+        TrustLevel::Repo
+    } else {
+        TrustLevel::Untrusted
+    }
+}
+
+/// Return true if `path` appears to be owned by the current process user.
+pub fn is_workspace_owned_by_current_user(path: &Path) -> std::io::Result<bool> {
+    #[cfg(all(not(windows), not(target_os = "wasi")))]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let owner_of_path = std::fs::symlink_metadata(path)?.uid();
+        #[allow(unsafe_code)]
+        let owner_of_process = unsafe { libc::geteuid() };
+        if owner_of_path == owner_of_process {
+            return Ok(true);
+        }
+        if let Some(sudo_uid) = std::env::var_os("SUDO_UID")
+            .and_then(|v| v.to_str().and_then(|s| s.parse::<u32>().ok()))
+        {
+            return Ok(owner_of_path == sudo_uid);
+        }
+        Ok(false)
+    }
+
+    #[cfg(target_os = "wasi")]
+    {
+        let _ = path;
+        Ok(true)
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = path;
+        Ok(false)
+    }
 }
 
 fn flatten_config_value(
@@ -632,5 +674,12 @@ mod tests {
                 .iter()
                 .any(|e| e.outcome == arc_policy::TraceOutcome::Overridden)
         );
+    }
+
+    #[test]
+    fn repo_trust_level_is_repo_or_untrusted() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trust = repo_trust_level(tmp.path());
+        assert!(matches!(trust, TrustLevel::Repo | TrustLevel::Untrusted));
     }
 }

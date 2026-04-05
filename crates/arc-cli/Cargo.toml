@@ -62,9 +62,11 @@ similar = { version = "3.0.0", features = ["inline"] }
 gix-features = { version = "0.46.2", features = ["parallel"] }
 prodash = { version = "31.0.0", features = ["render-line", "render-line-crossterm", "render-tui", "render-tui-crossterm"] }
 tempfile = "3.27.0"
+ctrlc = "3.5.2"
+rpassword = "7.4.0"
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.4.3"
+signal-hook = "0.4.4"
 
 [dev-dependencies]
 async-trait = "0.1.89"

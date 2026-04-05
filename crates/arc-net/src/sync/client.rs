@@ -13,8 +13,8 @@ use tokio::time::{sleep, timeout};
 use tokio_util::codec::Framed;
 use tracing::instrument;
 
-use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
 use super::backoff::QuadraticBackoff;
+use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
 use super::endpoint::SyncEndpoint;
 use super::protocol::{
     HandshakeRequest, HandshakeResponse, SyncCapability, negotiate_capabilities,
@@ -29,8 +29,18 @@ pub async fn sync_remote(
     addr: &str,
     view_heads: HashMap<String, ChangeId>,
 ) -> Result<HandshakeResponse> {
+    sync_remote_with_token(addr, view_heads, None).await
+}
+
+/// Perform a native handshake with optional explicit auth token.
+#[instrument(skip_all)]
+pub async fn sync_remote_with_token(
+    addr: &str,
+    view_heads: HashMap<String, ChangeId>,
+    auth_token: Option<String>,
+) -> Result<HandshakeResponse> {
     let repo_path = std::env::current_dir().context("failed to resolve current directory")?;
-    sync_remote_from_repo(addr, view_heads, &repo_path).await
+    sync_remote_from_repo(addr, view_heads, &repo_path, auth_token).await
 }
 
 #[instrument(skip_all)]
@@ -38,16 +48,16 @@ pub(crate) async fn sync_remote_from_repo(
     addr: &str,
     view_heads: HashMap<String, ChangeId>,
     repo_path: &Path,
+    auth_token: Option<String>,
 ) -> Result<HandshakeResponse> {
-    let endpoint = SyncEndpoint::parse(addr)
-        .context("invalid native sync endpoint")?;
+    let endpoint = SyncEndpoint::parse(addr).context("invalid native sync endpoint")?;
     let socket = connect_with_retry(&endpoint).await?;
     let mut framed = Framed::new(socket, ArcSyncCodec::new());
 
     let request = HandshakeRequest {
         version: 1,
         min_version: 1,
-        auth_token: std::env::var("ARC_SYNC_TOKEN").ok(),
+        auth_token: choose_auth_token(auth_token),
         view_heads,
         required_capabilities: vec![
             SyncCapability::PayloadStreamV1,
@@ -102,6 +112,17 @@ pub(crate) async fn sync_remote_from_repo(
 
     stream_required_changes(&mut framed, repo_path, &response.required_changes).await?;
     Ok(response)
+}
+
+fn choose_auth_token(explicit_token: Option<String>) -> Option<String> {
+    choose_auth_token_with_env(explicit_token, std::env::var("ARC_SYNC_TOKEN").ok())
+}
+
+fn choose_auth_token_with_env(
+    explicit_token: Option<String>,
+    env_token: Option<String>,
+) -> Option<String> {
+    explicit_token.or(env_token)
 }
 
 #[instrument(skip_all)]
@@ -236,6 +257,7 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::time::sleep;
 
+    use crate::sync::client::choose_auth_token_with_env;
     use crate::sync::client::sync_remote;
     use crate::sync::client::sync_remote_from_repo;
     use crate::sync::endpoint::SyncEndpoint;
@@ -313,9 +335,10 @@ mod tests {
         let mut view_heads = HashMap::new();
         view_heads.insert("main".to_string(), ChangeId::from(change.id));
 
-        let response = sync_remote_from_repo(&addr.to_string(), view_heads, client_root.path())
-            .await
-            .expect("native sync should succeed");
+        let response =
+            sync_remote_from_repo(&addr.to_string(), view_heads, client_root.path(), None)
+                .await
+                .expect("native sync should succeed");
         assert_eq!(response.status, 0);
         assert_eq!(response.required_changes, vec![ChangeId::from(change.id)]);
 
@@ -338,6 +361,22 @@ mod tests {
         assert!(server_main.heads.contains(&change.id));
 
         server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn explicit_auth_token_overrides_environment() {
+        assert_eq!(
+            choose_auth_token_with_env(
+                Some("explicit-token".to_string()),
+                Some("env-token".to_string())
+            ),
+            Some("explicit-token".to_string())
+        );
+        assert_eq!(
+            choose_auth_token_with_env(None, Some("env-token".to_string())),
+            Some("env-token".to_string())
+        );
+        assert_eq!(choose_auth_token_with_env(None, None), None);
     }
 
     fn init_empty_repo(root: &std::path::Path) -> anyhow::Result<()> {

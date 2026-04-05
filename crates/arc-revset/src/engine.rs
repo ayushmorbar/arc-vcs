@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow, bail};
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
+use arc_content_hash_derive::demono;
 use arc_store_graph::ChangeGraph;
 use arc_store_types::newtypes::ChangeId;
 use tracing::instrument;
@@ -33,8 +34,8 @@ where
 /// Typed revset evaluator over a [`ChangeGraph`].
 pub struct RevsetEvaluator<'g, F, R>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
-    R: ReferenceResolver,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
+    R: ReferenceResolver + ?Sized,
 {
     graph: Arc<ChangeGraph>,
     resolve_symbol: &'g mut F,
@@ -43,8 +44,8 @@ where
 
 impl<'g, F, R> RevsetEvaluator<'g, F, R>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
-    R: ReferenceResolver,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
+    R: ReferenceResolver + ?Sized,
 {
     /// Create a new evaluator bound to `graph` and a repository-specific symbol resolver.
     pub fn new(
@@ -106,6 +107,7 @@ where
 }
 
 /// Compile a revset AST with explicit support for metadata-backed ref functions.
+#[demono]
 pub fn compile_change_ids_with_refs<'a, F, R>(
     expr: &RevsetExpression,
     graph: Arc<ChangeGraph>,
@@ -126,8 +128,8 @@ fn compile_impl_change_ids<'a, F, R>(
     resolve_refs: &mut R,
 ) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
-    R: ReferenceResolver,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
+    R: ReferenceResolver + ?Sized,
 {
     match expr {
         RevsetExpression::Symbol(name) => compile_symbol(name, &graph, resolve_symbol),
@@ -161,7 +163,7 @@ fn compile_symbol<'a, F>(
     resolve_symbol: &mut F,
 ) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
 {
     if let Ok(id) = ChangeId::from_hex(name) {
         if graph.get(&Blake3Hash::from(id)).is_none() {
@@ -192,8 +194,8 @@ fn compile_function<'a, F, R>(
     resolve_refs: &mut R,
 ) -> Result<RevsetChangeIdIterator<'a>>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
-    R: ReferenceResolver,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
+    R: ReferenceResolver + ?Sized,
 {
     match name {
         "ancestors" => {
@@ -293,8 +295,8 @@ fn eval_as_head_set<F, R>(
     resolve_refs: &mut R,
 ) -> Result<HashSet<Blake3Hash>>
 where
-    F: FnMut(&str) -> Result<Option<ChangeId>>,
-    R: ReferenceResolver,
+    F: FnMut(&str) -> Result<Option<ChangeId>> + ?Sized,
+    R: ReferenceResolver + ?Sized,
 {
     let iter = compile_impl_change_ids(expr, graph, resolve_symbol, resolve_refs)?;
     Ok(iter.map(Blake3Hash::from).collect())

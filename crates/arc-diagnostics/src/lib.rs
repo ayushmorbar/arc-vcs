@@ -4,6 +4,46 @@
 
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
+use std::sync::OnceLock;
+
+use tracing_subscriber::EnvFilter;
+
+static TRACING_INIT: OnceLock<()> = OnceLock::new();
+
+/// Initialize tracing from ARC_* environment variables.
+///
+/// Behavior:
+/// - `ARC_TRACE_EVENT=<path>`: append JSON event stream to file.
+/// - `ARC_TRACE=1`: compact stderr tracing.
+/// - otherwise: no subscriber installed (zero-overhead default).
+pub fn init_tracing(service_name: &str) {
+    let _ = TRACING_INIT.get_or_init(|| {
+        let filter = std::env::var("ARC_TRACE_FILTER")
+            .unwrap_or_else(|_| format!("{service_name}=debug,info"));
+
+        if let Ok(path) = std::env::var("ARC_TRACE_EVENT") {
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let _ = tracing_subscriber::fmt()
+                    .json()
+                    .with_writer(std::sync::Mutex::new(file))
+                    .with_env_filter(EnvFilter::new(filter))
+                    .try_init();
+            }
+            return;
+        }
+
+        if std::env::var("ARC_TRACE").is_ok_and(|value| value == "1") {
+            let _ = tracing_subscriber::fmt()
+                .compact()
+                .with_env_filter(EnvFilter::new(filter))
+                .try_init();
+        }
+    });
+}
 
 /// Actionable hint attached to a command failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,5 +253,11 @@ mod tests {
         let modeled = ArcError::from_anyhow(&err);
         assert_eq!(modeled.message(), "restack paused");
         assert!(modeled.causes().is_empty());
+    }
+
+    #[test]
+    fn tracing_init_is_idempotent() {
+        init_tracing("arc_diagnostics_test");
+        init_tracing("arc_diagnostics_test");
     }
 }

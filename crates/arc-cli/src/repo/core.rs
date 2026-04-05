@@ -5592,7 +5592,12 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     }
     merged.remotes.extend(local.remotes);
     merged.aliases.extend(local.aliases);
-    merged.hooks.extend(local.hooks);
+    let local_trust = arc_store_policy::repo_trust_level(shared_root);
+    let hook_permission = arc_policy::TrustMapping::<arc_policy::Permission>::default()
+        .by_level(local_trust);
+    if hook_permission.is_allowed() {
+        merged.hooks.extend(local.hooks);
+    }
     merged.revsets.extend(local.revsets);
     merged.templates.extend(local.templates);
     merged.template_aliases.extend(local.template_aliases);

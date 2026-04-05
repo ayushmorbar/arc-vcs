@@ -10,6 +10,7 @@ arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-store-graph = { path = "../arc-store-graph" }
 arc-store-types = { path = "../arc-store-types" }
+arc-content-hash-derive = { path = "../arc-content-hash-derive" }
 pest = "2.8.6"
 pest_derive = "2.8.6"
 serde = { version = "1.0.228", features = ["derive"] }

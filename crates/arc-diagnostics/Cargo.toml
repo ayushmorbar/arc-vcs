@@ -7,3 +7,5 @@ description = "Structured diagnostics and actionable hints for arc"
 
 [dependencies]
 anyhow = "1.0.102"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }

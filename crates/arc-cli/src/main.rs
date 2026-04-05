@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use clap::{CommandFactory, Parser, Subcommand};
 use std::collections::{BTreeSet, HashSet};
-use tracing_subscriber::EnvFilter;
+use std::io::IsTerminal;
 
 use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::Blake3Hash;
@@ -15,7 +15,7 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
 use arc_cli::workspace_policy::audit_workspace_policy;
-use arc_diagnostics::{ArcError, ResultExt};
+use arc_diagnostics::{ArcError, ResultExt, init_tracing};
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
 use arc_git_bridge::pack::encode_packfile;
@@ -978,28 +978,6 @@ fn show_synthesis_snapshot(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_tracing() {
-    if let Ok(path) = std::env::var("ARC_TRACE_EVENT") {
-        if let Ok(file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
-            let _ = tracing_subscriber::fmt()
-                .json()
-                .with_writer(std::sync::Mutex::new(file))
-                .with_env_filter(EnvFilter::new("arc_cli=debug,info"))
-                .try_init();
-        }
-    } else if std::env::var("ARC_TRACE").is_ok_and(|v| v == "1") {
-        let _ = tracing_subscriber::fmt()
-            .compact()
-            .with_env_filter(EnvFilter::new("arc_cli=debug,info"))
-            .try_init();
-    }
-    // Default: no subscriber installed — tracing macros are zero-overhead.
-}
-
 fn git_identity_from_author(author: &Author) -> GitIdentity {
     let (name, email) = match author {
         Author::Human { name, email, .. } => (name.clone(), email.clone()),
@@ -1085,29 +1063,62 @@ fn render_diagnostic_error(error: &anyhow::Error) {
     }
 }
 
-fn run_cli() -> anyhow::Result<()> {
-    // Initialise the tempfile registry eagerly so no allocations happen inside
-    // a signal handler later.
-    arc_store_view::tempfile::init();
-
-    // Register UNIX termination signals to trigger cleanup before exit.
-    // On Windows, tempfile cleanup happens via Drop — no signal handler needed.
-    #[cfg(unix)]
+fn resolve_sync_token() -> anyhow::Result<Option<String>> {
+    if let Ok(token) = std::env::var("ARC_SYNC_TOKEN")
+        && !token.trim().is_empty()
     {
-        use signal_hook::consts::TERM_SIGNALS;
-        for &sig in TERM_SIGNALS {
-            // SAFETY: The handler only calls `remove_file` (unlink syscall)
-            // and iterates a DashMap.  No memory allocation or non-signal-safe
-            // operations are used inside `cleanup_signal_safe`.
-            unsafe {
-                signal_hook::low_level::register(sig, || {
-                    arc_store_view::tempfile::cleanup_signal_safe();
-                })?;
-            }
-        }
+        return Ok(Some(token));
     }
 
-    init_tracing();
+    if !std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+
+    eprint!("Auth token (leave blank for loopback/no-auth): ");
+    let token = rpassword::read_password().context("failed to read hidden auth token")?;
+    if token.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(token))
+    }
+}
+
+fn install_tempfile_cleanup_handlers() -> anyhow::Result<()> {
+    ctrlc::set_handler(|| {
+        arc_store_view::tempfile::cleanup_signal_safe();
+    })
+    .context("failed to install Ctrl+C cleanup handler")?;
+
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::signal::SIGTERM;
+        use signal_hook::iterator::Signals;
+
+        let mut signals = Signals::new([SIGTERM])
+            .context("failed to register SIGTERM cleanup handler")?;
+        std::thread::Builder::new()
+            .name("arc-sigterm-cleanup".to_string())
+            .spawn(move || {
+                for _ in signals.forever() {
+                    arc_store_view::tempfile::cleanup_signal_safe();
+                    std::process::exit(143);
+                }
+            })
+            .context("failed to spawn SIGTERM cleanup thread")?;
+    }
+
+    Ok(())
+}
+
+fn run_cli() -> anyhow::Result<()> {
+    // Initialise the tempfile registry eagerly so no allocations happen inside
+    // shutdown cleanup hooks later.
+    arc_store_view::tempfile::init();
+
+    // Install cleanup hooks that run in normal thread context on shutdown.
+    install_tempfile_cleanup_handlers()?;
+
+    init_tracing("arc_cli");
     // --- Recursive alias interception with cycle detection ---------------
     let mut raw_args: Vec<String> = std::env::args().collect();
     if let Ok(config) = load_merged_config(std::path::Path::new(".")) {
@@ -1738,8 +1749,11 @@ fn run_cli() -> anyhow::Result<()> {
         Command::Sync { address } => {
             let repo = Repository::open(".")?;
             let heads = collect_local_view_heads(&repo)?;
+            let token = resolve_sync_token()?;
             let rt = tokio::runtime::Runtime::new()?;
-            let response = rt.block_on(arc_net::sync::client::sync_remote(&address, heads))?;
+            let response = rt.block_on(arc_net::sync::client::sync_remote_with_token(
+                &address, heads, token,
+            ))?;
             println!(
                 "[arc] Native sync handshake successful. Server status: {}",
                 response.status

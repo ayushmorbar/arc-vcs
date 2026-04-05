@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use arc_store_types::newtypes::SnapshotId;
 
+use crate::tempfile as temp_registry;
+
 /// One captured input artifact that fed the synthesized architecture decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SynthArtifact {
@@ -142,11 +144,16 @@ impl SynthesisSnapshot {
             // but avoid strict sync barriers that fail in some environments.
             let tmp_name = format!("{}.tmp-{}", self.id.to_hex(), std::process::id());
             let tmp_path = parent.join(tmp_name);
+            let temp_id = temp_registry::register(tmp_path.clone());
             fs::write(&tmp_path, &bytes)?;
 
             match fs::rename(&tmp_path, &path) {
-                Ok(()) => Ok(()),
+                Ok(()) => {
+                    temp_registry::deregister(temp_id);
+                    Ok(())
+                }
                 Err(e) => {
+                    temp_registry::deregister(temp_id);
                     let _ = fs::remove_file(&tmp_path);
                     if path.exists() {
                         Ok(())
@@ -164,17 +171,20 @@ impl SynthesisSnapshot {
         {
             let tmp_name = format!("{}.tmp-{}", self.id.to_hex(), std::process::id());
             let tmp_path = parent.join(tmp_name);
+            let temp_id = temp_registry::register(tmp_path.clone());
             fs::write(&tmp_path, &bytes)?;
             // Durability barrier 1: force temp-file data to stable storage.
             fs::File::open(&tmp_path)?.sync_all()?;
 
             match fs::rename(&tmp_path, &path) {
                 Ok(()) => {
+                    temp_registry::deregister(temp_id);
                     // Durability barrier 2: force directory entry updates.
                     sync_directory(parent)?;
                     Ok(())
                 }
                 Err(e) => {
+                    temp_registry::deregister(temp_id);
                     let _ = fs::remove_file(&tmp_path);
                     if path.exists() {
                         Ok(())

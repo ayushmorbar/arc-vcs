@@ -1,4 +1,5 @@
 mod content_hash;
+mod demono;
 
 extern crate proc_macro;
 
@@ -29,6 +30,16 @@ pub fn derive_content_hash(input: proc_macro::TokenStream) -> proc_macro::TokenS
     };
 
     expanded.into()
+}
+
+/// De-monomorphize generic function parameters by routing through one
+/// dynamically-dispatched inner implementation.
+#[proc_macro_attribute]
+pub fn demono(
+    _attrs: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    demono::inner(input.into()).into()
 }
 
 fn core_crate_path() -> proc_macro2::TokenStream {

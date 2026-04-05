@@ -17,6 +17,7 @@ arc-store-types = { path = "../arc-store-types" }
 arc-store-view = { path = "../arc-store-view" }
 arc-cli = { path = "../arc-cli" }
 notify = "8.2.0"
+arc-diagnostics = { path = "../arc-diagnostics" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

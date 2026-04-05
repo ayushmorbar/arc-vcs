@@ -15,6 +15,81 @@ pub enum TrustLevel {
     Trusted,
 }
 
+/// Permission decision used for sensitive operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Permission {
+    /// Deny operation and fail closed.
+    Forbid,
+    /// Ignore operation quietly.
+    Deny,
+    /// Permit operation.
+    Allow,
+}
+
+impl Permission {
+    /// Return true if this permission allows the operation.
+    pub fn is_allowed(self) -> bool {
+        matches!(self, Permission::Allow)
+    }
+}
+
+/// Trait for computing default values from trust level.
+pub trait DefaultForTrust {
+    /// Build a default value for a trust level.
+    fn default_for_trust(level: TrustLevel) -> Self;
+}
+
+/// Mapping of values by trust-level classes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustMapping<T> {
+    /// Value for fully trusted sources.
+    pub trusted: T,
+    /// Value for user-level sources.
+    pub user: T,
+    /// Value for repo-local sources.
+    pub repo: T,
+    /// Value for untrusted sources.
+    pub untrusted: T,
+}
+
+impl<T> TrustMapping<T>
+where
+    T: Clone,
+{
+    /// Resolve value by trust level.
+    pub fn by_level(&self, level: TrustLevel) -> T {
+        match level {
+            TrustLevel::Trusted => self.trusted.clone(),
+            TrustLevel::User => self.user.clone(),
+            TrustLevel::Repo => self.repo.clone(),
+            TrustLevel::Untrusted => self.untrusted.clone(),
+        }
+    }
+}
+
+impl<T> Default for TrustMapping<T>
+where
+    T: DefaultForTrust,
+{
+    fn default() -> Self {
+        Self {
+            trusted: T::default_for_trust(TrustLevel::Trusted),
+            user: T::default_for_trust(TrustLevel::User),
+            repo: T::default_for_trust(TrustLevel::Repo),
+            untrusted: T::default_for_trust(TrustLevel::Untrusted),
+        }
+    }
+}
+
+impl DefaultForTrust for Permission {
+    fn default_for_trust(level: TrustLevel) -> Self {
+        match level {
+            TrustLevel::Trusted | TrustLevel::User | TrustLevel::Repo => Permission::Allow,
+            TrustLevel::Untrusted => Permission::Forbid,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PolicyDomain {
     Ignore,
@@ -181,5 +256,12 @@ mod tests {
         ));
         assert_eq!(trace.evaluated[0].outcome, TraceOutcome::SkippedUnset);
         assert_eq!(trace.evaluated[1].outcome, TraceOutcome::Winning);
+    }
+
+    #[test]
+    fn trust_mapping_resolves_expected_permission() {
+        let mapping = TrustMapping::<Permission>::default();
+        assert!(mapping.by_level(TrustLevel::Repo).is_allowed());
+        assert!(!mapping.by_level(TrustLevel::Untrusted).is_allowed());
     }
 }
