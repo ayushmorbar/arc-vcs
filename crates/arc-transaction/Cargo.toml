@@ -1,0 +1,10 @@
+[package]
+name = "arc-transaction"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Pure transactional rewrite planning state for arc"
+
+[dependencies]
+arc-store-types = { path = "../arc-store-types" }
+serde = { version = "1.0.228", features = ["derive"] }

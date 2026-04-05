@@ -122,7 +122,11 @@ impl<'a, T: Clone> PolicyLattice<'a, T> {
 mod tests {
     use super::*;
 
-    fn mk_atom<'a>(key: &'a str, value: PolicyValue<&'a str>, depth: u16) -> PolicyAtom<'a, &'a str> {
+    fn mk_atom<'a>(
+        key: &'a str,
+        value: PolicyValue<&'a str>,
+        depth: u16,
+    ) -> PolicyAtom<'a, &'a str> {
         PolicyAtom {
             domain: PolicyDomain::Config,
             key: Cow::Borrowed(key),
@@ -142,7 +146,10 @@ mod tests {
         lattice.push(mk_atom("ui.color", PolicyValue::Present("always"), 1));
 
         let trace = lattice.resolve("ui.color");
-        assert!(matches!(trace.winner.map(|w| w.value), Some(PolicyValue::Present("always"))));
+        assert!(matches!(
+            trace.winner.map(|w| w.value),
+            Some(PolicyValue::Present("always"))
+        ));
         assert_eq!(trace.evaluated.len(), 2);
         assert_eq!(trace.evaluated[0].outcome, TraceOutcome::Winning);
         assert_eq!(trace.evaluated[1].outcome, TraceOutcome::Overridden);
@@ -155,7 +162,10 @@ mod tests {
         lattice.push(mk_atom("ui.color", PolicyValue::Cleared, 1));
 
         let trace = lattice.resolve("ui.color");
-        assert!(matches!(trace.winner.map(|w| w.value), Some(PolicyValue::Cleared)));
+        assert!(matches!(
+            trace.winner.map(|w| w.value),
+            Some(PolicyValue::Cleared)
+        ));
     }
 
     #[test]
@@ -165,7 +175,10 @@ mod tests {
         lattice.push(mk_atom("ui.color", PolicyValue::Unset, 1));
 
         let trace = lattice.resolve("ui.color");
-        assert!(matches!(trace.winner.map(|w| w.value), Some(PolicyValue::Present("auto"))));
+        assert!(matches!(
+            trace.winner.map(|w| w.value),
+            Some(PolicyValue::Present("auto"))
+        ));
         assert_eq!(trace.evaluated[0].outcome, TraceOutcome::SkippedUnset);
         assert_eq!(trace.evaluated[1].outcome, TraceOutcome::Winning);
     }

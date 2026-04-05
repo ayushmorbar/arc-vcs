@@ -119,13 +119,11 @@ impl ArcIgnoreMatcher {
     fn explain_path_kind(&self, path: &str, is_dir: bool) -> IgnorePolicyTrace {
         let normalized = path.replace('\\', "/");
         let trace = self.lattice.resolve_with(&normalized, |atom, query| {
-            self.rules
-                .get(atom.key.as_ref())
-                .is_some_and(|rule| {
-                    rule.matcher
-                        .matched_path_or_any_parents(query, is_dir)
-                        .is_ignore()
-                })
+            self.rules.get(atom.key.as_ref()).is_some_and(|rule| {
+                rule.matcher
+                    .matched_path_or_any_parents(query, is_dir)
+                    .is_ignore()
+            })
         });
 
         let decision = match trace.winner.as_ref().map(|w| &w.value) {

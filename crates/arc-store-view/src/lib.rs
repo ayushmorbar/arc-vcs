@@ -12,6 +12,8 @@
 
 #![warn(missing_docs)]
 
+/// Crash-consistent JSON checkpoint persistence helpers.
+pub mod checkpoint;
 /// Lock-file primitives for crash-consistent mutable pointer publication.
 pub mod lock;
 /// Append-only transaction log with optimistic head publication.
@@ -23,6 +25,7 @@ pub mod tempfile;
 /// Crash-consistent persistence of mutable `View` pointers.
 pub mod view;
 
+pub use checkpoint::*;
 pub use lock::*;
 pub use oplog::*;
 pub use synthesis::*;

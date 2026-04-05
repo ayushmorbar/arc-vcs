@@ -23,9 +23,9 @@ use arc_git_bridge::translator::{
 };
 use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use arc_net::ai::build_provider;
+use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
 use arc_store_types::author::{Author, load_identity, save_identity};
 use arc_store_types::newtypes::{ChangeId, SnapshotId};
-use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
 use arc_store_view::View;
 use arc_store_view::oplog::OperationAgent;
 use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
@@ -408,6 +408,25 @@ enum Command {
     Reorder {
         /// Desired oldest->newest revision order.
         #[arg(required = true)]
+        revs: Vec<String>,
+    },
+    /// Restack a revision chain with resumable checkpoints.
+    Restack {
+        /// Resume a previously paused restack transaction.
+        #[arg(
+            long = "continue",
+            default_value_t = false,
+            conflicts_with_all = ["abort", "revs"]
+        )]
+        continue_mode: bool,
+        /// Abort a pending restack transaction and restore original heads.
+        #[arg(long, default_value_t = false, conflicts_with = "revs")]
+        abort: bool,
+        /// Desired oldest->newest revision order.
+        #[arg(
+            required_unless_present_any = ["continue_mode", "abort"],
+            conflicts_with_all = ["continue_mode", "abort"]
+        )]
         revs: Vec<String>,
     },
     /// Interactively edit the AST content of an existing change.
@@ -1274,9 +1293,10 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     let current = repo.resolve_revset_symbol_typed("@")?;
                     let current_view = repo.current_view_name()?;
-                    let active_heads: BTreeSet<ChangeId> = View::load(&repo.shared_root, &current_view)
-                        .map(|view| view.heads.into_iter().map(ChangeId::from).collect())
-                        .unwrap_or_default();
+                    let active_heads: BTreeSet<ChangeId> =
+                        View::load(&repo.shared_root, &current_view)
+                            .map(|view| view.heads.into_iter().map(ChangeId::from).collect())
+                            .unwrap_or_default();
 
                     let mut stable_anchor_heads: HashSet<Blake3Hash> = HashSet::new();
                     for function_name in ["remote_branches", "tags", "bookmarks"] {
@@ -2499,7 +2519,10 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
                 None => {
-                    println!("No working-copy changes to absorb (target {}).", &target_hex[..8]);
+                    println!(
+                        "No working-copy changes to absorb (target {}).",
+                        &target_hex[..8]
+                    );
                 }
             }
         }
@@ -2518,6 +2541,28 @@ fn main() -> anyhow::Result<()> {
             let new_id = repo.reorder(&revs)?;
             let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
             println!("Reordered → {}", &hex[..8]);
+        }
+        Command::Restack {
+            continue_mode,
+            abort,
+            revs,
+        } => {
+            let mut repo = Repository::open(".")?;
+            let (author, signing_key) = load_identity()?;
+            repo.set_identity(author, signing_key);
+
+            if abort {
+                repo.restack_abort()?;
+                println!("Restack aborted and original heads restored.");
+            } else if continue_mode {
+                let new_id = repo.restack_continue()?;
+                let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Restacked (resume) -> {}", &hex[..8]);
+            } else {
+                let new_id = repo.restack(&revs)?;
+                let hex: String = new_id.iter().map(|b| format!("{b:02x}")).collect();
+                println!("Restacked -> {}", &hex[..8]);
+            }
         }
         Command::Diffedit {
             prepare,
@@ -2943,7 +2988,9 @@ fn main() -> anyhow::Result<()> {
                             entry.source.trust
                         );
                         match entry.outcome {
-                            arc_policy::TraceOutcome::Winning => println!("{}", line.green().bold()),
+                            arc_policy::TraceOutcome::Winning => {
+                                println!("{}", line.green().bold())
+                            }
                             _ => println!("{}", line.dimmed()),
                         }
                     }
@@ -2975,7 +3022,9 @@ fn main() -> anyhow::Result<()> {
                             entry.source.trust
                         );
                         match entry.outcome {
-                            arc_policy::TraceOutcome::Winning => println!("{}", line.green().bold()),
+                            arc_policy::TraceOutcome::Winning => {
+                                println!("{}", line.green().bold())
+                            }
                             _ => println!("{}", line.dimmed()),
                         }
                     }
@@ -3728,6 +3777,44 @@ mod tests {
                     assert!(!config);
                 }
             },
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_restack_continue_command() {
+        let parsed =
+            Cli::try_parse_from(["arc", "restack", "--continue"]).expect("restack continue");
+
+        match parsed.command {
+            Command::Restack {
+                continue_mode,
+                abort,
+                revs,
+            } => {
+                assert!(continue_mode);
+                assert!(!abort);
+                assert!(revs.is_empty());
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_restack_revisions_command() {
+        let parsed =
+            Cli::try_parse_from(["arc", "restack", "HEAD~1", "HEAD"]).expect("restack with revs");
+
+        match parsed.command {
+            Command::Restack {
+                continue_mode,
+                abort,
+                revs,
+            } => {
+                assert!(!continue_mode);
+                assert!(!abort);
+                assert_eq!(revs, vec!["HEAD~1".to_string(), "HEAD".to_string()]);
+            }
             _ => panic!("unexpected command parsed"),
         }
     }

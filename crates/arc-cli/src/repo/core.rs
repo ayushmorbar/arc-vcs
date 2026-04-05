@@ -27,6 +27,7 @@ use arc_store_graph::bisect::{
     BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
     load_state as load_bisect_state, save_state as save_bisect_state,
 };
+use arc_store_policy::ArcIgnoreMatcher;
 use arc_store_types::author::{Author, PublicKeyBytes, load_identity};
 use arc_store_types::newtypes::{ChangeId, MutationId};
 use arc_store_types::refs::{
@@ -35,8 +36,9 @@ use arc_store_types::refs::{
 };
 use arc_store_types::tag::Tag;
 use arc_store_view::View;
+use arc_store_view::checkpoint;
 use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
-use arc_store_policy::ArcIgnoreMatcher;
+use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
@@ -2734,6 +2736,40 @@ impl Repository {
         Ok(())
     }
 
+    fn restack_checkpoint_path(&self) -> PathBuf {
+        self.shared_root
+            .join(".arc")
+            .join("local")
+            .join("pending_restack.json")
+    }
+
+    fn load_pending_restack(&self) -> anyhow::Result<Option<PendingRewrite>> {
+        checkpoint::load_json(&self.restack_checkpoint_path())
+    }
+
+    fn validate_pending_restack(pending: &PendingRewrite) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            pending.version == CHECKPOINT_VERSION,
+            "unsupported restack checkpoint version {}; expected {}",
+            pending.version,
+            CHECKPOINT_VERSION
+        );
+        anyhow::ensure!(
+            pending.command == "restack",
+            "checkpoint command '{}' is incompatible with restack",
+            pending.command
+        );
+        Ok(())
+    }
+
+    fn save_pending_restack(&self, pending: &PendingRewrite) -> anyhow::Result<()> {
+        checkpoint::save_json_atomic(&self.restack_checkpoint_path(), pending)
+    }
+
+    fn clear_pending_restack(&self) -> anyhow::Result<()> {
+        checkpoint::remove(&self.restack_checkpoint_path())
+    }
+
     fn push_redo_operation(&self, op: &Operation) -> anyhow::Result<()> {
         let mut stack = self.load_redo_stack()?;
         stack.push(op.clone());
@@ -4165,6 +4201,203 @@ impl Repository {
         Ok(new_head)
     }
 
+    fn execute_pending_restack(&mut self, pending: PendingRewrite) -> anyhow::Result<Blake3Hash> {
+        Self::validate_pending_restack(&pending)?;
+        let pending = pending.clear_conflict().with_attempt_incremented();
+        self.save_pending_restack(&pending)?;
+
+        let view = View::load(&self.shared_root, &pending.view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", pending.view))?;
+        let expected_heads = change_ids_to_hashes(&pending.before_heads);
+        anyhow::ensure!(
+            view.heads == expected_heads,
+            "cannot continue restack: view '{}' changed since checkpoint was created",
+            pending.view
+        );
+
+        let desired: Vec<Blake3Hash> = pending
+            .resolved_order()
+            .into_iter()
+            .map(Blake3Hash::from)
+            .collect();
+
+        let (author, signing_key) = self.signing_identity()?;
+        let signer = (author.clone(), signing_key.clone());
+        let outcome = match mutator::reorder(&self.graph.load_full(), &desired, &signer) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                let paused = pending.with_conflict(format!("restack failed: {err}"));
+                self.save_pending_restack(&paused)?;
+                anyhow::bail!(
+                    "restack paused: {}\nRun `arc restack --continue` after resolving the issue, or `arc restack --abort` to restore original heads.",
+                    err
+                );
+            }
+        };
+
+        for change in &outcome.rewritten {
+            self.store
+                .write_change(change)
+                .map_err(|e| anyhow::anyhow!("failed to write restacked change: {e}"))?;
+            self.graph_add_change(change.clone());
+        }
+
+        let rewrite_map: HashMap<Blake3Hash, Blake3Hash> = outcome
+            .rewrite_map
+            .iter()
+            .map(|(old, new)| (Blake3Hash::from(*old), Blake3Hash::from(*new)))
+            .collect();
+        let new_head = Blake3Hash::from(outcome.new_head);
+
+        let previous_epoch = match self.stage_rewrite_metadata(
+            "restack",
+            &pending.view,
+            expected_heads.clone(),
+            HashSet::from([new_head]),
+            &rewrite_map,
+        ) {
+            Ok(previous_epoch) => previous_epoch,
+            Err(err) => {
+                let paused =
+                    pending.with_conflict(format!("failed to stage rewrite metadata: {err}"));
+                self.save_pending_restack(&paused)?;
+                return Err(err);
+            }
+        };
+
+        let pending = pending.with_rewrite_map(&outcome.rewrite_map);
+        self.save_pending_restack(&pending)?;
+
+        let updated_view = View::new(&pending.view, HashSet::from([new_head]));
+        if let Err(err) = updated_view.save(&self.shared_root) {
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            let paused = pending.with_conflict(format!("failed to save view: {err}"));
+            let _ = self.save_pending_restack(&paused);
+            return Err(anyhow::anyhow!("failed to save view: {err}"));
+        }
+
+        let new_state = match self.materialize(&pending.view) {
+            Ok(state) => state,
+            Err(err) => {
+                let _ = View::new(&pending.view, expected_heads.clone()).save(&self.shared_root);
+                let _ = self.rollback_rewrite_metadata(&previous_epoch);
+                let paused =
+                    pending.with_conflict(format!("failed to materialize restacked state: {err}"));
+                let _ = self.save_pending_restack(&paused);
+                return Err(err);
+            }
+        };
+
+        if let Err(err) = write_state_to_working_dir(&self.work_root, &self.shared_root, &new_state)
+        {
+            let _ = View::new(&pending.view, expected_heads.clone()).save(&self.shared_root);
+            let _ = self.rollback_rewrite_metadata(&previous_epoch);
+            let paused = pending.with_conflict(format!("failed to write working directory: {err}"));
+            let _ = self.save_pending_restack(&paused);
+            return Err(err);
+        }
+
+        self.clear_pending_restack()?;
+        tracing::info!(new = %_hex(&new_head), "restack complete");
+        Ok(new_head)
+    }
+
+    /// Reorder a chain of revisions with a resumable checkpoint.
+    pub fn restack(&mut self, ordered_revs: &[String]) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        if ordered_revs.len() < 2 {
+            anyhow::bail!("restack requires at least two revisions");
+        }
+        if self.load_pending_restack()?.is_some() {
+            anyhow::bail!(
+                "a restack checkpoint is already pending; run `arc restack --continue` or `arc restack --abort`"
+            );
+        }
+
+        let view_name = self.current_view_name()?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        if view.heads.len() != 1 {
+            anyhow::bail!(
+                "restack requires exactly one head; current view '{}' has {} heads",
+                view_name,
+                view.heads.len()
+            );
+        }
+
+        let mut desired = Vec::with_capacity(ordered_revs.len());
+        for rev in ordered_revs {
+            desired.push(ChangeId::from(self.resolve_rev(rev)?));
+        }
+
+        let old_head = *view
+            .heads
+            .iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("view '{view_name}' has no head"))?;
+        if !desired.contains(&ChangeId::from(old_head)) {
+            anyhow::bail!("restack set must include current HEAD");
+        }
+
+        let pending =
+            PendingRewrite::new_restack(view_name, hashes_to_change_ids(&view.heads), desired);
+        self.save_pending_restack(&pending)?;
+        self.execute_pending_restack(pending)
+    }
+
+    /// Resume a previously paused `restack` transaction.
+    pub fn restack_continue(&mut self) -> anyhow::Result<Blake3Hash> {
+        self.acquire_lock()?;
+        let pending = self
+            .load_pending_restack()?
+            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))?;
+        Self::validate_pending_restack(&pending)?;
+        self.execute_pending_restack(pending)
+    }
+
+    /// Abort the active `restack` transaction and restore original view heads.
+    pub fn restack_abort(&mut self) -> anyhow::Result<()> {
+        self.acquire_lock()?;
+        let pending = self
+            .load_pending_restack()?
+            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))?;
+
+        let current_view = View::load(&self.shared_root, &pending.view)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", pending.view))?;
+        let current_heads = current_view.heads.clone();
+        self.hydrate_heads(&current_heads)?;
+        let current_state = if current_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&current_heads)?
+        };
+
+        let restored_heads = change_ids_to_hashes(&pending.before_heads);
+        View::new(&pending.view, restored_heads.clone())
+            .save(&self.shared_root)
+            .map_err(|e| anyhow::anyhow!("failed to restore view '{}': {e}", pending.view))?;
+
+        self.hydrate_heads(&restored_heads)?;
+        let restored_state = if restored_heads.is_empty() {
+            MaterializedState::new()
+        } else {
+            self.materialize_heads(&restored_heads)?
+        };
+
+        if let Err(err) =
+            write_state_to_working_dir(&self.work_root, &self.shared_root, &restored_state)
+        {
+            let _ = View::new(&pending.view, current_heads.clone()).save(&self.shared_root);
+            let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &current_state);
+            return Err(anyhow::anyhow!(
+                "failed to restore working directory during restack abort: {err}"
+            ));
+        }
+
+        self.clear_pending_restack()?;
+        Ok(())
+    }
+
     /// Prepare a diffedit session for the change identified by `target_rev`.
     ///
     /// Writes `.arc/diffedit_target` with the hex of the target change ID,
@@ -5140,7 +5373,10 @@ pub(super) fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
     SparseMatcher::from_patterns(&load_sparse_patterns(root))
 }
 
-fn validate_sparse_patterns(patterns: &[String], arcignore: &ArcIgnoreMatcher) -> anyhow::Result<()> {
+fn validate_sparse_patterns(
+    patterns: &[String],
+    arcignore: &ArcIgnoreMatcher,
+) -> anyhow::Result<()> {
     for pattern in patterns {
         let normalized = pattern.trim().trim_matches('/');
         if normalized.is_empty() {
@@ -5438,7 +5674,10 @@ fn collect_empty_dirs_recursive(
 }
 
 /// Recursively collect `*.rs` file paths relative to `root`.
-pub(super) fn collect_rs_files(root: &Path, arcignore: &ArcIgnoreMatcher) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_rs_files(
+    root: &Path,
+    arcignore: &ArcIgnoreMatcher,
+) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_rs_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -5451,7 +5690,10 @@ pub(super) fn collect_rs_files(root: &Path, arcignore: &ArcIgnoreMatcher) -> any
 /// extension. Implicit ignore policy is applied later in
 /// [`Repository::compute_working_directory_delta`] so previously tracked files
 /// can still be diffed and deleted safely.
-pub(super) fn collect_all_files(root: &Path, arcignore: &ArcIgnoreMatcher) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_all_files(
+    root: &Path,
+    arcignore: &ArcIgnoreMatcher,
+) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_all_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -7024,6 +7266,49 @@ mod tests {
         repo.undo().unwrap().expect("undo should pop rewrite op");
         let restored = View::load(&repo_path, "main").unwrap().heads;
         assert_eq!(restored, before, "undo must restore original heads");
+    }
+
+    #[test]
+    fn test_restack_abort_restores_checkpoint_heads() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("restack_abort_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
+        let _ = repo.snap("v1", false).unwrap().unwrap();
+
+        fs::write(repo_path.join("main.rs"), "fn v2() {}\n").unwrap();
+        let _ = repo.snap("v2", false).unwrap().unwrap();
+
+        let before_heads = View::load(&repo_path, "main").unwrap().heads;
+        let pending = PendingRewrite::new_restack(
+            "main",
+            hashes_to_change_ids(&before_heads),
+            vec![ChangeId::from(*before_heads.iter().next().unwrap())],
+        )
+        .with_conflict("simulated interruption");
+        repo.save_pending_restack(&pending)
+            .expect("save pending checkpoint");
+
+        fs::write(repo_path.join("main.rs"), "fn v3() {}\n").unwrap();
+        let _ = repo.snap("v3", false).unwrap().unwrap();
+
+        repo.restack_abort().expect("restack abort must succeed");
+
+        let restored = View::load(&repo_path, "main").unwrap().heads;
+        assert_eq!(
+            restored, before_heads,
+            "abort must restore checkpoint heads"
+        );
+        assert!(
+            repo.load_pending_restack()
+                .expect("load pending checkpoint")
+                .is_none(),
+            "abort must clear pending checkpoint"
+        );
     }
 
     #[test]

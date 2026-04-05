@@ -76,7 +76,8 @@ impl Repository {
             return Ok(());
         }
 
-        let spinner = crate::progress::Progress::spinner(format!("Syncing {} mount(s)...", mounts.len()));
+        let spinner =
+            crate::progress::Progress::spinner(format!("Syncing {} mount(s)...", mounts.len()));
 
         for (path, url, target) in &mounts {
             spinner.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
