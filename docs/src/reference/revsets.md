@@ -1,3 +1,8 @@
+---
+title: "Revsets"
+description: "Typed DAG query reference for selecting ChangeId sets in arc."
+---
+
 # Revsets
 
 ## BLUF

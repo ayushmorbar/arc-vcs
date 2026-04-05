@@ -1,3 +1,8 @@
+---
+title: "Conflict Resolution Protocol"
+description: "Reference for graph-native conflict handling and staged resolution in arc."
+---
+
 # Conflict Resolution Protocol
 
 ## BLUF

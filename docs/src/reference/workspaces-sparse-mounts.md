@@ -1,3 +1,8 @@
+---
+title: "Workspaces, Sparse, and Mounts"
+description: "Reference for linked workspace manifests, sparse projection, and mount sync."
+---
+
 # Workspaces, Sparse, and Mounts
 
 ## BLUF

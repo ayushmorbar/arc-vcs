@@ -1,3 +1,8 @@
+---
+title: "Bisect and Bench Reference"
+description: "Command reference for topological bisect and operation benchmarks."
+---
+
 # Bisect and Bench Reference
 
 ## BLUF

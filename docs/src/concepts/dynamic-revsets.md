@@ -1,3 +1,8 @@
+---
+title: "Dynamic Revsets"
+description: "Mental model for composing revsets over semantic DAG history."
+---
+
 # Dynamic Revsets
 
 ## BLUF

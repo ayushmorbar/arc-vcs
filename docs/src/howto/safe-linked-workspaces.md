@@ -1,3 +1,8 @@
+---
+title: "Safe Linked Workspaces"
+description: "Safe workflow for linked workspaces, sparse cones, and mounts."
+---
+
 # Safe Linked Workspaces
 
 ## BLUF

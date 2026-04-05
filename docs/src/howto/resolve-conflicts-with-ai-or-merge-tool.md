@@ -1,3 +1,8 @@
+---
+title: "Resolve Conflicts with AI or Merge Tool"
+description: "Operational guide for staged conflict resolution and approval."
+---
+
 # Resolve Conflicts with AI or Merge Tool
 
 ## BLUF

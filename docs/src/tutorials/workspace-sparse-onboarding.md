@@ -1,3 +1,8 @@
+---
+title: "Tutorial: Linked Workspace with Sparse Scope"
+description: "Create a linked workspace and constrain materialization safely."
+---
+
 # Tutorial: Linked Workspace with Sparse Scope
 
 ## Goal

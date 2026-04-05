@@ -1,3 +1,8 @@
+---
+title: "Tutorial: Resolve a Semantic Conflict"
+description: "Hands-on walkthrough of resolve and approve conflict lifecycle."
+---
+
 # Tutorial: Resolve a Semantic Conflict
 
 ## Goal

@@ -1,3 +1,8 @@
+---
+title: "Workspace and Sparse Boundaries"
+description: "Trust boundaries between shared root, work root, and sparse projections."
+---
+
 # Workspace and Sparse Boundaries
 
 ## BLUF

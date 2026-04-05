@@ -1,3 +1,8 @@
+---
+title: "Topological Bisect"
+description: "How arc bisect converges over DAG topology with tri-state marks."
+---
+
 # Topological Bisect
 
 ## BLUF

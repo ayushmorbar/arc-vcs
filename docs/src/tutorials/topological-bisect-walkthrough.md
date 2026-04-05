@@ -1,3 +1,8 @@
+---
+title: "Tutorial: Topological Bisect in Practice"
+description: "Hands-on DAG bisect loop from start to candidate isolation."
+---
+
 # Tutorial: Topological Bisect in Practice
 
 ## Goal

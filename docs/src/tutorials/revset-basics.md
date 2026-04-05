@@ -1,3 +1,8 @@
+---
+title: "Tutorial: First Useful Revset"
+description: "Build your first high-signal revset investigation workflow."
+---
+
 # Tutorial: First Useful Revset
 
 ## Goal

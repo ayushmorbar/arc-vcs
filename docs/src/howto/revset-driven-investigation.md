@@ -1,3 +1,8 @@
+---
+title: "Revset-Driven Investigation"
+description: "Practical revset workflow for narrowing causative changes quickly."
+---
+
 # Revset-Driven Investigation
 
 ## BLUF

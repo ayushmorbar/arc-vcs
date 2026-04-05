@@ -30,6 +30,7 @@
 - [Conflict Algebra in Arc](concepts/conflict-algebra.md)
 - [Topological Bisect](concepts/topological-bisect.md)
 - [Workspace and Sparse Boundaries](concepts/workspace-boundaries.md)
+- [OpLog and Optimistic Concurrency](concepts/oplog-concurrency.md)
 
 ---
 
@@ -41,6 +42,7 @@
 - [AI Intents & Resolution](reference/ai-intents.md)
 - [Debugging and Hyper-Observability](reference/debugging.md)
 - [Revsets](reference/revsets.md)
+- [Bookmarks Reference](reference/bookmarks.md)
 - [Conflict Resolution Protocol](reference/conflicts.md)
 - [Bisect and Bench Reference](reference/bisect-and-bench.md)
 - [Workspaces, Sparse, and Mounts](reference/workspaces-sparse-mounts.md)
@@ -72,6 +74,8 @@
 - [Resolve Conflicts with AI or Merge Tool](howto/resolve-conflicts-with-ai-or-merge-tool.md)
 - [Isolate Regressions with Bisect and Bench](howto/isolate-regressions-with-bisect-and-bench.md)
 - [Safe Linked Workspaces](howto/safe-linked-workspaces.md)
+- [Recover from Divergent Heads](howto/recover-from-divergence.md)
+- [Collaborate with Multiple Remotes](howto/multi-remote-collaboration.md)
 - [CI Integration (GitHub Actions and GitLab CI)](howto/ci-integration.md)
 - [Troubleshoot Sync](howto/troubleshoot-sync.md)
 - [Release Docs Checklist](howto/release-docs-checklist.md)

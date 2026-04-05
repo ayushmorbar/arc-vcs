@@ -1,3 +1,8 @@
+---
+title: "Conflict Algebra in Arc"
+description: "Conceptual model of non-commuting changes and explicit conflict state."
+---
+
 # Conflict Algebra in Arc
 
 ## BLUF
