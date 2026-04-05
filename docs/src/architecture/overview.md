@@ -1,49 +1,53 @@
+---
+title: "Architecture Overview"
+description: "Reference map of ADR-004 micro-crate boundaries, purity contracts, and runtime data flow."
+---
+
 # Architecture Overview
 
-This page is the implementation-level map of arc's crates and data flow.
+Bottom line up front: arc manages complexity by separating pure semantics from side effects. Algebra and identity logic stay deterministic; persistence and transport execute effects in narrow, auditable slices.
 
-## Workspace Crates
+## ADR-004 Slice Map
 
-| Crate            | Layer         | Responsibility                                                |
-| ---------------- | ------------- | ------------------------------------------------------------- |
-| `arc-core`       | Foundation    | Atom algebra, CAS, DAG graph, views, author identity, revsets |
-| `arc-lang`       | Language      | Tree-sitter-backed AST plug-ins and projection helpers        |
-| `arc-net`        | Network       | HTTP endpoints, sync protocol, AI provider integration        |
-| `arc-git-bridge` | Interop       | Git object translation and Smart HTTP push boundary           |
-| `arc-cli`        | Orchestration | Command execution, repository workflows, user-facing behavior |
-| `arc-daemon`     | IDE           | Long-lived JSON-RPC bridge for editor tooling                 |
+| Slice            | Crates                                                          | Responsibilities                                                |
+| ---------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| Domain types     | `arc-algebra-types`, `arc-store-types`, `arc-change`            | Atoms, IDs, authors, refs, change structure                     |
+| Pure semantics   | `arc-algebra`, `arc-engine`, `arc-revset`                       | Replay algebra, rewrite math, revset parse/compile              |
+| Persistence      | `arc-store-cas`, `arc-store-graph`, `arc-store-view`            | CAS storage, DAG state, view pointers, operation log            |
+| Transport        | `arc-network`, `arc-net`                                        | Payload protocol, sync ingress/egress                           |
+| Product surfaces | `arc-cli`, `arc-daemon`, `arc-git-bridge`, `arc-lang`, `arc-ai` | UX orchestration, IDE bridge, Git boundary, AST and AI adapters |
+| Compatibility    | `arc-core`                                                      | Transitional facade during migration                            |
 
 ## Dependency Rules
 
-- `arc-core` is lowest-level and independent.
-- `arc-lang`, `arc-net`, and `arc-git-bridge` depend on `arc-core`.
-- `arc-cli` composes core, language, network, and Git bridge crates.
-- `arc-daemon` depends on `arc-cli` and `arc-core` only.
+- Pure semantic crates must not perform filesystem or network I/O.
+- Persistence and transport crates are side-effect boundaries.
+- CLI and daemon orchestrate workflows and must not duplicate lower-layer semantics.
+- Git translation remains a boundary concern in `arc-git-bridge`.
 
 ## Data Flow
 
-1. User runs a command (`arc snap`, `arc pull`, `arc merge`, and others).
-2. `arc-cli` calls into `arc-core` to evaluate DAG/state transitions.
-3. Language-aware transforms route through `arc-lang` as needed.
-4. Remote synchronization uses `arc-net` or, for Git remotes, `arc-git-bridge`.
-5. IDE clients consume status via `arc-daemon` JSON-RPC.
+1. A command enters through `arc-cli` or `arc-daemon`.
+2. Semantic operations execute through algebra, engine, and graph slices.
+3. State persists through CAS plus view/oplog slices.
+4. Sync transports typed payloads and verifies signatures before writes.
+5. Git interop is generated on demand at the bridge boundary.
 
-## Storage Model
+## Purity And Determinism
 
-- Changes are content-addressed via BLAKE3.
-- Views hold named head sets over the change DAG.
-- Blob payloads are stored separately from typed atom metadata.
-- Materialization projects semantic state back into working files.
+The architecture relies on a simple invariant: replay math must be deterministic and side-effect free. This keeps reasoning local and test surfaces small.
 
-## Interop Boundaries
+> **Note:** If a crate can touch disk or network, it is an infrastructure slice and must not redefine semantic rules.
 
-- Native arc-to-arc sync remains arc-typed end to end.
-- Git interoperability is done just-in-time at push boundary.
-- No local `.git` object store is required for normal arc operation.
+## Crash-Consistency Model
+
+- Mutable pointers are written with atomic rename patterns.
+- Operation sequencing uses append-only logging.
+- Durability boundaries are explicit and code-reviewed.
 
 ## Related Pages
 
-- [Patch Theory](../design/patch_theory.md)
-- [AST Diffing](../design/ast_diffing.md)
-- [Network Transport](../design/network_transport.md)
-- [CLI Reference](../reference/cli-reference.md)
+- [../design/patch_theory.md](../design/patch_theory.md)
+- [../design/history_rewriting.md](../design/history_rewriting.md)
+- [../design/network_transport.md](../design/network_transport.md)
+- [../reference/cli-reference.md](../reference/cli-reference.md)

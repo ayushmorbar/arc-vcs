@@ -20,7 +20,7 @@ You typically execute revsets with `arc log -r <expression>`.
 
 ## What Arc Evaluates
 
-Revsets are parsed and compiled in `arc-core` and evaluated over change IDs in the DAG.
+Revsets are parsed and compiled in `arc-revset` and evaluated over change IDs in the DAG.
 
 - Symbol resolution supports IDs, `@`, `HEAD`, and named refs resolved by the repository.
 - `ancestors()` computes transitive closure over graph ancestry.

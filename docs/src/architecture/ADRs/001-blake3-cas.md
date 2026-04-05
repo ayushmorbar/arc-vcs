@@ -1,3 +1,8 @@
+---
+title: "ADR-001: BLAKE3 for CAS"
+description: "Decision record for BLAKE3 as arc content-addressed hashing primitive."
+---
+
 # ADR 001 — BLAKE3 for Content-Addressed Storage
 
 | Field | Value |
@@ -35,7 +40,7 @@ The two most common alternatives were SHA-1 (Git-legacy) and SHA-256 (security s
 
 Use **BLAKE3** (256-bit output) as the sole hash algorithm in arc's CAS.
 
-Implementation: the `blake3 = "1.5"` crate in `arc-core`. All blob hashing uses `memmap2` for zero-copy I/O, enabling constant-memory hashing of arbitrarily large files.
+Implementation: `blake3 = "1.5"` is used across the split storage and type slices, with CAS-facing hashing in `arc-store-cas` and hash-typed IDs in `arc-algebra-types`.
 
 The `Blake3Hash` type is a `[u8; 32]` newtype with `Display` (hex-encoded) and `FromStr` (hex-decode with length validation) implementations.
 
@@ -50,7 +55,7 @@ The `Blake3Hash` type is a `[u8; 32]` newtype with `Display` (hex-encoded) and `
 
 **Negative:**
 - arc object IDs are **not compatible** with Git's SHA-1 or SHA-256 namespaces. `arc git-import` must re-hash all objects.
-- The BLAKE3 crate is an additional dependency. (It is the only cryptography dependency in `arc-core`.)
+- The BLAKE3 crate is an additional dependency in the split architecture.
 
 ---
 

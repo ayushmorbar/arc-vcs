@@ -1,3 +1,8 @@
+---
+title: "Operation Log"
+description: "Design reference for append-only operation logging, O(1) undo, and bounded compaction."
+---
+
 # Spacetime Operation Log
 
 The **spacetime operation log** (`arc op log`) is an append-only ledger that
@@ -57,7 +62,7 @@ operation log, which inspired this design.
 
 When the log reaches **1 000 entries**, `OpLog::append()` evicts the oldest
 entry before writing the new one, keeping the file size constant.  The window
-can be tuned by changing `MAX_ENTRIES` in `arc-core/src/store/oplog.rs`.
+can be tuned by changing `MAX_ENTRIES` in `arc-store-view/src/oplog.rs`.
 
 ---
 

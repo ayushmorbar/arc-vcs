@@ -1,3 +1,8 @@
+---
+title: "History Rewriting"
+description: "Design reference for algebraic inversion, commutation, squash, and diffedit workflows."
+---
+
 # History Rewriting
 
 arc's algebraic foundation makes history rewriting precise, safe, and
@@ -45,7 +50,7 @@ Every atomic mutation has a mathematical inverse:
 
 The key invariant: `apply(apply(state, c), invert_change(c)) == state`.
 
-This is implemented in `arc-core::algebra::inverse`.
+This is implemented in `arc-algebra::inverse`.
 
 ---
 

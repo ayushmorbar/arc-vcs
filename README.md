@@ -1,145 +1,118 @@
-# arc — Atomic Replayable Changes
+# arc - Atomic Replayable Changes
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ayushmorbar/arc-vcs/ci.yml?branch=main&label=CI)](https://github.com/ayushmorbar/arc-vcs/actions)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Crates.io](https://img.shields.io/crates/v/arc-cli.svg)](https://crates.io/crates/arc-cli)
 [![Docs](https://img.shields.io/badge/docs-arc--book-orange)](https://ayushmorbar.github.io/arc-vcs/)
 
-## What is arc?
+## Bottom Line Up Front
 
-`arc` is an AI-native, AST-aware version control system. It provides the next-generation workflow of Jujutsu (no staging area, global undo, first-class conflicts) with the cryptographic security of BLAKE3 and Ed25519. It natively pushes to GitHub via a JIT Git-translation bridge.
+arc is a mathematically constrained VCS for large-scale, AI-assisted engineering.
+It models history as typed semantic changes over a DAG, not text hunks over files.
+After ADR-004, arc is structured as focused micro-crates with explicit purity and I/O boundaries: algebra and identity logic remain side-effect free, while disk and network effects are isolated to dedicated crates.
 
-arc models change as typed semantic atoms, not text hunks. That lets it reason about commutativity mathematically, surface precise structural conflicts, and keep local history cryptographically signed while still interoperating with legacy Git remotes at the network boundary.
+## Why This Beats Git In Complex Systems
 
-## arc vs. the world
+Git optimizes for textual patch transport. arc optimizes for correctness under concurrent semantic change.
 
-| Capability               | Git                                   | jj (Jujutsu)         | **arc**                                                                        |
-| ------------------------ | ------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
-| Conflict detection       | Line-based heuristic                  | Line-based heuristic | **Algebraic commutativity**                                                    |
-| Diff granularity         | Lines                                 | Lines                | **AST atoms**                                                                   |
-| Sparse checkouts         | Path globs                            | Path globs           | **Semantic `Atom::Mount` directives**                                          |
-| Large binary I/O         | Pack files (copy-on-read)             | Pack files           | **Zero-copy `memmap2`**                                                        |
-| Cryptographic provenance | SHA-1 (legacy)                        | SHA-256              | **BLAKE3 + Ed25519 per-change signatures; SLSA L4 zero-trust ingress on push** |
-| Hook configuration       | Hidden shell scripts in `.git/hooks/` | Hidden shell scripts | **Declarative JSON in `.arc/config.json`**                                     |
-| Observability            | None                                  | None                 | **Trace2-style `ARC_TRACE` telemetry**                                         |
-| Conflict resolution      | Manual                                | Manual               | **AI-assisted (`arc resolve`)**                                                |
-| Workspace model          | Worktrees                             | Workspaces           | **Split-root workspaces with shared CAS**                                      |
+| Dimension                  | Git                      | arc                                                 |
+| -------------------------- | ------------------------ | --------------------------------------------------- |
+| Merge primitive            | line heuristics          | algebraic commutativity over typed atoms            |
+| Conflict unit              | text region              | semantic operation with first-class conflict atoms  |
+| Provenance                 | commit hash chain        | per-change Ed25519 signatures + BLAKE3 CAS          |
+| Identity on sync ingress   | trust transport boundary | zero-trust signature verification before CAS writes |
+| Architecture for refactors | broad core coupling      | micro-crate vertical slices with narrow contracts   |
 
-## Key Features
+## ADR-004 Slice Architecture
 
-- **Algebraic patch theory** — changes commute or conflict; no ambiguous three-way merges
-- **BLAKE3 content-addressable storage** — every atom and change is cryptographically hashed; 256-bit security at 3× SHA-256 speed
-- **Semantic AST diffs** — Rust source diffed at syntax-tree level via Tree-sitter; line-level noise is eliminated
-- **Zero-copy binary I/O** — `memmap2` maps files directly from the OS page cache; 50 GB assets hashed in milliseconds
-- **Split-root workspaces** — share a single `.arc` CAS store across multiple working trees
-- **Declarative hook engine** — lifecycle hooks in `.arc/config.json`, not hidden shell scripts
-- **Trace2-style telemetry** — zero-overhead by default; `ARC_TRACE=1` or `ARC_TRACE_EVENT=<path>`
-- **Hierarchical config + aliases** — global `~/.config/arc/config.json` merged with per-repo config
-- **AI-assisted conflict resolution** — semantic conflicts routed to a pluggable `AiResolver` interface
-- **Causal stability GC** — garbage collection only prunes causally-stable changes
+The old monolithic core has been decomposed into focused crates.
 
-## Built for the Agentic Era (2026 Standards)
+| Concern                       | Primary crates                                             |
+| ----------------------------- | ---------------------------------------------------------- |
+| Domain types and IDs          | `arc-algebra-types`, `arc-store-types`, `arc-change`       |
+| Algebra and patch semantics   | `arc-algebra`, `arc-engine`, `arc-revset`                  |
+| Storage and graph state       | `arc-store-cas`, `arc-store-graph`, `arc-store-view`       |
+| Transport and protocol        | `arc-network`, `arc-net`                                   |
+| Identity and AI orchestration | `arc-ai`, type-level author contracts in `arc-store-types` |
+| User and integration surfaces | `arc-cli`, `arc-daemon`, `arc-git-bridge`                  |
 
-`arc` is designed to be navigable by AI agents and human maintainers alike: explicit module boundaries, strongly typed domain contracts, and predictable operational semantics make large-scale refactors safer and easier to verify. The codebase leans on NewType-driven modeling to make invalid states unrepresentable, and on zero-copy memory-mapped I/O to deliver high throughput without sacrificing correctness.
+`arc-core` remains as a compatibility facade during migration, not as the long-term engine of record.
+
+## Axiom Of Purity And I/O Isolation
+
+arc enforces a strict engineering rule:
+
+- Pure domain crates must not perform filesystem or network side effects.
+- Disk persistence is isolated to storage crates.
+- Network ingress/egress is isolated to transport crates.
+
+This separation is what makes large rewires testable, reviewable, and portable.
+
+## Crash-Consistency Guarantees
+
+arc persistence paths are designed for crash safety:
+
+- Atomic rename write patterns for view and metadata updates.
+- Append-only operation logging for durable intent sequencing.
+- Explicit sync barriers where durability is required.
+
+> **Note:** Crash consistency is treated as a protocol guarantee, not a best-effort implementation detail.
 
 ## Quick Start
 
 ```sh
-# Set up your identity (once)
+# Set up identity once
 arc auth login --name "Ada Lovelace" --email "ada@example.com"
 
-# Initialise a repository
+# Initialize repository
 arc init
 
-# Record a change
+# Record semantic change
 arc snap -m "feat: add widget"
 
-# Show history
+# Inspect history
 arc log
 
-# Rewrite history: squash a linear sequence into one canonical change
+# Rewrite history algebraically
 arc squash --into HEAD~3
 
-# Two-step external-editor history rewrite
-arc diffedit --prepare HEAD~2
-# (edit the materialised file, then:)
-arc diffedit --apply
-
-# Push to a Git Smart HTTP remote via the JIT translation bridge
+# Push through Git Smart HTTP translation bridge
 arc push https://github.com/<org>/<repo>.git
-
-# Views are not branches — they are named sets of DAG heads
-arc view create feature/my-work
-arc switch feature/my-work
-arc merge feature/my-work
 ```
 
-> **New to arc?** Start with the [Tutorial](docs/src/getting-started/tutorial.md). Coming from Git? Read [Why arc is Not Branch-Based](docs/src/getting-started/git-migration.md).
-
-## Installation
+## Install
 
 ```sh
 cargo install --path crates/arc-cli
-# Requires Rust 1.85+ (edition 2024) — https://rustup.rs
 ```
+
+Requires Rust 1.85+ (edition 2024).
 
 ## Telemetry
 
-arc ships with zero-overhead tracing disabled by default — no subscriber is installed and `tracing` macros compile away entirely.
-
-| Environment variable     | Effect                                            |
-| ------------------------ | ------------------------------------------------- |
-| _(unset)_                | No subscriber; `tracing` macros compile to no-ops |
-| `ARC_TRACE=1`            | Compact human-readable output to stderr           |
-| `ARC_TRACE_EVENT=<path>` | Structured JSON events **appended** to `<path>`   |
-
-## Hook Engine
-
-Lifecycle hooks are declared in `.arc/config.json`:
-
-```json
-{
-  "hooks": {
-    "pre-snap": ["./scripts/lint.sh --strict"],
-    "post-merge": ["./scripts/notify.sh"]
-  }
-}
-```
-
-Hooks are parsed by `shlex` and run with `work_root` as the working directory. A non-zero exit aborts the operation immediately.
-
-> **Windows:** shell built-ins like `echo` are not PATH executables. Use `cmd /C echo ...` or a real binary.
+| Environment variable     | Effect                              |
+| ------------------------ | ----------------------------------- |
+| unset                    | no subscriber installed             |
+| `ARC_TRACE=1`            | compact human-readable trace output |
+| `ARC_TRACE_EVENT=<path>` | append JSON event stream to file    |
 
 ## Documentation
 
-| Topic                                                           | Link                                                                         |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Tutorial (zero to first snap)                                   | [docs/src/getting-started/tutorial.md](docs/src/getting-started/tutorial.md) |
-| CLI Reference                                                   | [docs/src/reference/cli-reference.md](docs/src/reference/cli-reference.md)   |
-| Architecture Overview                                            | [docs/src/architecture/overview.md](docs/src/architecture/overview.md)       |
-| Patch Theory deep-dive                                          | [docs/src/design/patch_theory.md](docs/src/design/patch_theory.md)           |
-| History Rewriting (squash, diffedit, inversion algebra)         | [docs/src/design/history_rewriting.md](docs/src/design/history_rewriting.md) |
-| Network Transport (DeltaPayload, zero-trust ingress, CRDT sync) | [docs/src/design/network_transport.md](docs/src/design/network_transport.md) |
-| Custom hooks how-to                                             | [docs/src/howto/custom-hooks.md](docs/src/howto/custom-hooks.md)             |
-| Sync troubleshooting                                             | [docs/src/howto/troubleshoot-sync.md](docs/src/howto/troubleshoot-sync.md)   |
-| Architecture Decision Records                                   | [docs/src/architecture/ADRs/](docs/src/architecture/ADRs/)                   |
-| Research index                                                   | [research/README.md](research/README.md)                                     |
+| Topic             | Link                                                                         |
+| ----------------- | ---------------------------------------------------------------------------- |
+| Tutorial          | [docs/src/getting-started/tutorial.md](docs/src/getting-started/tutorial.md) |
+| CLI reference     | [docs/src/reference/cli-reference.md](docs/src/reference/cli-reference.md)   |
+| Architecture      | [docs/src/architecture/overview.md](docs/src/architecture/overview.md)       |
+| Patch theory      | [docs/src/design/patch_theory.md](docs/src/design/patch_theory.md)           |
+| Network transport | [docs/src/design/network_transport.md](docs/src/design/network_transport.md) |
+| ADR index         | [docs/src/architecture/ADRs/](docs/src/architecture/ADRs/)                   |
 
-Build the full book locally: `just docs` (requires [mdBook](https://rust-lang.github.io/mdBook/)).
-
-## Stability & Known Limitations
-
-See [STABILITY.md](STABILITY.md) for the production-ready API surface and [SHORTCOMINGS.md](SHORTCOMINGS.md) for honest engineering limits.
+Build docs locally with `just docs`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the 6-crate workspace architecture, commit conventions, and AI-authorship signature protocol.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for crate boundaries, workflow, and review requirements.
 
 ## License
 
-Licensed under either of
-
-- [MIT License](LICENSE-MIT)
-- [Apache License, Version 2.0](LICENSE-APACHE)
-
-at your option.
+Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.

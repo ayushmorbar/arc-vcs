@@ -6,34 +6,22 @@ Thank you for your interest in contributing to arc — a mathematically rigorous
 
 ## Workspace Architecture
 
-arc is a Cargo workspace with six crates arranged in a strict dependency hierarchy:
+arc is a Cargo workspace organized into ADR-004 vertical slices.
 
-```
-arc-core  ◄──  arc-lang
-    ▲   ▲          ▲
-    │   └──────┐   │
-    │          │   │
-arc-net   arc-git-bridge
-    ▲          ▲
-    └──────┬───┘
-             │
-         arc-cli
-             ▲
-        arc-daemon
-```
-
-| Crate | Dependencies | Responsibility |
-|-------|-------------|----------------|
-| `arc-core` | — | Core algebra and storage: `Atom`, `Change`, `ChangeGraph`, `ObjectStore`, `View`, `Author`, revset engine |
-| `arc-lang` | `arc-core` | Language plug-ins and AST projection (`LanguagePlugin`, `RustPlugin`) |
-| `arc-net` | `arc-core` | Network services: HTTP CAS/view API, sync protocol, AI provider integration |
-| `arc-git-bridge` | `arc-core` | Just-in-time Git object translation and Smart HTTP push bridge |
-| `arc-cli` | `arc-core`, `arc-lang`, `arc-net`, `arc-git-bridge` | User-facing command orchestration and repository workflows |
-| `arc-daemon` | `arc-core`, `arc-cli` | JSON-RPC daemon backend for editors and IDE integrations |
+| Slice            | Crates                                               | Responsibility                                                 |
+| ---------------- | ---------------------------------------------------- | -------------------------------------------------------------- |
+| Domain types     | `arc-algebra-types`, `arc-store-types`, `arc-change` | Canonical atom, ID, author, ref, and change structures         |
+| Pure semantics   | `arc-algebra`, `arc-engine`, `arc-revset`            | Algebraic replay, spacetime rewrites, revset parse/compile     |
+| Persistence      | `arc-store-cas`, `arc-store-graph`, `arc-store-view` | CAS I/O, DAG state, views, operation log, synthesis snapshots  |
+| Transport        | `arc-network`, `arc-net`                             | Payload protocol and sync/network execution                    |
+| Language and AI  | `arc-lang`, `arc-ai`                                 | AST plugin surfaces and AI adapters                            |
+| Product surfaces | `arc-cli`, `arc-daemon`, `arc-git-bridge`            | UX orchestration, daemon integration, Git boundary translation |
+| Compatibility    | `arc-core`                                           | Transitional facade during migration                           |
 
 **Rules:**
 
-- `arc-core` must never depend on higher-layer crates.
+- Pure semantic crates must not perform filesystem or network I/O.
+- Persistence and transport crates are the only side-effect boundaries.
 - `arc-daemon` must stay orchestration-only and must not duplicate `arc-cli` repository logic.
 - `arc-git-bridge` stays at the transport boundary and must not become a second repository engine.
 

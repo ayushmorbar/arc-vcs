@@ -1,9 +1,18 @@
-# CLI Reference (Moved)
+---
+title: "CLI Reference"
+description: "Reference entry point for arc command syntax and options."
+---
 
-This page is intentionally a thin compatibility shim.
+# CLI Reference
 
-The canonical command reference is:
+Bottom line up front: the canonical command reference is maintained in one location to avoid drift.
+
+## Canonical Source
 
 - [../reference/cli-reference.md](../reference/cli-reference.md)
 
-Keeping one source of truth avoids command drift between sections.
+## Why This Page Exists
+
+This page is a compatibility pointer for readers navigating older links and alternate table-of-contents paths.
+
+> **Note:** Do not duplicate command option tables here. Update only the canonical reference page.

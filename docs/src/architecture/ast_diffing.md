@@ -1,3 +1,8 @@
+---
+title: "AST Diffing"
+description: "Conceptual pipeline from language ASTs to typed atom streams in arc."
+---
+
 # AST Diffing
 
 arc does not diff text. Instead it diffs **typed ASTs** produced by tree-sitter grammars and converts structural differences into `Atom` streams.
@@ -14,7 +19,7 @@ working-directory files
    LanguagePlugin::diff_trees()    ← arc-lang
         │
         ▼
-   Vec<Atom>                       ← arc-core algebra
+     Vec<Atom>                       ← arc-algebra-types / arc-algebra
         │
         ▼
    Change { atoms, intent, author, … }
