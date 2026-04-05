@@ -1,34 +1,47 @@
-name: ci
+name: CI
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
 
-permissions: {}
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  verify:
+  test-lint-verify:
     name: test-lint-verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      toolchain: stable  # <-- Ensures $toolchain is available to all steps
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          components: clippy,rustfmt
 
-      - name: fmt
-        run: cargo fmt --all -- --check
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: clippy
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: tests
-        run: cargo test --workspace
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets --locked
+
+      # CI-safe policy verification via tests (no .arc bootstrap required)
+      - name: Policy regression tests
+        run: |
+          cargo test -p arc-cli workspace_policy_audit_current_workspace -- --nocapture
+          cargo test -p arc-cli governance_audit_current_workspace -- --nocapture
+          cargo test -p arc-cli tooling_audit_current_workspace -- --nocapture
