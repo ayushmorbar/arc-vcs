@@ -1023,17 +1023,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     init_tracing();
-    // --- Single-pass alias interception (no recursion) -------------------
+    // --- Recursive alias interception with cycle detection ---------------
     let mut raw_args: Vec<String> = std::env::args().collect();
-    if raw_args.len() >= 2
-        && let Ok(config) = load_merged_config(std::path::Path::new("."))
-        && let Some(expansion) = config.aliases.get(&raw_args[1]).cloned()
-        && let Some(expanded) = shlex::split(&expansion)
-    {
-        let rest = raw_args.split_off(2);
-        raw_args.truncate(1); // keep argv[0] (program name)
-        raw_args.extend(expanded);
-        raw_args.extend(rest);
+    if let Ok(config) = load_merged_config(std::path::Path::new(".")) {
+        raw_args = expand_command_aliases(&config, raw_args)?;
     }
     let cli = Cli::parse_from(&raw_args);
 
@@ -2947,6 +2940,78 @@ fn resolve_log_template_alias(raw_template: &str, config: &ArcConfig) -> String 
     raw_template.to_string()
 }
 
+fn find_command_token_index(
+    raw_args: &[String],
+    config: &ArcConfig,
+    command_names: &std::collections::HashSet<String>,
+) -> Option<usize> {
+    if raw_args.len() < 2 {
+        return None;
+    }
+
+    for (idx, token) in raw_args.iter().enumerate().skip(1) {
+        if token == "--" {
+            // `--` terminates top-level option parsing; remaining tokens are
+            // literals and must not be rewritten by command alias expansion.
+            return None;
+        }
+
+        if token.starts_with('-') {
+            continue;
+        }
+
+        if config.aliases.contains_key(token) || command_names.contains(token) {
+            return Some(idx);
+        }
+    }
+
+    None
+}
+
+fn expand_command_aliases(config: &ArcConfig, mut raw_args: Vec<String>) -> anyhow::Result<Vec<String>> {
+    let mut seen_aliases: Vec<String> = Vec::new();
+    let command_names: std::collections::HashSet<String> = Cli::command()
+        .get_subcommands()
+        .map(|command| command.get_name().to_string())
+        .collect();
+
+    while let Some(command_idx) = find_command_token_index(&raw_args, config, &command_names) {
+        let command = raw_args[command_idx].clone();
+        let Some(expansion) = config.aliases.get(&command) else {
+            break;
+        };
+
+        if let Some(cycle_start) = seen_aliases.iter().position(|name| name == &command) {
+            let mut cycle = seen_aliases[cycle_start..].to_vec();
+            cycle.push(command.clone());
+            anyhow::bail!("alias cycle detected: {}", cycle.join(" -> "));
+        }
+
+        let expansion_trimmed = expansion.trim();
+        if expansion_trimmed.is_empty() {
+            anyhow::bail!("alias '{}' has an empty expansion", command);
+        }
+
+        let Some(expanded_tokens) = shlex::split(expansion_trimmed) else {
+            anyhow::bail!("alias '{}' has invalid shell words: {}", command, expansion);
+        };
+
+        if expanded_tokens.is_empty() {
+            anyhow::bail!("alias '{}' has an empty expansion", command);
+        }
+
+        seen_aliases.push(command);
+
+        let mut next_args = Vec::with_capacity(raw_args.len() + expanded_tokens.len());
+        next_args.extend(raw_args[..command_idx].iter().cloned());
+        next_args.extend(expanded_tokens);
+        next_args.extend(raw_args[command_idx + 1..].iter().cloned());
+        raw_args = next_args;
+    }
+
+    Ok(raw_args)
+}
+
 struct TagSetUpdate {
     name: String,
     needs_write: bool,
@@ -3293,6 +3358,20 @@ fn atom_display_label(atom: &Atom) -> String {
 mod tests {
     use super::*;
 
+    fn test_raw_args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| (*part).to_string()).collect()
+    }
+
+    fn config_with_aliases(pairs: &[(&str, &str)]) -> ArcConfig {
+        let mut config = ArcConfig::default();
+        for (name, expansion) in pairs {
+            config
+                .aliases
+                .insert((*name).to_string(), (*expansion).to_string());
+        }
+        config
+    }
+
     #[test]
     fn plan_tag_set_updates_deduplicates_and_counts() {
         let existing = std::collections::HashMap::from([
@@ -3343,5 +3422,96 @@ mod tests {
 
         let resolved = resolve_log_template_alias("verbose", &config);
         assert_eq!(resolved, "{id} {author} {intent}");
+    }
+
+    #[test]
+    fn expand_command_aliases_recursively_expands_until_non_alias() {
+        let config = config_with_aliases(&[("s", "st"), ("st", "status")]);
+        let raw_args = test_raw_args(&["arc", "s"]);
+
+        let expanded = expand_command_aliases(&config, raw_args).expect("alias expansion failed");
+
+        assert_eq!(expanded, test_raw_args(&["arc", "status"]));
+    }
+
+    #[test]
+    fn expand_command_aliases_detects_direct_cycle() {
+        let config = config_with_aliases(&[("s", "s")]);
+        let raw_args = test_raw_args(&["arc", "s"]);
+
+        let err = expand_command_aliases(&config, raw_args).expect_err("expected cycle error");
+
+        assert!(err.to_string().contains("alias cycle"));
+        assert!(err.to_string().contains("s"));
+    }
+
+    #[test]
+    fn expand_command_aliases_detects_indirect_cycle() {
+        let config = config_with_aliases(&[("a", "b"), ("b", "c"), ("c", "a")]);
+        let raw_args = test_raw_args(&["arc", "a"]);
+
+        let err = expand_command_aliases(&config, raw_args).expect_err("expected cycle error");
+
+        assert!(err.to_string().contains("alias cycle"));
+        assert!(err.to_string().contains("a -> b -> c -> a"));
+    }
+
+    #[test]
+    fn expand_command_aliases_supports_global_flags_before_command() {
+        let config = config_with_aliases(&[("st", "status")]);
+        let raw_args = test_raw_args(&["arc", "--help", "st"]);
+
+        let expanded = expand_command_aliases(&config, raw_args).expect("alias expansion failed");
+
+        assert_eq!(expanded, test_raw_args(&["arc", "--help", "status"]));
+    }
+
+    #[test]
+    fn expand_command_aliases_preserves_trailing_args() {
+        let config = config_with_aliases(&[("l", "log --intent")]);
+        let raw_args = test_raw_args(&["arc", "l", "refactor parser"]);
+
+        let expanded = expand_command_aliases(&config, raw_args).expect("alias expansion failed");
+
+        assert_eq!(
+            expanded,
+            test_raw_args(&["arc", "log", "--intent", "refactor parser"])
+        );
+    }
+
+    #[test]
+    fn expand_command_aliases_errors_on_empty_alias_definition() {
+        let config = config_with_aliases(&[("st", "   ")]);
+        let raw_args = test_raw_args(&["arc", "st"]);
+
+        let err =
+            expand_command_aliases(&config, raw_args).expect_err("expected empty alias error");
+
+        assert!(err
+            .to_string()
+            .contains("alias 'st' has an empty expansion"));
+    }
+
+    #[test]
+    fn expand_command_aliases_errors_on_invalid_alias_definition() {
+        let config = config_with_aliases(&[("st", "\"")]);
+        let raw_args = test_raw_args(&["arc", "st"]);
+
+        let err = expand_command_aliases(&config, raw_args)
+            .expect_err("expected invalid alias definition error");
+
+        assert!(err
+            .to_string()
+            .contains("alias 'st' has invalid shell words"));
+    }
+
+    #[test]
+    fn expand_command_aliases_does_not_expand_after_option_terminator() {
+        let config = config_with_aliases(&[("st", "status")]);
+        let raw_args = test_raw_args(&["arc", "--", "st"]);
+
+        let expanded = expand_command_aliases(&config, raw_args).expect("alias expansion failed");
+
+        assert_eq!(expanded, test_raw_args(&["arc", "--", "st"]));
     }
 }
