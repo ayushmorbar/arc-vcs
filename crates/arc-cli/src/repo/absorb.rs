@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use arc_algebra::commute::commutes;
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
+use arc_diagnostics::ResultExt;
 use arc_store_view::View;
 
 use super::core::*;
@@ -72,10 +73,14 @@ impl Repository {
         let selected_target = spine_ids[selected_idx];
 
         if selected_target != head {
-            anyhow::bail!(
-                "absorb selected non-HEAD target {} (HEAD {}); non-HEAD absorb rewrite is not implemented yet",
+            return Err(anyhow::anyhow!(
+                "absorb selected non-HEAD target {} (HEAD {})",
                 &_hex(&selected_target)[..12],
                 &_hex(&head)[..12]
+            ))
+            .with_hint_command(
+                "Absorb currently requires the target to be HEAD. Try restacking this commit to the top of your stack first.",
+                "arc restack",
             );
         }
 

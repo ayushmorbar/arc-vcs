@@ -15,6 +15,7 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
 use arc_cli::workspace_policy::audit_workspace_policy;
+use arc_diagnostics::{ArcError, ResultExt};
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
 use arc_git_bridge::pack::encode_packfile;
@@ -1056,7 +1057,35 @@ fn projected_files_from_state(
     Ok(files)
 }
 
-fn main() -> anyhow::Result<()> {
+fn diagnostic_lines(error: &anyhow::Error) -> Vec<String> {
+    let mut lines = Vec::new();
+    let diagnostic = ArcError::from_anyhow(error);
+    lines.push(
+        format!("error: {}", diagnostic.message())
+            .red()
+            .bold()
+            .to_string(),
+    );
+    for cause in diagnostic.causes() {
+        lines.push(format!("caused by: {cause}").red().to_string());
+    }
+    if let Some(hint) = diagnostic.hint() {
+        lines.push("-".repeat(60).dimmed().to_string());
+        lines.push(format!("Hint: {}", hint.explanation()).yellow().to_string());
+        if let Some(command) = hint.suggested_command() {
+            lines.push(format!("Try: {command}").cyan().bold().to_string());
+        }
+    }
+    lines
+}
+
+fn render_diagnostic_error(error: &anyhow::Error) {
+    for line in diagnostic_lines(error) {
+        eprintln!("{line}");
+    }
+}
+
+fn run_cli() -> anyhow::Result<()> {
     // Initialise the tempfile registry eagerly so no allocations happen inside
     // a signal handler later.
     arc_store_view::tempfile::init();
@@ -2498,7 +2527,8 @@ fn main() -> anyhow::Result<()> {
             repo.set_identity(author, signing_key);
 
             if !ast {
-                anyhow::bail!("absorb currently requires --ast");
+                return Err(anyhow::anyhow!("absorb currently requires --ast"))
+                    .with_hint_command("Enable AST-aware absorb mode.", "arc absorb --ast");
             }
 
             let result = repo.absorb_ast()?;
@@ -3065,6 +3095,16 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn main() {
+    match run_cli() {
+        Ok(()) => {}
+        Err(error) => {
+            render_diagnostic_error(&error);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn run_daemon_subprocess() -> anyhow::Result<()> {
@@ -3817,5 +3857,38 @@ mod tests {
             }
             _ => panic!("unexpected command parsed"),
         }
+    }
+
+    #[test]
+    fn diagnostic_lines_omit_hint_for_plain_error() {
+        let err = anyhow::anyhow!("plain failure");
+        let lines = diagnostic_lines(&err);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("plain failure"));
+    }
+
+    #[test]
+    fn diagnostic_lines_render_hint_and_command_when_present() {
+        let err: anyhow::Result<()> = Err(anyhow::anyhow!("restack paused"));
+        let err = err
+            .with_hint_command(
+                "Resolve conflicts, then continue.",
+                "arc restack --continue",
+            )
+            .expect_err("expected error");
+        let lines = diagnostic_lines(&err);
+        assert_eq!(lines.len(), 4);
+        assert!(lines[1].contains("-"));
+        assert!(lines[2].contains("Resolve conflicts, then continue."));
+        assert!(lines[3].contains("arc restack --continue"));
+    }
+
+    #[test]
+    fn diagnostic_lines_render_error_causes() {
+        let err = anyhow::anyhow!("disk write failed").context("cannot persist checkpoint");
+        let lines = diagnostic_lines(&err);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("cannot persist checkpoint"));
+        assert!(lines[1].contains("caused by: disk write failed"));
     }
 }

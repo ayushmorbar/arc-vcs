@@ -18,6 +18,7 @@ use arc_algebra::commute::commutes;
 use arc_algebra::sparse::SparseMatcher;
 use arc_algebra_types::{Atom, Blake3Hash, NodePath};
 use arc_change::Change;
+use arc_diagnostics::ResultExt;
 use arc_engine::mutator;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
@@ -4228,9 +4229,9 @@ impl Repository {
             Err(err) => {
                 let paused = pending.with_conflict(format!("restack failed: {err}"));
                 self.save_pending_restack(&paused)?;
-                anyhow::bail!(
-                    "restack paused: {}\nRun `arc restack --continue` after resolving the issue, or `arc restack --abort` to restore original heads.",
-                    err
+                return Err(anyhow::anyhow!("restack paused: {err}")).with_hint_command(
+                    "Resolve the conflict in your editor, then run restack continue.",
+                    "arc restack --continue",
                 );
             }
         };
@@ -4309,9 +4310,11 @@ impl Repository {
             anyhow::bail!("restack requires at least two revisions");
         }
         if self.load_pending_restack()?.is_some() {
-            anyhow::bail!(
-                "a restack checkpoint is already pending; run `arc restack --continue` or `arc restack --abort`"
-            );
+            return Err(anyhow::anyhow!("a restack checkpoint is already pending"))
+                .with_hint_command(
+                    "Continue the paused restack or abort it before starting a new one.",
+                    "arc restack --continue",
+                );
         }
 
         let view_name = self.current_view_name()?;
@@ -4350,7 +4353,11 @@ impl Repository {
         self.acquire_lock()?;
         let pending = self
             .load_pending_restack()?
-            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))?;
+            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))
+            .with_hint_command(
+                "Start a restack operation first, then continue if it pauses.",
+                "arc restack <rev1> <rev2>",
+            )?;
         Self::validate_pending_restack(&pending)?;
         self.execute_pending_restack(pending)
     }
@@ -4360,7 +4367,11 @@ impl Repository {
         self.acquire_lock()?;
         let pending = self
             .load_pending_restack()?
-            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))?;
+            .ok_or_else(|| anyhow::anyhow!("no pending restack checkpoint found"))
+            .with_hint_command(
+                "There is nothing to abort because restack is not currently paused.",
+                "arc restack <rev1> <rev2>",
+            )?;
 
         let current_view = View::load(&self.shared_root, &pending.view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", pending.view))?;

@@ -176,6 +176,7 @@ dependencies = [
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",
+ "arc-diagnostics",
  "arc-engine",
  "arc-git",
  "arc-git-bridge",
@@ -281,6 +282,13 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "arc-diagnostics"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
