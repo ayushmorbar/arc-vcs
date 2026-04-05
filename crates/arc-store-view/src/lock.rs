@@ -31,13 +31,15 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use tracing::instrument;
+use tracing::{debug, instrument, warn};
 
 use crate::tempfile as temp_registry;
 
 const MAX_LOCK_ATTEMPTS: usize = 512;
 const LOCK_RETRY_DELAY: Duration = Duration::from_millis(2);
 const STALE_LOCK_TTL: Duration = Duration::from_secs(30);
+const CREATE_DIR_RETRY_LIMIT: usize = 6;
+const CREATE_DIR_RETRY_DELAY: Duration = Duration::from_millis(2);
 
 /// Mutual-exclusion lock marker.
 ///
@@ -61,7 +63,7 @@ impl LockMarker {
                 format!("lock path has no parent: {}", path.display()),
             )
         })?;
-        fs::create_dir_all(parent)?;
+        create_dir_all_retry(parent)?;
 
         for _ in 0..MAX_LOCK_ATTEMPTS {
             match OpenOptions::new().create_new(true).write(true).open(path) {
@@ -140,7 +142,7 @@ impl LockFile {
                 format!("target path has no parent: {}", target_path.display()),
             )
         })?;
-        fs::create_dir_all(parent)?;
+        create_dir_all_retry(parent)?;
 
         let lock_path = lock_path_for(target_path);
         let owner_path = owner_path_for(&lock_path);
@@ -419,8 +421,47 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
     }
 }
 
+fn create_dir_all_retry(parent: &Path) -> std::io::Result<()> {
+    for attempt in 0..CREATE_DIR_RETRY_LIMIT {
+        match fs::create_dir_all(parent) {
+            Ok(()) => return Ok(()),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::Interrupted | std::io::ErrorKind::NotFound
+                ) && attempt + 1 < CREATE_DIR_RETRY_LIMIT =>
+            {
+                debug!(
+                    path = %parent.display(),
+                    attempt = attempt + 1,
+                    max_attempts = CREATE_DIR_RETRY_LIMIT,
+                    kind = %err.kind(),
+                    "retrying directory creation for lock state"
+                );
+                thread::sleep(CREATE_DIR_RETRY_DELAY);
+            }
+            Err(err) => {
+                warn!(
+                    path = %parent.display(),
+                    attempt = attempt + 1,
+                    max_attempts = CREATE_DIR_RETRY_LIMIT,
+                    kind = %err.kind(),
+                    "failed to create lock parent directory"
+                );
+                return Err(err);
+            }
+        }
+    }
+
+    Err(std::io::Error::other(
+        "exhausted lock parent directory creation retries",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+
     use super::{LockFile, LockMarker};
 
     #[test]
@@ -469,5 +510,41 @@ mod tests {
         assert!(lock_path.exists());
         lock.release().expect("release marker");
         assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn concurrent_parent_creation_is_race_tolerant() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let parent = dir.path().join("nested").join("shared").join("locks");
+        let barrier = Arc::new(Barrier::new(2));
+
+        let mut handles = Vec::new();
+        for idx in 0..2 {
+            let barrier = Arc::clone(&barrier);
+            let lock_path = parent.join(format!("lock-{idx}.marker"));
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                let lock = LockMarker::acquire(&lock_path)?;
+                lock.release()
+            }));
+        }
+
+        for handle in handles {
+            handle
+                .join()
+                .expect("thread join")
+                .expect("lock acquire/release");
+        }
+        assert!(parent.is_dir());
+    }
+
+    #[test]
+    fn parent_creation_fails_when_parent_is_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file_parent = dir.path().join("not-a-dir");
+        std::fs::write(&file_parent, b"x").expect("write parent file");
+
+        let err = super::create_dir_all_retry(&file_parent).expect_err("file parent must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
     }
 }

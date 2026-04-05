@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_algebra_types::Blake3Hash;
@@ -10,10 +11,12 @@ use arc_store_types::newtypes::{BlobId, ChangeId};
 use bytes::Bytes;
 use memmap2::{Mmap, MmapOptions};
 use thiserror::Error;
-use tracing::instrument;
+use tracing::{debug, instrument, warn};
 
 const SMALL_OBJECT_THRESHOLD: u64 = 4096;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+const CREATE_DIR_RETRY_LIMIT: usize = 6;
+const CREATE_DIR_RETRY_DELAY_MS: u64 = 2;
 
 /// Errors returned by the standalone CAS engine.
 #[derive(Debug, Error)]
@@ -214,7 +217,7 @@ fn hex_encode(hash: &Blake3Hash) -> String {
 /// avoid mmap setup overhead for tiny payloads while preserving zero-copy
 /// access for larger immutable files.
 fn read_cas_bytes(path: &Path) -> Result<CasBytes, CasError> {
-    let mut file = fs::File::open(path)?;
+    let mut file = open_read_no_follow(path)?;
     let len = file.metadata()?.len();
 
     if len < SMALL_OBJECT_THRESHOLD {
@@ -249,7 +252,7 @@ fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
             "CAS object path must have a parent directory",
         )
     })?;
-    fs::create_dir_all(parent)?;
+    create_dir_all_retry(parent)?;
 
     let file_name = path.file_name().unwrap_or_else(|| OsStr::new("cas-object"));
     let tmp_path = create_unique_temp_path(parent, file_name)?;
@@ -279,6 +282,80 @@ fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
             Err(err.into())
         }
     }
+}
+
+fn create_dir_all_retry(parent: &Path) -> Result<(), CasError> {
+    for attempt in 0..CREATE_DIR_RETRY_LIMIT {
+        match fs::create_dir_all(parent) {
+            Ok(()) => return Ok(()),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::Interrupted | std::io::ErrorKind::NotFound
+                ) && attempt + 1 < CREATE_DIR_RETRY_LIMIT =>
+            {
+                debug!(
+                    path = %parent.display(),
+                    attempt = attempt + 1,
+                    max_attempts = CREATE_DIR_RETRY_LIMIT,
+                    kind = %err.kind(),
+                    "retrying CAS parent directory creation"
+                );
+                thread::sleep(std::time::Duration::from_millis(CREATE_DIR_RETRY_DELAY_MS));
+            }
+            Err(err) => {
+                warn!(
+                    path = %parent.display(),
+                    attempt = attempt + 1,
+                    max_attempts = CREATE_DIR_RETRY_LIMIT,
+                    kind = %err.kind(),
+                    "failed to create CAS parent directory"
+                );
+                return Err(err.into());
+            }
+        }
+    }
+
+    Err(std::io::Error::other("exhausted CAS parent directory creation retries").into())
+}
+
+#[cfg(unix)]
+fn open_read_no_follow(path: &Path) -> Result<fs::File, CasError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(CasError::from)
+}
+
+#[cfg(windows)]
+fn open_read_no_follow(path: &Path) -> Result<fs::File, CasError> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    let meta = fs::symlink_metadata(path)?;
+    let file_type = meta.file_type();
+    if file_type.is_symlink() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+        return Err(std::io::Error::other(format!(
+            "refusing to follow reparse-point path {}",
+            path.display()
+        ))
+        .into());
+    }
+
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(CasError::from)
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn open_read_no_follow(path: &Path) -> Result<fs::File, CasError> {
+    fs::File::open(path).map_err(CasError::from)
 }
 
 fn create_unique_temp_path(parent: &Path, file_name: &OsStr) -> Result<PathBuf, CasError> {
@@ -317,6 +394,7 @@ fn sync_directory_if_supported(_parent: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use arc_store_types::newtypes::{BlobId, ChangeId};
+    use std::sync::{Arc, Barrier};
 
     fn sample_object() -> (Blake3Hash, Vec<u8>) {
         let bytes = b"hello-cas".to_vec();
@@ -398,5 +476,64 @@ mod tests {
         assert_eq!(written, id);
         let loaded = store.read_change_bytes(id).unwrap();
         assert_eq!(&*loaded, bytes);
+    }
+
+    #[test]
+    fn test_create_dir_all_retry_under_contention() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("nested").join("contended").join("path");
+        let barrier = Arc::new(Barrier::new(2));
+
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let barrier = Arc::clone(&barrier);
+            let target = target.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                create_dir_all_retry(&target)
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("thread join").expect("create dir");
+        }
+        assert!(target.is_dir());
+    }
+
+    #[test]
+    fn test_create_dir_all_retry_fails_on_non_directory_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_parent = dir.path().join("not-a-dir");
+        fs::write(&file_parent, b"x").unwrap();
+
+        let err = create_dir_all_retry(&file_parent).expect_err("file path is not a directory");
+        assert!(
+            matches!(err, CasError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_read_no_follow_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real.bin");
+        fs::write(&real, b"abc").unwrap();
+
+        let link = dir.path().join("link.bin");
+        symlink(&real, &link).unwrap();
+
+        let err = open_read_no_follow(&link).expect_err("symlink read must fail with no-follow");
+        assert!(
+            matches!(
+                err,
+                CasError::Io(ref io)
+                if matches!(io.kind(), std::io::ErrorKind::Other | std::io::ErrorKind::InvalidInput)
+                    || io.raw_os_error() == Some(libc::ELOOP)
+            ),
+            "unexpected error: {err}"
+        );
     }
 }

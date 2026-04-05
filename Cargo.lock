@@ -409,6 +409,7 @@ dependencies = [
  "bincode",
  "blake3",
  "bytes",
+ "libc",
  "memmap2",
  "serde",
  "tempfile",
