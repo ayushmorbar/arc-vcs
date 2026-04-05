@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::store::newtypes::{ChangeId, MutationId, SnapshotId};
+use arc_store_types::newtypes::{ChangeId, MutationId, SnapshotId};
 
 /// Maximum number of optimistic publish retries before returning an error.
 pub const MAX_RETRY_ATTEMPTS: usize = 16;
@@ -240,9 +240,7 @@ impl OpLog {
             thread::sleep(Duration::from_millis(jitter_ms));
         }
 
-        anyhow::bail!(
-            "failed to append operation after {MAX_RETRY_ATTEMPTS} optimistic retries"
-        )
+        anyhow::bail!("failed to append operation after {MAX_RETRY_ATTEMPTS} optimistic retries")
     }
 
     /// Persist one atomic rewrite transaction operation node.
@@ -413,7 +411,11 @@ impl OpLog {
             .with_context(|| format!("failed to write legacy oplog {}", legacy_path.display()))
     }
 
-    fn build_node(&self, operation: &Operation, current_heads: &BTreeSet<SnapshotId>) -> Result<OperationNode> {
+    fn build_node(
+        &self,
+        operation: &Operation,
+        current_heads: &BTreeSet<SnapshotId>,
+    ) -> Result<OperationNode> {
         let mut op = operation.clone();
         op.parents = current_heads.clone();
 
@@ -465,8 +467,8 @@ impl OpLog {
         let staged_backup = self.heads_staged_backup_file();
         if !path.exists() {
             if staged_backup.exists() {
-                let bytes = fs::read(&staged_backup)
-                    .context("failed to read staged backup heads state")?;
+                let bytes =
+                    fs::read(&staged_backup).context("failed to read staged backup heads state")?;
                 let state: HeadsState = bincode::deserialize(&bytes)
                     .context("failed to deserialize staged backup heads state")?;
                 return Ok((state, *blake3::hash(&bytes).as_bytes()));
@@ -606,11 +608,15 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         let backup_path = parent.join(format!(
             "{}.bak",
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("target")
         ));
         let staged_backup_path = parent.join(format!(
             "{}.bak.new",
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("target")
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("target")
         ));
 
         if staged_backup_path.exists() {
@@ -648,7 +654,10 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
         if staged_backup_path.exists() {
             if backup_path.exists() {
                 fs::remove_file(&backup_path).with_context(|| {
-                    format!("failed to replace previous backup {}", backup_path.display())
+                    format!(
+                        "failed to replace previous backup {}",
+                        backup_path.display()
+                    )
                 })?;
             }
             fs::rename(&staged_backup_path, &backup_path).with_context(|| {
@@ -800,8 +809,10 @@ mod tests {
 
     #[test]
     fn operation_id_is_deterministic_for_fixed_timestamp() {
-        let a = Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
-        let b = Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
+        let a =
+            Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
+        let b =
+            Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 1234);
         assert_eq!(a.id, b.id);
     }
 
@@ -833,7 +844,10 @@ mod tests {
         assert_eq!(all[0].command, "snap");
         assert_eq!(all[1].command, "merge");
 
-        let popped = log.pop().expect("pop must succeed").expect("pop must return op");
+        let popped = log
+            .pop()
+            .expect("pop must succeed")
+            .expect("pop must return op");
         assert_eq!(popped.command, "merge");
 
         let remaining = log.read_all().expect("read_all must succeed");
@@ -857,15 +871,26 @@ mod tests {
 
         let b2 = Arc::clone(&barrier);
         let t2 = std::thread::spawn(move || {
-            let op = Operation::new("merge", "main", BTreeSet::from([cid(1)]), BTreeSet::from([cid(2)]));
+            let op = Operation::new(
+                "merge",
+                "main",
+                BTreeSet::from([cid(1)]),
+                BTreeSet::from([cid(2)]),
+            );
             b2.wait();
             log2.append(&op)
         });
 
-        t1.join().expect("thread 1 must not panic").expect("append1 must succeed");
-        t2.join().expect("thread 2 must not panic").expect("append2 must succeed");
+        t1.join()
+            .expect("thread 1 must not panic")
+            .expect("append1 must succeed");
+        t2.join()
+            .expect("thread 2 must not panic")
+            .expect("append2 must succeed");
 
-        let ops = OpLog::new(dir.path()).read_all().expect("read_all must succeed");
+        let ops = OpLog::new(dir.path())
+            .read_all()
+            .expect("read_all must succeed");
         assert_eq!(ops.len(), 2);
     }
 

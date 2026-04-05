@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::newtypes::SnapshotId;
+use arc_store_types::newtypes::SnapshotId;
 
 /// One captured input artifact that fed the synthesized architecture decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

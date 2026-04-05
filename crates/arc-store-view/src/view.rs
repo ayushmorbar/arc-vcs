@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use arc_algebra_types::Blake3Hash;
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::Blake3Hash;
-use crate::store::StoreError;
+use crate::StoreError;
 
 /// A `View` is arc's replacement for a Git branch.
 ///

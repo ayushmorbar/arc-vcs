@@ -13,6 +13,7 @@ arc-change = { path = "../arc-change" }
 arc-git = { path = "../arc-git" }
 arc-store-cas = { path = "../arc-store-cas" }
 arc-store-graph = { path = "../arc-store-graph" }
+arc-store-view = { path = "../arc-store-view" }
 arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
 arc-swap = "1.9.0"

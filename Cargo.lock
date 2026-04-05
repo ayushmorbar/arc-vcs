@@ -231,6 +231,7 @@ dependencies = [
  "arc-store-cas",
  "arc-store-graph",
  "arc-store-types",
+ "arc-store-view",
  "arc-swap",
  "bincode",
  "blake3",
@@ -361,6 +362,23 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arc-store-view"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-store-graph",
+ "arc-store-types",
+ "bincode",
+ "blake3",
+ "dashmap",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
