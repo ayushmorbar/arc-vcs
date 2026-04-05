@@ -2,14 +2,16 @@
 
 /// Author identity and signing-key management.
 pub mod author;
-/// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
-pub mod blake3_hasher;
 /// Deterministic DAG bisect state machine and persistence.
 pub mod bisect;
+/// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
+pub mod blake3_hasher;
 /// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
 /// Immutable semantic changes and their dependency metadata.
 pub mod change;
+/// Deterministic content-hash trait and derive macro.
+pub mod content_hash;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
 /// Strongly-typed content IDs (NewType wrappers).

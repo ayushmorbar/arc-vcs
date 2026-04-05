@@ -567,4 +567,58 @@ mod tests {
             "Transient-authored change must pass both cryptographic verification layers"
         );
     }
+
+    #[test]
+    fn test_compute_id_stable_under_dependency_insertion_order() {
+        let (author, _signing_key) = test_keypair();
+        let atoms = vec![Atom::Insert {
+            at: vec!["node".into()],
+            content_hash: [3u8; 32],
+        }];
+
+        let mut deps_a = HashSet::new();
+        deps_a.insert([1u8; 32]);
+        deps_a.insert([2u8; 32]);
+
+        let mut deps_b = HashSet::new();
+        deps_b.insert([2u8; 32]);
+        deps_b.insert([1u8; 32]);
+
+        let id_a = Change::compute_id(&deps_a, &atoms, "same", &author);
+        let id_b = Change::compute_id(&deps_b, &atoms, "same", &author);
+
+        assert_eq!(
+            id_a, id_b,
+            "Change::compute_id must be independent of dependency insertion order"
+        );
+    }
+
+    #[test]
+    fn test_compute_id_stable_under_conflict_side_order() {
+        let (author, _signing_key) = test_keypair();
+        let deps = HashSet::new();
+        let base = [7u8; 32];
+        let side_a = [1u8; 32];
+        let side_b = [2u8; 32];
+
+        let atoms_ab = vec![Atom::Conflict {
+            bases: vec![base],
+            sides: vec![side_a, side_b],
+            at: vec!["conflict/node".into()],
+        }];
+
+        let atoms_ba = vec![Atom::Conflict {
+            bases: vec![base],
+            sides: vec![side_b, side_a],
+            at: vec!["conflict/node".into()],
+        }];
+
+        let id_ab = Change::compute_id(&deps, &atoms_ab, "merge", &author);
+        let id_ba = Change::compute_id(&deps, &atoms_ba, "merge", &author);
+
+        assert_eq!(
+            id_ab, id_ba,
+            "Change::compute_id must canonicalize conflict side ordering"
+        );
+    }
 }

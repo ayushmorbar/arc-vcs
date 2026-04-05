@@ -1,0 +1,15 @@
+[package]
+name = "arc-content-hash-derive"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Derive macro for arc content-addressed hashing"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro-crate = "3.5.0"
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+syn = { version = "2.0.117", features = ["full"] }
