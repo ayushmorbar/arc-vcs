@@ -7,9 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::Blake3Hash;
-use crate::store::graph::ChangeGraph;
-use crate::store::newtypes::ChangeId;
+use arc_algebra_types::Blake3Hash;
+use arc_store_types::newtypes::ChangeId;
+
+use crate::graph::ChangeGraph;
 
 /// Persistent bisect state stored at `.arc/bisect/state.bin`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,8 +70,15 @@ pub enum BisectMark {
 pub struct BisectEngine;
 
 impl BisectEngine {
-    /// Create a new bisect state over the given candidate set.
-    pub fn start(range_expr: String, candidates: BTreeSet<ChangeId>, find_good: bool) -> BisectState {
+    /// Create a new bisect state over a candidate frontier.
+    ///
+    /// The returned state starts with all candidates marked untested and no
+    /// active current revision.
+    pub fn start(
+        range_expr: String,
+        candidates: BTreeSet<ChangeId>,
+        find_good: bool,
+    ) -> BisectState {
         let mut marks = BTreeMap::new();
         for id in &candidates {
             marks.insert(*id, BisectMark::Untested);
@@ -89,7 +97,10 @@ impl BisectEngine {
         }
     }
 
-    /// Pick next candidate using deterministic topological midpoint.
+    /// Pick the next candidate using deterministic topological midpoint.
+    ///
+    /// Determinism guarantee: for a fixed graph and mark-state, this always
+    /// returns the same next `ChangeId` across machines and process runs.
     pub fn select_next(graph: &ChangeGraph, state: &BisectState) -> Option<ChangeId> {
         let ordered = graph.topological_sort_ids(&state.candidates);
         let untested: Vec<ChangeId> = ordered
@@ -109,6 +120,12 @@ impl BisectEngine {
     }
 
     /// Apply a test mark and propagate monotonic constraints over the DAG.
+    ///
+    /// - Marking a node `Good` marks all of its ancestors `Good`.
+    /// - Marking a node `Bad` marks all of its descendants `Bad`.
+    ///
+    /// Returns an error when the new mark contradicts previously committed
+    /// evidence.
     pub fn mark(
         graph: &ChangeGraph,
         state: &mut BisectState,
@@ -149,7 +166,11 @@ impl BisectEngine {
 }
 
 fn set_checked_mark(state: &mut BisectState, id: ChangeId, next: BisectMark) -> Result<()> {
-    let prev = state.marks.get(&id).copied().unwrap_or(BisectMark::Untested);
+    let prev = state
+        .marks
+        .get(&id)
+        .copied()
+        .unwrap_or(BisectMark::Untested);
     if matches!(prev, BisectMark::Good) && matches!(next, BisectMark::Bad) {
         anyhow::bail!("contradiction: {id} already marked good");
     }
@@ -201,7 +222,10 @@ pub fn save_state(shared_root: &Path, state: &BisectState) -> Result<()> {
     let marker = reset_marker_path(shared_root);
     if marker.exists() {
         fs::remove_file(&marker).with_context(|| {
-            format!("failed to remove bisect reset marker '{}':", marker.display())
+            format!(
+                "failed to remove bisect reset marker '{}':",
+                marker.display()
+            )
         })?;
     }
     Ok(())
@@ -213,7 +237,11 @@ pub fn clear_state(shared_root: &Path) -> Result<()> {
     atomic_write_bytes(&marker, b"reset")?;
 
     let path = state_path(shared_root);
-    for candidate in [path.clone(), path.with_extension("bak"), path.with_extension("bak.new")] {
+    for candidate in [
+        path.clone(),
+        path.with_extension("bak"),
+        path.with_extension("bak.new"),
+    ] {
         if candidate.exists() {
             fs::remove_file(&candidate).with_context(|| {
                 format!("failed to remove bisect state '{}':", candidate.display())
@@ -231,7 +259,9 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 
     let tmp_name = format!(
         ".{}.tmp-{}-{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("bisect"),
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("bisect"),
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -285,7 +315,10 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
         if staged_backup_path.exists() {
             if backup_path.exists() {
                 fs::remove_file(&backup_path).with_context(|| {
-                    format!("failed to replace previous backup {}", backup_path.display())
+                    format!(
+                        "failed to replace previous backup {}",
+                        backup_path.display()
+                    )
                 })?;
             }
             fs::rename(&staged_backup_path, &backup_path).with_context(|| {
@@ -318,15 +351,16 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::author;
-    use crate::store::change::Change;
+    use arc_algebra_types::Atom;
+    use arc_change::Change;
+    use arc_store_types::author;
 
     fn make_change(deps: HashSet<Blake3Hash>, label: &str) -> Change {
         let (author, signing_key) = author::test_keypair();
         let content_hash: [u8; 32] = *blake3::hash(label.as_bytes()).as_bytes();
         Change::new(
             deps,
-            vec![crate::algebra::Atom::Insert {
+            vec![Atom::Insert {
                 at: vec![label.to_string()],
                 content_hash,
             }],
@@ -344,28 +378,27 @@ mod tests {
         g.add_change(a.clone());
         g.add_change(b.clone());
         g.add_change(c.clone());
-        (g, ChangeId::from(a.id), ChangeId::from(b.id), ChangeId::from(c.id))
+        (
+            g,
+            ChangeId::from(a.id),
+            ChangeId::from(b.id),
+            ChangeId::from(c.id),
+        )
     }
 
     #[test]
     fn midpoint_is_deterministic() {
         let (g, a, b, c) = small_chain();
-        let state = BisectEngine::start(
-            "ancestors(@)".to_string(),
-            BTreeSet::from([a, b, c]),
-            false,
-        );
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
         assert_eq!(BisectEngine::select_next(&g, &state), Some(b));
     }
 
     #[test]
     fn mark_good_propagates_to_ancestors() {
         let (g, a, b, c) = small_chain();
-        let mut state = BisectEngine::start(
-            "ancestors(@)".to_string(),
-            BTreeSet::from([a, b, c]),
-            false,
-        );
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
         BisectEngine::mark(&g, &mut state, c, BisectMark::Good).unwrap();
         assert!(matches!(state.marks.get(&a), Some(BisectMark::Good)));
         assert!(matches!(state.marks.get(&b), Some(BisectMark::Good)));
@@ -375,11 +408,8 @@ mod tests {
     #[test]
     fn mark_bad_propagates_to_descendants() {
         let (g, a, b, c) = small_chain();
-        let mut state = BisectEngine::start(
-            "ancestors(@)".to_string(),
-            BTreeSet::from([a, b, c]),
-            false,
-        );
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
         BisectEngine::mark(&g, &mut state, a, BisectMark::Bad).unwrap();
         assert!(matches!(state.marks.get(&a), Some(BisectMark::Bad)));
         assert!(matches!(state.marks.get(&b), Some(BisectMark::Bad)));
@@ -391,11 +421,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let shared = tmp.path();
         let (_, a, b, c) = small_chain();
-        let mut state = BisectEngine::start(
-            "ancestors(@)".to_string(),
-            BTreeSet::from([a, b, c]),
-            false,
-        );
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
         state.current = Some(b);
         save_state(shared, &state).unwrap();
         let loaded = load_state(shared).unwrap().unwrap();

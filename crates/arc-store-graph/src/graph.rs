@@ -1,9 +1,28 @@
 use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::hash::{BuildHasherDefault, Hasher};
 
-use crate::algebra::Blake3Hash;
-use crate::store::blake3_hasher::Blake3HashMap;
-use crate::store::change::Change;
-use crate::store::newtypes::ChangeId;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_store_types::newtypes::ChangeId;
+
+#[derive(Default)]
+struct Blake3Hasher(u64);
+
+impl Hasher for Blake3Hasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        if bytes.len() >= 8 {
+            self.0 = u64::from_le_bytes(bytes[..8].try_into().expect("slice length checked"));
+        }
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type Blake3HashMap<V> = std::collections::HashMap<Blake3Hash, V, BuildHasherDefault<Blake3Hasher>>;
 
 /// In-memory DAG of changes loaded from the CAS.
 ///
@@ -282,17 +301,20 @@ impl Default for ChangeGraph {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
+    use arc_algebra_types::Atom;
+    use arc_store_types::author;
+
     use super::*;
 
     /// Helper: create a Change with the given deps and a unique atom
     /// so that each change hashes to a distinct id.
     fn make_change(deps: HashSet<Blake3Hash>, label: &str) -> Change {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = author::test_keypair();
         // Use a label-derived hash to give each change a unique content hash.
         let content_hash: [u8; 32] = *blake3::hash(label.as_bytes()).as_bytes();
         Change::new(
             deps,
-            vec![crate::algebra::Atom::Insert {
+            vec![Atom::Insert {
                 at: vec![label.to_string()],
                 content_hash,
             }],

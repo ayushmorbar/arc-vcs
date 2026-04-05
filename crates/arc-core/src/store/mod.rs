@@ -1,23 +1,23 @@
 //! arc object store: CAS, changes, graph, views, author identity, and oplog.
 
-/// Deterministic DAG bisect state machine and persistence.
-pub mod bisect;
 /// Zero-overhead identity hasher for [`crate::algebra::Blake3Hash`] keys.
 pub mod blake3_hasher;
 /// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
-/// Change dependency graph and ancestry algorithms.
-pub mod graph;
 /// Crash-consistent synthesized architecture snapshots.
 pub mod synthesis;
 /// Signal-safe temporary-file registry.
 pub mod tempfile;
 
-pub use arc_store_cas::cas::*;
 pub use arc_change::change;
 pub use arc_change::change::*;
 pub use arc_change::content_hash;
 pub use arc_change::content_hash::*;
+pub use arc_store_cas::cas::*;
+pub use arc_store_graph::bisect;
+pub use arc_store_graph::bisect::*;
+pub use arc_store_graph::graph;
+pub use arc_store_graph::graph::*;
 pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 /// Append-only spacetime operation log for O(1) undo.
