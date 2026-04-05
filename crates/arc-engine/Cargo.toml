@@ -1,0 +1,23 @@
+[package]
+name = "arc-engine"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Spacetime history rewriting and mutation orchestration for arc"
+
+[dependencies]
+arc-algebra = { path = "../arc-algebra" }
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-change = { path = "../arc-change" }
+arc-store-types = { path = "../arc-store-types" }
+arc-store-cas = { path = "../arc-store-cas" }
+arc-store-graph = { path = "../arc-store-graph" }
+arc-store-view = { path = "../arc-store-view" }
+serde = { version = "1.0.228", features = ["derive"] }
+anyhow = "1.0.102"
+thiserror = "2.0.18"
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+blake3 = "1.8.4"
+
+[dev-dependencies]
+tempfile = "3.27.0"

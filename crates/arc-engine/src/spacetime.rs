@@ -18,13 +18,12 @@
 
 use std::collections::HashSet;
 
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_store_cas::ObjectStore;
+use arc_store_graph::ChangeGraph;
+use arc_store_types::author::Author;
 use thiserror::Error;
-
-use crate::algebra::Blake3Hash;
-use crate::store::author::Author;
-use crate::store::cas::ObjectStore;
-use crate::store::change::Change;
-use crate::store::graph::ChangeGraph;
 
 /// Errors produced by spacetime operations.
 #[derive(Debug, Error)]
@@ -129,9 +128,10 @@ pub fn squash_into(
 mod tests {
     use std::collections::HashSet;
 
+    use arc_algebra_types::Atom;
+    use arc_store_types::author::test_keypair;
+
     use super::*;
-    use crate::algebra::Atom;
-    use crate::store::graph::ChangeGraph;
 
     fn make_store() -> (tempfile::TempDir, ObjectStore) {
         let dir = tempfile::tempdir().unwrap();
@@ -144,7 +144,7 @@ mod tests {
         label: &str,
         content_hash: Blake3Hash,
     ) -> Change {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         Change::new(
             deps,
             vec![Atom::Insert {
@@ -173,7 +173,7 @@ mod tests {
         graph.add_change(b.clone());
         graph.add_change(c.clone());
 
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         let view_heads: HashSet<Blake3Hash> = HashSet::from([c.id]);
 
         let squashed = squash_into(&graph, &store, &view_heads, a.id, &(author, signing_key))
@@ -205,7 +205,7 @@ mod tests {
     fn test_squash_target_not_found_errors() {
         let (_dir, store) = make_store();
         let graph = ChangeGraph::new();
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         let nonexistent: Blake3Hash = [0xff; 32];
         let heads: HashSet<Blake3Hash> = HashSet::new();
 

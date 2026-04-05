@@ -5,14 +5,13 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use arc_algebra::commute::commute_pair;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_store_graph::ChangeGraph;
+use arc_store_types::author::Author;
+use arc_store_types::newtypes::ChangeId;
 use thiserror::Error;
-
-use crate::algebra::Blake3Hash;
-use crate::algebra::commute::commute_pair;
-use crate::store::author::Author;
-use crate::store::change::Change;
-use crate::store::graph::ChangeGraph;
-use crate::store::newtypes::ChangeId;
 
 /// Result of a squash rewrite.
 #[derive(Debug, Clone)]
@@ -357,12 +356,13 @@ fn resolve_linear_chain(
 mod tests {
     use std::collections::HashSet;
 
-    use crate::algebra::Atom;
+    use arc_algebra_types::Atom;
+    use arc_store_types::author::test_keypair;
 
     use super::*;
 
     fn change_with_path(deps: HashSet<Blake3Hash>, path: &str) -> Change {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         Change::new(
             deps,
             vec![Atom::Insert {
@@ -386,7 +386,7 @@ mod tests {
         graph.add_change(b.clone());
         graph.add_change(c.clone());
 
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         let out = squash_into(&graph, &HashSet::from([c.id]), a.id, &(author, signing_key))
             .expect("squash should succeed");
 
@@ -417,7 +417,7 @@ mod tests {
         graph.add_change(b.clone());
         graph.add_change(c.clone());
 
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         let out = reorder(&graph, &[a.id, c.id, b.id], &(author, signing_key))
             .expect("reorder should succeed");
 
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn reorder_rejects_non_commuting_atoms() {
-        let (author, signing_key) = crate::store::author::test_keypair();
+        let (author, signing_key) = test_keypair();
         let a = Change::new(
             HashSet::new(),
             vec![Atom::Insert {
@@ -459,7 +459,7 @@ mod tests {
         graph.add_change(a.clone());
         graph.add_change(b.clone());
 
-        let (author2, signing_key2) = crate::store::author::test_keypair();
+        let (author2, signing_key2) = test_keypair();
         let err = reorder(&graph, &[b.id, a.id], &(author2, signing_key2))
             .expect_err("non-commuting reorder must fail");
         assert!(matches!(err, MutatorError::NonCommutingPair(_, _)));

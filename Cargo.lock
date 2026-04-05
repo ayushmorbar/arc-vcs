@@ -227,6 +227,7 @@ dependencies = [
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",
+ "arc-engine",
  "arc-git",
  "arc-store-cas",
  "arc-store-graph",
@@ -262,6 +263,25 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "arc-engine"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-store-cas",
+ "arc-store-graph",
+ "arc-store-types",
+ "arc-store-view",
+ "blake3",
+ "ed25519-dalek",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
