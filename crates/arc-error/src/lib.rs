@@ -1,3 +1,10 @@
+//! Error wrappers and result helpers shared across arc crates.
+//!
+//! This crate provides a lightweight [`Exn`] wrapper that captures caller
+//! location and keeps ergonomic context propagation available via [`ResultExt`].
+
+use std::{error::Error, fmt, panic::Location};
+
 impl<E: Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn new(error: E) -> Self {
@@ -14,7 +21,6 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
         self
     }
 }
-use std::{error::Error, fmt, panic::Location};
 
 /// A frame holding error context and caller location.
 pub struct Frame {

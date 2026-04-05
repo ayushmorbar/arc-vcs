@@ -46,8 +46,8 @@ use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::Blake3Hash;
-use crate::store::change::Change;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
 
 // ── Wire type ──────────────────────────────────────────────────────────────
 
@@ -219,8 +219,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::store::author::test_keypair;
-    use crate::store::change::Change;
+    use arc_change::Change;
+    use arc_store_types::author::test_keypair;
 
     fn make_change(intent: &str) -> Change {
         let (author, key) = test_keypair();
@@ -255,7 +255,7 @@ mod tests {
     /// zero-trust ingress just like Human-signed changes.
     #[test]
     fn verify_payload_accepts_server_signed_change() {
-        use crate::store::author::{Author, PublicKeyBytes};
+        use arc_store_types::author::{Author, PublicKeyBytes};
 
         let server_key = ed25519_dalek::SigningKey::from_bytes(&[77u8; 32]);
         let server_pubkey: PublicKeyBytes = server_key.verifying_key().to_bytes();

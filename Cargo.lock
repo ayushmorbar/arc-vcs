@@ -228,7 +228,9 @@ dependencies = [
  "arc-algebra-types",
  "arc-change",
  "arc-engine",
+ "arc-error",
  "arc-git",
+ "arc-network",
  "arc-revset",
  "arc-store-cas",
  "arc-store-graph",
@@ -242,7 +244,6 @@ dependencies = [
  "ed25519-dalek",
  "ignore",
  "rand_core 0.6.4",
- "reqwest 0.13.2",
  "serde",
  "serde_json",
  "tempfile",
@@ -280,6 +281,13 @@ dependencies = [
  "ed25519-dalek",
  "serde",
  "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arc-error"
+version = "0.1.0-beta.6"
+dependencies = [
  "thiserror 2.0.18",
 ]
 
@@ -335,6 +343,20 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
+]
+
+[[package]]
+name = "arc-network"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-store-types",
+ "ed25519-dalek",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
