@@ -98,7 +98,7 @@ impl ObjectStore {
     /// concurrent writers will observe a benign dedup outcome.
     ///
     /// Durability note: publish uses temp-file write + `sync_data()` +
-    /// no-overwrite link + directory sync (on supported platforms).
+    /// atomic rename + directory sync (on supported platforms).
     #[instrument(skip_all)]
     pub fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
         let path = self.object_path(hash);
@@ -233,11 +233,11 @@ fn read_cas_bytes(path: &Path) -> Result<CasBytes, CasError> {
 /// The write protocol is:
 /// 1. write full payload into a unique temp file in the destination directory,
 /// 2. fsync the temp file data,
-/// 3. atomically hard-link temp into final path (no-overwrite publish),
+/// 3. atomically rename temp into final path,
 /// 4. fsync the parent directory when supported by the platform.
 ///
 /// If another writer already published the same object concurrently,
-/// `AlreadyExists` at link time is treated as a benign dedup outcome.
+/// this treats the race as a benign dedup outcome.
 fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
     if path.exists() {
         return Ok(false);
@@ -254,18 +254,23 @@ fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
     let file_name = path.file_name().unwrap_or_else(|| OsStr::new("cas-object"));
     let tmp_path = create_unique_temp_path(parent, file_name)?;
 
-    let mut tmp = fs::OpenOptions::new().create_new(true).write(true).open(&tmp_path)?;
+    let mut tmp = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&tmp_path)?;
     tmp.write_all(bytes)?;
     tmp.sync_data()?;
     drop(tmp);
 
-    match fs::hard_link(&tmp_path, path) {
+    match fs::rename(&tmp_path, path) {
         Ok(()) => {
             sync_directory_if_supported(parent)?;
-            let _ = fs::remove_file(&tmp_path);
             Ok(true)
         }
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(err)
+            if err.kind() == std::io::ErrorKind::AlreadyExists
+                || (err.kind() == std::io::ErrorKind::PermissionDenied && path.exists()) =>
+        {
             let _ = fs::remove_file(&tmp_path);
             Ok(false)
         }
