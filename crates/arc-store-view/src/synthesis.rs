@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
 use arc_store_types::newtypes::SnapshotId;
@@ -27,6 +29,64 @@ pub struct SynthesisSnapshot {
     pub created_at_unix: u64,
     /// Artifact list included in this snapshot.
     pub artifacts: Vec<SynthArtifact>,
+}
+
+/// Cache refresh mode for synthesis snapshot loading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotRefresh {
+    /// Use cached value when present.
+    PreferCached,
+    /// Bypass cache and refresh from disk.
+    ForceRefresh,
+}
+
+/// Process-shared cache for synthesis snapshots.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotCache {
+    entries: Arc<DashMap<SnapshotId, Arc<SynthesisSnapshot>>>,
+}
+
+impl SnapshotCache {
+    /// Create a new empty snapshot cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Remove one cached snapshot entry.
+    pub fn invalidate(&self, id: SnapshotId) {
+        let _ = self.entries.remove(&id);
+    }
+
+    /// Force-clear all cached snapshots.
+    pub fn clear(&self) {
+        self.entries.clear();
+    }
+
+    fn get(&self, id: SnapshotId) -> Option<Arc<SynthesisSnapshot>> {
+        self.entries.get(&id).map(|value| Arc::clone(value.value()))
+    }
+
+    fn put(&self, snapshot: Arc<SynthesisSnapshot>) {
+        self.entries.insert(snapshot.id, snapshot);
+    }
+}
+
+/// Load a synthesis snapshot with optional cache bypass.
+pub fn load_with_cache(
+    shared_root: &Path,
+    id: SnapshotId,
+    cache: &SnapshotCache,
+    mode: SnapshotRefresh,
+) -> anyhow::Result<Arc<SynthesisSnapshot>> {
+    if mode == SnapshotRefresh::PreferCached
+        && let Some(hit) = cache.get(id)
+    {
+        return Ok(hit);
+    }
+
+    let loaded = Arc::new(SynthesisSnapshot::load(shared_root, id)?);
+    cache.put(Arc::clone(&loaded));
+    Ok(loaded)
 }
 
 impl SynthesisSnapshot {
@@ -312,5 +372,35 @@ mod tests {
         let listed = list_snapshot_ids(root).expect("listing must succeed");
         assert_eq!(listed.len(), 2);
         assert!(listed[0].to_hex() <= listed[1].to_hex());
+    }
+
+    #[test]
+    fn load_with_cache_force_refresh_replaces_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("source.txt"), b"v1").expect("write must succeed");
+
+        let first = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("source.txt")])
+            .expect("capture v1 must succeed");
+        first.persist(root).expect("persist v1 must succeed");
+
+        let cache = SnapshotCache::new();
+        let loaded_v1 = load_with_cache(root, first.id, &cache, SnapshotRefresh::PreferCached)
+            .expect("cached load must succeed");
+        assert_eq!(loaded_v1.id, first.id);
+        assert_eq!(loaded_v1.source, "src");
+
+        let mut poisoned = (*loaded_v1).clone();
+        poisoned.source = "stale-cache".to_string();
+        cache.entries.insert(first.id, Arc::new(poisoned));
+
+        let stale = load_with_cache(root, first.id, &cache, SnapshotRefresh::PreferCached)
+            .expect("prefer-cached load must succeed");
+        assert_eq!(stale.source, "stale-cache");
+
+        let refreshed = load_with_cache(root, first.id, &cache, SnapshotRefresh::ForceRefresh)
+            .expect("force refresh must succeed");
+        assert_eq!(refreshed.id, first.id);
+        assert_eq!(refreshed.source, "src");
     }
 }

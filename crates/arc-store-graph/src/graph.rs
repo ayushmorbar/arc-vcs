@@ -25,6 +25,12 @@ impl Hasher for Blake3Hasher {
 
 type Blake3HashMap<V> = std::collections::HashMap<Blake3Hash, V, BuildHasherDefault<Blake3Hasher>>;
 
+/// Immutable insertion abstraction for graph backends.
+pub trait ImmutableInsert<T>: Sized {
+    /// Return a new value with `item` inserted.
+    fn inserted(&self, item: T) -> Self;
+}
+
 /// In-memory DAG of changes loaded from the CAS.
 ///
 /// Maintains forward edges (`change → its dependencies`) and reverse edges
@@ -64,6 +70,10 @@ impl ChangeGraph {
 
     /// Insert a change into the graph, wiring up both forward and reverse edges.
     pub fn add_change(&mut self, change: Change) {
+        self.apply_insert(change);
+    }
+
+    fn apply_insert(&mut self, change: Change) {
         let id = change.id;
         self.edges.insert(id, change.deps.clone());
 
@@ -312,6 +322,14 @@ impl ChangeGraph {
     }
 }
 
+impl ImmutableInsert<Change> for ChangeGraph {
+    fn inserted(&self, item: Change) -> Self {
+        let mut next = self.clone();
+        next.apply_insert(item);
+        next
+    }
+}
+
 impl Default for ChangeGraph {
     fn default() -> Self {
         Self::new()
@@ -386,6 +404,14 @@ mod tests {
         assert!(pos[&a] < pos[&c], "A must precede C");
         assert!(pos[&b] < pos[&d], "B must precede D");
         assert!(pos[&c] < pos[&d], "C must precede D");
+    }
+
+    #[test]
+    fn test_inserted_returns_new_graph_without_mutating_source() {
+        let g = ChangeGraph::new();
+        let inserted = g.inserted(make_change(HashSet::new(), "seed"));
+        assert!(g.is_empty());
+        assert_eq!(inserted.len(), 1);
     }
 
     #[test]

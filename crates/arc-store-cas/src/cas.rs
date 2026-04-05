@@ -1,8 +1,9 @@
 use std::ffi::OsStr;
 use std::fs;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,6 +25,323 @@ pub enum CasError {
     /// Filesystem I/O failure.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    /// The bytes read from disk did not match the expected content hash.
+    #[error("checksum mismatch while reading content-addressed object")]
+    ChecksumMismatch,
+    /// Caller-provided key does not match payload bytes.
+    #[error("caller-supplied object key does not match payload hash")]
+    HashMismatch,
+}
+
+/// Policy hook that decides if a payload is eligible for cache insertion.
+pub trait CachePolicy {
+    /// Return `true` when `size_bytes` should be inserted into cache.
+    fn should_cache(&self, size_bytes: usize) -> bool;
+}
+
+/// Strategy that disables caching entirely.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NeverCache;
+
+impl CachePolicy for NeverCache {
+    fn should_cache(&self, _size_bytes: usize) -> bool {
+        false
+    }
+}
+
+/// Basic size-window cache policy.
+#[derive(Debug, Clone, Copy)]
+pub struct SizeWindowCachePolicy {
+    /// Minimum object size to admit.
+    pub min_bytes: usize,
+    /// Maximum object size to admit.
+    pub max_bytes: usize,
+}
+
+impl Default for SizeWindowCachePolicy {
+    fn default() -> Self {
+        Self {
+            min_bytes: 1,
+            max_bytes: 2 * 1024 * 1024,
+        }
+    }
+}
+
+impl CachePolicy for SizeWindowCachePolicy {
+    fn should_cache(&self, size_bytes: usize) -> bool {
+        (self.min_bytes..=self.max_bytes).contains(&size_bytes)
+    }
+}
+
+/// Common cache surface used by CAS read paths.
+pub trait CasCache {
+    /// Attempt to read cached bytes by content key.
+    fn get(&mut self, key: &Blake3Hash) -> Option<Bytes>;
+    /// Insert bytes for `key`.
+    fn put(&mut self, key: Blake3Hash, bytes: &[u8]);
+}
+
+/// No-op cache strategy for call-sites that do not want memory caching.
+#[derive(Debug, Default)]
+pub struct NoCache;
+
+impl CasCache for NoCache {
+    fn get(&mut self, _key: &Blake3Hash) -> Option<Bytes> {
+        None
+    }
+
+    fn put(&mut self, _key: Blake3Hash, _bytes: &[u8]) {}
+}
+
+#[derive(Debug)]
+struct WeightedEntry {
+    bytes: Bytes,
+    weight: usize,
+}
+
+/// Weighted memory-capped LRU with byte-buffer freelist recycling.
+#[derive(Debug)]
+pub struct WeightedLruCache {
+    capacity_bytes: usize,
+    used_bytes: usize,
+    entries: HashMap<Blake3Hash, WeightedEntry>,
+    lru: VecDeque<Blake3Hash>,
+    free_buffers: Vec<Vec<u8>>,
+}
+
+impl WeightedLruCache {
+    /// Create a weighted LRU with a strict memory budget.
+    pub fn new(capacity_bytes: usize) -> Self {
+        Self {
+            capacity_bytes,
+            used_bytes: 0,
+            entries: HashMap::new(),
+            lru: VecDeque::new(),
+            free_buffers: Vec::new(),
+        }
+    }
+
+    fn touch(&mut self, key: Blake3Hash) {
+        self.lru.retain(|k| *k != key);
+        self.lru.push_back(key);
+    }
+
+    fn evict_until(&mut self, incoming: usize) {
+        while self.used_bytes.saturating_add(incoming) > self.capacity_bytes {
+            let Some(key) = self.lru.pop_front() else {
+                break;
+            };
+            if let Some(entry) = self.entries.remove(&key) {
+                self.used_bytes = self.used_bytes.saturating_sub(entry.weight);
+                let mut recycled = entry.bytes.to_vec();
+                recycled.clear();
+                self.free_buffers.push(recycled);
+            }
+        }
+    }
+
+    /// Current in-memory footprint tracked by the cache.
+    pub fn used_bytes(&self) -> usize {
+        self.used_bytes
+    }
+
+    /// Number of recyclable buffers in the freelist.
+    pub fn free_buffer_count(&self) -> usize {
+        self.free_buffers.len()
+    }
+}
+
+impl CasCache for WeightedLruCache {
+    fn get(&mut self, key: &Blake3Hash) -> Option<Bytes> {
+        let bytes = self.entries.get(key).map(|entry| entry.bytes.clone())?;
+        self.touch(*key);
+        Some(bytes)
+    }
+
+    fn put(&mut self, key: Blake3Hash, bytes: &[u8]) {
+        if bytes.len() > self.capacity_bytes {
+            return;
+        }
+
+        if let Some(prev) = self.entries.remove(&key) {
+            self.used_bytes = self.used_bytes.saturating_sub(prev.weight);
+            self.lru.retain(|k| *k != key);
+            let mut recycled = prev.bytes.to_vec();
+            recycled.clear();
+            self.free_buffers.push(recycled);
+        }
+
+        self.evict_until(bytes.len());
+
+        let mut buf = self
+            .free_buffers
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(bytes.len()));
+        buf.clear();
+        buf.extend_from_slice(bytes);
+        let stored = Bytes::from(buf);
+
+        self.used_bytes = self.used_bytes.saturating_add(stored.len());
+        self.entries.insert(
+            key,
+            WeightedEntry {
+                bytes: stored,
+                weight: bytes.len(),
+            },
+        );
+        self.lru.push_back(key);
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TinyEntry {
+    key: Blake3Hash,
+    bytes: Bytes,
+    prev: Option<usize>,
+    next: Option<usize>,
+}
+
+/// Fixed-size linked-list LRU for tiny hot sets.
+pub struct TinyLinkedLruCache<const N: usize> {
+    slots: [Option<TinyEntry>; N],
+    index: HashMap<Blake3Hash, usize>,
+    head: Option<usize>,
+    tail: Option<usize>,
+    free: Vec<usize>,
+}
+
+impl<const N: usize> Default for TinyLinkedLruCache<N> {
+    fn default() -> Self {
+        let free = (0..N).rev().collect();
+        Self {
+            slots: std::array::from_fn(|_| None),
+            index: HashMap::new(),
+            head: None,
+            tail: None,
+            free,
+        }
+    }
+}
+
+impl<const N: usize> TinyLinkedLruCache<N> {
+    fn detach(&mut self, idx: usize) {
+        let Some(entry) = self.slots[idx].as_ref() else {
+            return;
+        };
+
+        let (prev, next) = (entry.prev, entry.next);
+        if let Some(prev_idx) = prev
+            && let Some(prev_entry) = self.slots[prev_idx].as_mut()
+        {
+            prev_entry.next = next;
+        }
+        if let Some(next_idx) = next
+            && let Some(next_entry) = self.slots[next_idx].as_mut()
+        {
+            next_entry.prev = prev;
+        }
+        if self.head == Some(idx) {
+            self.head = next;
+        }
+        if self.tail == Some(idx) {
+            self.tail = prev;
+        }
+        if let Some(cur) = self.slots[idx].as_mut() {
+            cur.prev = None;
+            cur.next = None;
+        }
+    }
+
+    fn push_back(&mut self, idx: usize) {
+        match self.tail {
+            Some(tail_idx) => {
+                if let Some(tail) = self.slots[tail_idx].as_mut() {
+                    tail.next = Some(idx);
+                }
+                if let Some(cur) = self.slots[idx].as_mut() {
+                    cur.prev = Some(tail_idx);
+                    cur.next = None;
+                }
+                self.tail = Some(idx);
+            }
+            None => {
+                self.head = Some(idx);
+                self.tail = Some(idx);
+                if let Some(cur) = self.slots[idx].as_mut() {
+                    cur.prev = None;
+                    cur.next = None;
+                }
+            }
+        }
+    }
+
+    fn move_to_back(&mut self, idx: usize) {
+        if self.tail == Some(idx) {
+            return;
+        }
+        self.detach(idx);
+        self.push_back(idx);
+    }
+
+    fn allocate_slot(&mut self) -> usize {
+        if let Some(idx) = self.free.pop() {
+            return idx;
+        }
+        let idx = self.head.expect("tiny LRU head must exist when full");
+        self.detach(idx);
+        if let Some(old) = self.slots[idx].take() {
+            self.index.remove(&old.key);
+        }
+        idx
+    }
+}
+
+impl<const N: usize> CasCache for TinyLinkedLruCache<N> {
+    fn get(&mut self, key: &Blake3Hash) -> Option<Bytes> {
+        let idx = *self.index.get(key)?;
+        let out = self.slots[idx].as_ref().map(|entry| entry.bytes.clone())?;
+        self.move_to_back(idx);
+        Some(out)
+    }
+
+    fn put(&mut self, key: Blake3Hash, bytes: &[u8]) {
+        if N == 0 {
+            return;
+        }
+
+        if let Some(&idx) = self.index.get(&key) {
+            if let Some(entry) = self.slots[idx].as_mut() {
+                entry.bytes = Bytes::copy_from_slice(bytes);
+            }
+            self.move_to_back(idx);
+            return;
+        }
+
+        let idx = self.allocate_slot();
+        self.slots[idx] = Some(TinyEntry {
+            key,
+            bytes: Bytes::copy_from_slice(bytes),
+            prev: None,
+            next: None,
+        });
+        self.index.insert(key, idx);
+        self.push_back(idx);
+    }
+}
+
+/// Read-policy knobs for CAS reads.
+#[derive(Debug, Clone, Copy)]
+pub struct CasReadPolicy {
+    /// Minimum size that should attempt mmap.
+    pub mmap_threshold_bytes: u64,
+}
+
+impl Default for CasReadPolicy {
+    fn default() -> Self {
+        Self {
+            mmap_threshold_bytes: SMALL_OBJECT_THRESHOLD,
+        }
+    }
 }
 
 /// Files smaller than one OS page (4 KiB) are read into a heap buffer so the
@@ -74,6 +392,7 @@ impl AsRef<[u8]> for CasBytes {
 /// automatic deduplication — identical content always maps to the same path.
 pub struct ObjectStore {
     root: PathBuf,
+    read_policy: CasReadPolicy,
 }
 
 impl ObjectStore {
@@ -81,6 +400,15 @@ impl ObjectStore {
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().join(".arc"),
+            read_policy: CasReadPolicy::default(),
+        }
+    }
+
+    /// Create an `ObjectStore` with an explicit CAS read policy.
+    pub fn with_read_policy(root: impl AsRef<Path>, read_policy: CasReadPolicy) -> Self {
+        Self {
+            root: root.as_ref().join(".arc"),
+            read_policy,
         }
     }
 
@@ -104,6 +432,10 @@ impl ObjectStore {
     /// atomic rename + directory sync (on supported platforms).
     #[instrument(skip_all)]
     pub fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
+        let computed: Blake3Hash = *blake3::hash(bytes).as_bytes();
+        if computed != *hash {
+            return Err(CasError::HashMismatch);
+        }
         let path = self.object_path(hash);
         write_once_atomic(&path, bytes)?;
         Ok(*hash)
@@ -116,7 +448,7 @@ impl ObjectStore {
     #[instrument(skip_all)]
     pub fn read_object(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError> {
         let path = self.object_path(hash);
-        read_cas_bytes(&path)
+        read_cas_bytes_with_policy(&path, self.read_policy, Some(hash), None)
     }
 
     /// Derive the on-disk path for a raw blob in `.arc/blobs/{hex(hash)}`.
@@ -154,7 +486,30 @@ impl ObjectStore {
     #[instrument(skip_all)]
     pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError> {
         let path = self.blob_path(hash);
-        read_cas_bytes(&path)
+        read_cas_bytes_with_policy(&path, self.read_policy, Some(hash), None)
+    }
+
+    /// Read a blob with caller-provided cache strategy and policy.
+    #[instrument(skip_all)]
+    pub fn read_blob_cached<C, P>(
+        &self,
+        hash: &Blake3Hash,
+        cache: &mut C,
+        policy: &P,
+    ) -> Result<CasBytes, CasError>
+    where
+        C: CasCache,
+        P: CachePolicy,
+    {
+        if let Some(hit) = cache.get(hash) {
+            return Ok(CasBytes::Owned(hit));
+        }
+
+        let loaded = self.read_blob(hash)?;
+        if policy.should_cache(loaded.len()) {
+            cache.put(*hash, loaded.as_ref());
+        }
+        Ok(loaded)
     }
 
     /// Read a blob by typed id.
@@ -211,24 +566,76 @@ fn hex_encode(hash: &Blake3Hash) -> String {
     })
 }
 
-/// Read CAS bytes with a small-object fast path and mmap for larger blobs.
-///
-/// This mirrors the high-throughput split used in modern object databases:
-/// avoid mmap setup overhead for tiny payloads while preserving zero-copy
-/// access for larger immutable files.
-fn read_cas_bytes(path: &Path) -> Result<CasBytes, CasError> {
+/// Read CAS bytes with configurable mmap threshold and checksum fallback.
+fn read_cas_bytes_with_policy(
+    path: &Path,
+    read_policy: CasReadPolicy,
+    expected_hash: Option<&Blake3Hash>,
+    interrupted: Option<&AtomicBool>,
+) -> Result<CasBytes, CasError> {
     let mut file = open_read_no_follow(path)?;
     let len = file.metadata()?.len();
 
-    if len < SMALL_OBJECT_THRESHOLD {
-        let mut buf = Vec::with_capacity(len as usize);
-        file.read_to_end(&mut buf)?;
-        return Ok(CasBytes::Owned(Bytes::from(buf)));
+    if len < read_policy.mmap_threshold_bytes {
+        let owned = read_owned_interrupt_aware(&mut file, len as usize, interrupted)?;
+        if let Some(expected) = expected_hash
+            && *expected != *blake3::hash(owned.as_ref()).as_bytes()
+        {
+            return Err(CasError::ChecksumMismatch);
+        }
+        return Ok(CasBytes::Owned(owned));
     }
 
     // SAFETY: CAS files are immutable after successful publish.
-    let mapped = unsafe { MmapOptions::new().map(&file)? };
-    Ok(CasBytes::Mapped(mapped))
+    match unsafe { MmapOptions::new().map(&file) } {
+        Ok(mapped) => {
+            if let Some(expected) = expected_hash
+                && *expected != *blake3::hash(&mapped).as_bytes()
+            {
+                // Fallback to buffered retry path to avoid failing on one mmap
+                // read attempt under interrupted conditions.
+                let mut second = open_read_no_follow(path)?;
+                let owned = read_owned_interrupt_aware(&mut second, len as usize, interrupted)?;
+                if *expected != *blake3::hash(owned.as_ref()).as_bytes() {
+                    return Err(CasError::ChecksumMismatch);
+                }
+                return Ok(CasBytes::Owned(owned));
+            }
+            Ok(CasBytes::Mapped(mapped))
+        }
+        Err(_) => {
+            let mut second = open_read_no_follow(path)?;
+            let owned = read_owned_interrupt_aware(&mut second, len as usize, interrupted)?;
+            if let Some(expected) = expected_hash
+                && *expected != *blake3::hash(owned.as_ref()).as_bytes()
+            {
+                return Err(CasError::ChecksumMismatch);
+            }
+            Ok(CasBytes::Owned(owned))
+        }
+    }
+}
+
+fn read_owned_interrupt_aware(
+    file: &mut fs::File,
+    expected_len: usize,
+    interrupted: Option<&AtomicBool>,
+) -> Result<Bytes, CasError> {
+    let mut buf = Vec::with_capacity(expected_len);
+    loop {
+        if interrupted.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "read interrupted by cancellation flag",
+            )
+            .into());
+        }
+        match file.read_to_end(&mut buf) {
+            Ok(_) => return Ok(Bytes::from(buf)),
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err.into()),
+        }
+    }
 }
 
 /// Publish bytes atomically into CAS with crash-consistency semantics.
@@ -468,14 +875,72 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ObjectStore::new(dir.path());
 
-        let raw: Blake3Hash = *blake3::hash(b"change-bytes").as_bytes();
-        let id = ChangeId::from(raw);
         let bytes = b"serialized-change";
+        let raw: Blake3Hash = *blake3::hash(bytes).as_bytes();
+        let id = ChangeId::from(raw);
 
         let written = store.write_change_bytes(id, bytes).unwrap();
         assert_eq!(written, id);
         let loaded = store.read_change_bytes(id).unwrap();
         assert_eq!(&*loaded, bytes);
+    }
+
+    #[test]
+    fn test_read_blob_cached_with_never_cache_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let hash = store.write_blob(b"cache-me").unwrap();
+
+        let mut cache = WeightedLruCache::new(1024);
+        let loaded = store
+            .read_blob_cached(&hash, &mut cache, &NeverCache)
+            .unwrap();
+
+        assert_eq!(&*loaded, b"cache-me");
+        assert_eq!(cache.used_bytes(), 0);
+    }
+
+    #[test]
+    fn test_weighted_lru_evicts_by_memory_budget() {
+        let mut cache = WeightedLruCache::new(8);
+        let k1: Blake3Hash = *blake3::hash(b"k1").as_bytes();
+        let k2: Blake3Hash = *blake3::hash(b"k2").as_bytes();
+
+        cache.put(k1, b"1234");
+        cache.put(k2, b"56789");
+
+        assert!(cache.get(&k1).is_none());
+        assert_eq!(cache.get(&k2).as_deref(), Some(&b"56789"[..]));
+        assert!(cache.used_bytes() <= 8);
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_prefers_recent_entry() {
+        let mut cache = TinyLinkedLruCache::<2>::default();
+        let a: Blake3Hash = *blake3::hash(b"a").as_bytes();
+        let b: Blake3Hash = *blake3::hash(b"b").as_bytes();
+        let c: Blake3Hash = *blake3::hash(b"c").as_bytes();
+
+        cache.put(a, b"A");
+        cache.put(b, b"B");
+        let _ = cache.get(&a);
+        cache.put(c, b"C");
+
+        assert!(cache.get(&b).is_none());
+        assert_eq!(cache.get(&a).as_deref(), Some(&b"A"[..]));
+        assert_eq!(cache.get(&c).as_deref(), Some(&b"C"[..]));
+    }
+
+    #[test]
+    fn test_read_policy_uses_owned_for_large_threshold() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy = CasReadPolicy {
+            mmap_threshold_bytes: 1 << 20,
+        };
+        let store = ObjectStore::with_read_policy(dir.path(), policy);
+        let hash = store.write_blob(&vec![1u8; 8192]).unwrap();
+        let loaded = store.read_blob(&hash).unwrap();
+        assert!(matches!(loaded, CasBytes::Owned(_)));
     }
 
     #[test]

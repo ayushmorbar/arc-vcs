@@ -67,6 +67,133 @@ impl View {
     }
 }
 
+/// Tie-break policy when both sorted sources contain the same key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayPrecedence {
+    /// Keep the item from the left input.
+    Left,
+    /// Keep the item from the right input.
+    Right,
+}
+
+/// Merge two sorted streams while preferring one source on key collision.
+pub fn merge_sorted_overlay<T, I, J, K, F>(
+    left: I,
+    right: J,
+    key_fn: F,
+    precedence: OverlayPrecedence,
+) -> std::vec::IntoIter<T>
+where
+    I: IntoIterator<Item = T>,
+    J: IntoIterator<Item = T>,
+    F: Fn(&T) -> K,
+    K: Ord,
+{
+    let mut left = left.into_iter().peekable();
+    let mut right = right.into_iter().peekable();
+    let mut out = Vec::new();
+
+    loop {
+        match (left.peek(), right.peek()) {
+            (Some(l), Some(r)) => {
+                let lk = key_fn(l);
+                let rk = key_fn(r);
+                match lk.cmp(&rk) {
+                    std::cmp::Ordering::Less => {
+                        if let Some(item) = left.next() {
+                            out.push(item);
+                        }
+                    }
+                    std::cmp::Ordering::Greater => {
+                        if let Some(item) = right.next() {
+                            out.push(item);
+                        }
+                    }
+                    std::cmp::Ordering::Equal => {
+                        let l_item = left.next();
+                        let r_item = right.next();
+                        match precedence {
+                            OverlayPrecedence::Left => {
+                                if let Some(item) = l_item {
+                                    out.push(item);
+                                }
+                            }
+                            OverlayPrecedence::Right => {
+                                if let Some(item) = r_item {
+                                    out.push(item);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (Some(_), None) => {
+                out.extend(left);
+                break;
+            }
+            (None, Some(_)) => {
+                out.extend(right);
+                break;
+            }
+            (None, None) => break,
+        }
+    }
+
+    out.into_iter()
+}
+
+/// Load persisted views and merge an in-memory overlay by name.
+pub fn load_views_with_overlay(
+    arc_root: impl AsRef<Path>,
+    overlay: &[View],
+    precedence: OverlayPrecedence,
+) -> Result<Vec<View>, StoreError> {
+    let mut persisted = load_all_views(arc_root.as_ref())?;
+    persisted.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut sorted_overlay = overlay.to_vec();
+    sorted_overlay.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(merge_sorted_overlay(
+        persisted,
+        sorted_overlay,
+        |view| view.name.clone(),
+        precedence,
+    )
+    .collect())
+}
+
+fn load_all_views(arc_root: &Path) -> Result<Vec<View>, StoreError> {
+    let root = arc_root.join(".arc").join("views");
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    collect_view_paths(&root, &mut paths)?;
+
+    let mut views = Vec::new();
+    for path in paths {
+        let bytes = fs::read(&path)?;
+        let view: View = bincode::deserialize(&bytes)?;
+        views.push(view);
+    }
+
+    Ok(views)
+}
+
+fn collect_view_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), StoreError> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_view_paths(&path, out)?;
+        } else if path.is_file() {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 /// Canonical path: `<arc_root>/.arc/views/<name>`
 fn view_path(arc_root: &Path, name: &str) -> PathBuf {
     arc_root.join(".arc").join("views").join(name)
@@ -127,5 +254,31 @@ mod tests {
 
         assert_eq!(loaded, view);
         assert_eq!(loaded.name, "feature/auth");
+    }
+
+    #[test]
+    fn test_sorted_overlay_prefers_right_on_collision() {
+        let left = vec![
+            View::new("a", HashSet::from([[1u8; 32]])),
+            View::new("c", HashSet::from([[3u8; 32]])),
+        ];
+        let right = vec![
+            View::new("b", HashSet::from([[2u8; 32]])),
+            View::new("c", HashSet::from([[9u8; 32]])),
+        ];
+
+        let merged: Vec<View> = merge_sorted_overlay(
+            left,
+            right,
+            |view| view.name.clone(),
+            OverlayPrecedence::Right,
+        )
+        .collect();
+
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].name, "a");
+        assert_eq!(merged[1].name, "b");
+        assert_eq!(merged[2].name, "c");
+        assert!(merged[2].heads.contains(&[9u8; 32]));
     }
 }
