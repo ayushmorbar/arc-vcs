@@ -1,10 +1,19 @@
+use std::ffi::OsStr;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_algebra_types::Blake3Hash;
-use memmap2::Mmap;
+use arc_store_types::newtypes::{BlobId, ChangeId};
+use bytes::Bytes;
+use memmap2::{Mmap, MmapOptions};
 use thiserror::Error;
+use tracing::instrument;
+
+const SMALL_OBJECT_THRESHOLD: u64 = 4096;
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Errors returned by the standalone CAS engine.
 #[derive(Debug, Error)]
@@ -23,7 +32,9 @@ pub enum CasError {
 /// fully transparent to them.
 pub enum CasBytes {
     /// Heap-allocated bytes for small blobs (< 4 096 bytes).
-    Owned(Vec<u8>),
+    ///
+    /// `Bytes` preserves zero-copy handoff into downstream streaming paths.
+    Owned(Bytes),
     /// Memory-mapped file for large blobs (≥ 4 096 bytes).
     Mapped(Mmap),
 }
@@ -42,7 +53,7 @@ impl std::ops::Deref for CasBytes {
 impl Default for CasBytes {
     #[inline]
     fn default() -> Self {
-        CasBytes::Owned(Vec::new())
+        CasBytes::Owned(Bytes::new())
     }
 }
 
@@ -83,22 +94,15 @@ impl ObjectStore {
     /// Semantic guarantee: storage is content-addressed by caller-supplied
     /// BLAKE3 keys, and duplicate writes under an existing path are skipped.
     ///
-    /// This is a local best-effort dedup behavior, not a crash-atomic
-    /// multi-writer protocol.
+    /// CAS publish semantics are write-once: once an object path is present,
+    /// concurrent writers will observe a benign dedup outcome.
     ///
-    /// Durability note: this method performs a direct file write and does not
-    /// issue an explicit fsync. It guarantees deterministic path placement and
-    /// dedup semantics, but power-loss durability must be provided by a higher
-    /// durability layer if required.
+    /// Durability note: publish uses temp-file write + `sync_data()` +
+    /// no-overwrite link + directory sync (on supported platforms).
+    #[instrument(skip_all)]
     pub fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
         let path = self.object_path(hash);
-        if path.exists() {
-            return Ok(*hash);
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, bytes)?;
+        write_once_atomic(&path, bytes)?;
         Ok(*hash)
     }
 
@@ -106,18 +110,10 @@ impl ObjectStore {
     ///
     /// Files < 4 096 bytes are read into a `Vec<u8>`; larger objects are
     /// memory-mapped to avoid a heap copy.
+    #[instrument(skip_all)]
     pub fn read_object(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError> {
         let path = self.object_path(hash);
-        let mut file = fs::File::open(&path)?;
-        let len = file.metadata()?.len();
-        if len < 4096 {
-            let mut buf = Vec::with_capacity(len as usize);
-            file.read_to_end(&mut buf)?;
-            Ok(CasBytes::Owned(buf))
-        } else {
-            // SAFETY: CAS objects are immutable after write.
-            Ok(CasBytes::Mapped(unsafe { Mmap::map(&file)? }))
-        }
+        read_cas_bytes(&path)
     }
 
     /// Derive the on-disk path for a raw blob in `.arc/blobs/{hex(hash)}`.
@@ -129,17 +125,22 @@ impl ObjectStore {
     ///
     /// Returns the BLAKE3 hash of the content (the blob's storage key).
     /// If the blob already exists the write is skipped.
+    #[instrument(skip_all)]
     pub fn write_blob(&self, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
         let hash: Blake3Hash = *blake3::hash(bytes).as_bytes();
         let path = self.blob_path(&hash);
-        if path.exists() {
-            return Ok(hash);
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, bytes)?;
+        write_once_atomic(&path, bytes)?;
         Ok(hash)
+    }
+
+    /// Persist raw bytes as a content-addressed blob and return a typed
+    /// identifier for cross-crate APIs.
+    ///
+    /// This wrapper keeps type boundaries explicit (`BlobId` instead of
+    /// bare hash arrays) while preserving the same CAS write path.
+    #[instrument(skip_all)]
+    pub fn write_blob_typed(&self, bytes: &[u8]) -> Result<BlobId, CasError> {
+        self.write_blob(bytes).map(BlobId::from)
     }
 
     /// Read raw bytes for a blob by its BLAKE3 hash.
@@ -147,22 +148,23 @@ impl ObjectStore {
     /// Files < 4 096 bytes are read into a `Vec<u8>`; larger blobs are
     /// memory-mapped for zero-copy access.  Callers dereference the result
     /// to obtain a `&[u8]` slice.
+    #[instrument(skip_all)]
     pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError> {
         let path = self.blob_path(hash);
-        let mut file = fs::File::open(&path)?;
-        let len = file.metadata()?.len();
-        if len < 4096 {
-            let mut buf = Vec::with_capacity(len as usize);
-            file.read_to_end(&mut buf)?;
-            Ok(CasBytes::Owned(buf))
-        } else {
-            // SAFETY: CAS blobs are immutable once written — no writer holds
-            // a reference after `write_blob` returns.
-            Ok(CasBytes::Mapped(unsafe { Mmap::map(&file)? }))
-        }
+        read_cas_bytes(&path)
+    }
+
+    /// Read a blob by typed id.
+    ///
+    /// This keeps call-sites in orchestration crates free from raw hash
+    /// plumbing while preserving zero-copy read behavior.
+    #[instrument(skip_all)]
+    pub fn read_blob_typed(&self, id: BlobId) -> Result<CasBytes, CasError> {
+        self.read_blob(&id.0)
     }
 
     /// Return `true` when the blob exists in `.arc/blobs/`.
+    #[instrument(skip_all)]
     pub fn contains_blob(&self, hash: &Blake3Hash) -> bool {
         self.blob_path(hash).exists()
     }
@@ -172,8 +174,28 @@ impl ObjectStore {
     /// Useful for callers that need to stream the blob directly from disk
     /// rather than loading it into RAM (e.g. the HTTP push path in
     /// `arc-cli` streams via `PUT /blobs/:hash` without buffering).
+    #[instrument(skip_all)]
     pub fn blob_file_path(&self, hash: &Blake3Hash) -> PathBuf {
         self.blob_path(hash)
+    }
+
+    /// Persist serialized change bytes under a typed change identifier.
+    ///
+    /// I/O boundary: this method writes to local CAS only. Network transfer,
+    /// signature verification, and merge algebra remain outside this crate.
+    #[instrument(skip_all)]
+    pub fn write_change_bytes(&self, id: ChangeId, bytes: &[u8]) -> Result<ChangeId, CasError> {
+        self.write_object(&id.0, bytes)?;
+        Ok(id)
+    }
+
+    /// Read serialized change bytes by typed identifier.
+    ///
+    /// The returned value preserves zero-copy semantics for large payloads
+    /// by using read-only memory maps.
+    #[instrument(skip_all)]
+    pub fn read_change_bytes(&self, id: ChangeId) -> Result<CasBytes, CasError> {
+        self.read_object(&id.0)
     }
 }
 
@@ -186,9 +208,110 @@ fn hex_encode(hash: &Blake3Hash) -> String {
     })
 }
 
+/// Read CAS bytes with a small-object fast path and mmap for larger blobs.
+///
+/// This mirrors the high-throughput split used in modern object databases:
+/// avoid mmap setup overhead for tiny payloads while preserving zero-copy
+/// access for larger immutable files.
+fn read_cas_bytes(path: &Path) -> Result<CasBytes, CasError> {
+    let mut file = fs::File::open(path)?;
+    let len = file.metadata()?.len();
+
+    if len < SMALL_OBJECT_THRESHOLD {
+        let mut buf = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut buf)?;
+        return Ok(CasBytes::Owned(Bytes::from(buf)));
+    }
+
+    // SAFETY: CAS files are immutable after successful publish.
+    let mapped = unsafe { MmapOptions::new().map(&file)? };
+    Ok(CasBytes::Mapped(mapped))
+}
+
+/// Publish bytes atomically into CAS with crash-consistency semantics.
+///
+/// The write protocol is:
+/// 1. write full payload into a unique temp file in the destination directory,
+/// 2. fsync the temp file data,
+/// 3. atomically hard-link temp into final path (no-overwrite publish),
+/// 4. fsync the parent directory when supported by the platform.
+///
+/// If another writer already published the same object concurrently,
+/// `AlreadyExists` at link time is treated as a benign dedup outcome.
+fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
+    if path.exists() {
+        return Ok(false);
+    }
+
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "CAS object path must have a parent directory",
+        )
+    })?;
+    fs::create_dir_all(parent)?;
+
+    let file_name = path.file_name().unwrap_or_else(|| OsStr::new("cas-object"));
+    let tmp_path = create_unique_temp_path(parent, file_name)?;
+
+    let mut tmp = fs::OpenOptions::new().create_new(true).write(true).open(&tmp_path)?;
+    tmp.write_all(bytes)?;
+    tmp.sync_data()?;
+    drop(tmp);
+
+    match fs::hard_link(&tmp_path, path) {
+        Ok(()) => {
+            sync_directory_if_supported(parent)?;
+            let _ = fs::remove_file(&tmp_path);
+            Ok(true)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = fs::remove_file(&tmp_path);
+            Ok(false)
+        }
+        Err(err) => {
+            let _ = fs::remove_file(&tmp_path);
+            Err(err.into())
+        }
+    }
+}
+
+fn create_unique_temp_path(parent: &Path, file_name: &OsStr) -> Result<PathBuf, CasError> {
+    let pid = std::process::id();
+    let base = file_name.to_string_lossy();
+
+    for _ in 0..16 {
+        let tick = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0u128, |duration| duration.as_nanos());
+        let candidate = parent.join(format!(".{base}.tmp-{pid}-{nanos}-{tick}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "failed to allocate a unique CAS temp-file path after 16 attempts",
+    )
+    .into())
+}
+
+#[cfg(unix)]
+fn sync_directory_if_supported(parent: &Path) -> std::io::Result<()> {
+    fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory_if_supported(_parent: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arc_store_types::newtypes::{BlobId, ChangeId};
 
     fn sample_object() -> (Blake3Hash, Vec<u8>) {
         let bytes = b"hello-cas".to_vec();
@@ -245,5 +368,30 @@ mod tests {
             path_str.contains("/store/ab/"),
             "path must follow {{first_2_hex}}/{{remaining_hex}} layout, got: {path_str}"
         );
+    }
+
+    #[test]
+    fn test_typed_blob_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+
+        let id: BlobId = store.write_blob_typed(b"typed-blob").unwrap();
+        let loaded = store.read_blob_typed(id).unwrap();
+        assert_eq!(&*loaded, b"typed-blob");
+    }
+
+    #[test]
+    fn test_typed_change_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+
+        let raw: Blake3Hash = *blake3::hash(b"change-bytes").as_bytes();
+        let id = ChangeId::from(raw);
+        let bytes = b"serialized-change";
+
+        let written = store.write_change_bytes(id, bytes).unwrap();
+        assert_eq!(written, id);
+        let loaded = store.read_change_bytes(id).unwrap();
+        assert_eq!(&*loaded, bytes);
     }
 }

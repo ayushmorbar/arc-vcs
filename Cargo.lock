@@ -404,10 +404,12 @@ dependencies = [
  "arc-store-types",
  "bincode",
  "blake3",
+ "bytes",
  "memmap2",
  "serde",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
