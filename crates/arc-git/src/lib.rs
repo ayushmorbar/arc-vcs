@@ -35,8 +35,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-#[cfg(test)]
-use std::sync::atomic::{AtomicU8, Ordering};
 
 // -- types --------------------------------------------------------------------
 
@@ -98,6 +96,30 @@ pub struct GitAnalysis {
     pub commits: Vec<GitCommit>,
 }
 
+const TEST_TRAVERSAL_AUTO: u8 = 0;
+const TEST_TRAVERSAL_COMMIT_GRAPH_ONLY: u8 = 1;
+const TEST_TRAVERSAL_LEGACY_ONLY: u8 = 2;
+const TEST_TRAVERSAL_FORCE_GRAPH_FAIL: u8 = 3;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_TRAVERSAL_OVERRIDE: std::cell::Cell<u8> = const { std::cell::Cell::new(TEST_TRAVERSAL_AUTO) };
+}
+
+#[cfg(test)]
+fn set_test_traversal_override(mode: u8) -> u8 {
+    TEST_TRAVERSAL_OVERRIDE.with(|cell| {
+        let prev = cell.get();
+        cell.set(mode);
+        prev
+    })
+}
+
+#[cfg(test)]
+fn get_test_traversal_override() -> u8 {
+    TEST_TRAVERSAL_OVERRIDE.with(std::cell::Cell::get)
+}
+
 // -- public API ---------------------------------------------------------------
 
 /// Open the Git repository at `path`, walk every reachable commit from
@@ -107,6 +129,33 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
     let head_oid = resolve_head(&git_dir)?;
     let head_hex = oid_hex(&head_oid);
 
+    let commits = collect_commits_with_fallback(&git_dir, head_oid)?;
+
+    Ok(GitAnalysis {
+        path: path.to_path_buf(),
+        head_hex,
+        commit_count: commits.len(),
+        commits,
+    })
+}
+
+fn collect_commits_with_fallback(git_dir: &Path, head_oid: GitOid) -> Result<Vec<GitCommit>> {
+    #[cfg(test)]
+    let mode = get_test_traversal_override();
+    #[cfg(not(test))]
+    let mode = TEST_TRAVERSAL_AUTO;
+
+    match mode {
+        TEST_TRAVERSAL_LEGACY_ONLY => collect_commits_legacy(git_dir, head_oid),
+        TEST_TRAVERSAL_COMMIT_GRAPH_ONLY => collect_commits_commit_graph(git_dir, head_oid),
+        TEST_TRAVERSAL_FORCE_GRAPH_FAIL => collect_commits_commit_graph(git_dir, head_oid)
+            .or_else(|_| collect_commits_legacy(git_dir, head_oid)),
+        _ => collect_commits_commit_graph(git_dir, head_oid)
+            .or_else(|_| collect_commits_legacy(git_dir, head_oid)),
+    }
+}
+
+fn collect_commits_legacy(git_dir: &Path, head_oid: GitOid) -> Result<Vec<GitCommit>> {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     let mut commits = Vec::new();
@@ -116,7 +165,7 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
         if !visited.insert(oid) {
             continue;
         }
-        let obj = read_object(&git_dir, &oid)?;
+        let obj = read_object(git_dir, &oid)?;
         if obj.kind != ObjKind::Commit {
             continue;
         }
@@ -130,12 +179,45 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
     // Reverse BFS order -> oldest commit first (natural for replaying).
     commits.reverse();
 
-    Ok(GitAnalysis {
-        path: path.to_path_buf(),
-        head_hex,
-        commit_count: commits.len(),
-        commits,
-    })
+    Ok(commits)
+}
+
+fn collect_commits_commit_graph(git_dir: &Path, head_oid: GitOid) -> Result<Vec<GitCommit>> {
+    #[cfg(test)]
+    if get_test_traversal_override() == TEST_TRAVERSAL_FORCE_GRAPH_FAIL {
+        bail!("forced commit-graph traversal failure");
+    }
+
+    let graph = CommitGraphIndex::open(git_dir)?;
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    let mut order = Vec::new();
+
+    queue.push_back(head_oid);
+    while let Some(oid) = queue.pop_front() {
+        if !visited.insert(oid) {
+            continue;
+        }
+        let parents = graph.parent_oids_for(&oid)?;
+        for parent in parents {
+            queue.push_back(parent);
+        }
+        order.push(oid);
+    }
+
+    order.reverse();
+    let mut commits = Vec::with_capacity(order.len());
+    for oid in order {
+        let obj = read_object(git_dir, &oid)?;
+        if obj.kind != ObjKind::Commit {
+            continue;
+        }
+        // Domain boundary: commit-graph traversal emits Git OIDs only; full commit
+        // domain values are materialized through commit parsing at arc-git boundary.
+        commits.push(parse_commit(&oid, &obj.data)?);
+    }
+
+    Ok(commits)
 }
 
 /// Render a [`GitOid`] as a 40-char lowercase hex string.
@@ -254,16 +336,22 @@ const TEST_BACKEND_LEGACY_ONLY: u8 = 2;
 const TEST_BACKEND_FORCE_MMAP_FAIL: u8 = 3;
 
 #[cfg(test)]
-static TEST_BACKEND_OVERRIDE: AtomicU8 = AtomicU8::new(TEST_BACKEND_AUTO);
+thread_local! {
+    static TEST_BACKEND_OVERRIDE: std::cell::Cell<u8> = const { std::cell::Cell::new(TEST_BACKEND_AUTO) };
+}
 
 #[cfg(test)]
 fn set_test_backend_override(mode: u8) -> u8 {
-    TEST_BACKEND_OVERRIDE.swap(mode, Ordering::Relaxed)
+    TEST_BACKEND_OVERRIDE.with(|cell| {
+        let prev = cell.get();
+        cell.set(mode);
+        prev
+    })
 }
 
 #[cfg(test)]
 fn get_test_backend_override() -> u8 {
-    TEST_BACKEND_OVERRIDE.load(Ordering::Relaxed)
+    TEST_BACKEND_OVERRIDE.with(std::cell::Cell::get)
 }
 
 /// Read an object from pack storage using a tiered backend strategy.
@@ -379,6 +467,340 @@ fn mmap_read_only(path: &Path) -> Result<Mmap> {
     Ok(map)
 }
 
+// -- commit-graph traversal --------------------------------------------------
+
+const COMMIT_GRAPH_SIGNATURE: &[u8; 4] = b"CGPH";
+const COMMIT_GRAPH_HEADER_LEN: usize = 8;
+const COMMIT_GRAPH_FAN_LEN: usize = 256;
+const COMMIT_GRAPH_COMMIT_DATA_SANS_HASH: usize = 16;
+const COMMIT_GRAPH_NO_PARENT: u32 = 0x7000_0000;
+const COMMIT_GRAPH_EXTENDED_EDGE_MASK: u32 = 0x8000_0000;
+
+/// Read-only commit-graph view backed by an mmap.
+///
+/// The parser validates chunk table offsets and chunk sizes before exposing
+/// accessors. Traversal consumes only `GitOid` parent relationships so raw
+/// chunk offsets never leave this internal ingress boundary.
+struct CommitGraphIndex {
+    data: Mmap,
+    hash_len: usize,
+    fan: [u32; COMMIT_GRAPH_FAN_LEN],
+    oid_lookup_offset: usize,
+    commit_data_offset: usize,
+    edge_chunk_range: Option<std::ops::Range<usize>>,
+    commit_count: u32,
+}
+
+impl CommitGraphIndex {
+    /// Open and validate `.git/objects/info/commit-graph` for accelerated history walk.
+    ///
+    /// Fallback behavior:
+    /// Callers should treat any error from this constructor as a soft failure and
+    /// switch to legacy commit object traversal. This keeps ingestion resilient for
+    /// repositories without commit-graph support or with malformed/stale metadata.
+    fn open(git_dir: &Path) -> Result<Self> {
+        let path = resolve_commit_graph_path(git_dir)?;
+        let data = mmap_read_only(&path)?;
+        Self::from_mmap(data)
+    }
+
+    fn from_mmap(data: Mmap) -> Result<Self> {
+        if data.len() < COMMIT_GRAPH_HEADER_LEN {
+            bail!("commit-graph is too small");
+        }
+
+        if data
+            .get(0..4)
+            .context("commit-graph header missing signature")?
+            != COMMIT_GRAPH_SIGNATURE
+        {
+            bail!("commit-graph signature mismatch");
+        }
+
+        let version = *data.get(4).context("commit-graph missing version")?;
+        if version != 1 {
+            bail!("unsupported commit-graph version {version}");
+        }
+
+        let hash_version = *data.get(5).context("commit-graph missing hash version")?;
+        if hash_version != 1 {
+            bail!("unsupported commit-graph hash version {hash_version}");
+        }
+        let hash_len = 20usize;
+
+        let chunk_count = *data.get(6).context("commit-graph missing chunk count")? as usize;
+        let base_graph_count = *data
+            .get(7)
+            .context("commit-graph missing base graph count")?;
+        if base_graph_count != 0 {
+            bail!(
+                "split commit-graph chains are not supported in arc-git fast path; fallback required"
+            );
+        }
+        if chunk_count == 0 {
+            bail!("commit-graph chunk table is empty");
+        }
+
+        let toc_bytes = (chunk_count + 1)
+            .checked_mul(12)
+            .context("commit-graph table-of-contents size overflow")?;
+        let toc_start = COMMIT_GRAPH_HEADER_LEN;
+        let toc_end = toc_start
+            .checked_add(toc_bytes)
+            .context("commit-graph table-of-contents range overflow")?;
+        if toc_end > data.len() {
+            bail!("commit-graph table-of-contents exceeds file length");
+        }
+
+        let mut chunks: HashMap<[u8; 4], std::ops::Range<usize>> = HashMap::new();
+        let mut entries = Vec::with_capacity(chunk_count + 1);
+        let mut cursor = toc_start;
+        for _ in 0..=chunk_count {
+            let id: [u8; 4] = data
+                .get(cursor..cursor + 4)
+                .context("commit-graph truncated chunk id")?
+                .try_into()?;
+            let offset = usize::try_from(read_u64_be_at(
+                &data,
+                cursor + 4,
+                "commit-graph chunk offset",
+            )?)
+            .context("commit-graph chunk offset does not fit in usize")?;
+            entries.push((id, offset));
+            cursor += 12;
+        }
+
+        let (sentinel_id, _) = entries.last().context("missing commit-graph sentinel")?;
+        if *sentinel_id != [0, 0, 0, 0] {
+            bail!("commit-graph chunk sentinel missing");
+        }
+
+        for window in entries.windows(2) {
+            let (id, start) = window[0];
+            let (_, end) = window[1];
+            if end <= start {
+                bail!("commit-graph chunk offsets are not strictly increasing");
+            }
+            if start < toc_end {
+                bail!("commit-graph chunk overlaps table-of-contents region");
+            }
+            if end > data.len() {
+                bail!("commit-graph chunk exceeds file length");
+            }
+            if chunks.contains_key(&id) {
+                bail!("commit-graph contains duplicate chunk id");
+            }
+            chunks.insert(id, start..end);
+        }
+
+        let oidf = chunks
+            .get(b"OIDF")
+            .context("commit-graph missing OIDF chunk")?
+            .clone();
+        let oidl = chunks
+            .get(b"OIDL")
+            .context("commit-graph missing OIDL chunk")?
+            .clone();
+        let cdat = chunks
+            .get(b"CDAT")
+            .context("commit-graph missing CDAT chunk")?
+            .clone();
+        let edge = chunks.get(b"EDGE").cloned();
+
+        if oidf.len() != COMMIT_GRAPH_FAN_LEN * 4 {
+            bail!("commit-graph OIDF chunk has invalid size");
+        }
+
+        let mut fan = [0u32; COMMIT_GRAPH_FAN_LEN];
+        for (idx, slot) in fan.iter_mut().enumerate() {
+            *slot = read_u32_be_at(&data, oidf.start + idx * 4, "commit-graph fanout")?;
+        }
+        let commit_count = fan[255];
+        let commit_count_usize = commit_count as usize;
+
+        let expected_oidl = commit_count_usize
+            .checked_mul(hash_len)
+            .context("commit-graph OIDL size overflow")?;
+        if oidl.len() != expected_oidl {
+            bail!("commit-graph OIDL chunk length does not match fanout count");
+        }
+
+        let cdat_entry_size = hash_len + COMMIT_GRAPH_COMMIT_DATA_SANS_HASH;
+        let expected_cdat = commit_count_usize
+            .checked_mul(cdat_entry_size)
+            .context("commit-graph CDAT size overflow")?;
+        if cdat.len() != expected_cdat {
+            bail!("commit-graph CDAT chunk length does not match fanout count");
+        }
+
+        if let Some(edge_range) = &edge
+            && edge_range.len() % 4 != 0
+        {
+            bail!("commit-graph EDGE chunk has non-u32 length");
+        }
+
+        Ok(Self {
+            data,
+            hash_len,
+            fan,
+            oid_lookup_offset: oidl.start,
+            commit_data_offset: cdat.start,
+            edge_chunk_range: edge,
+            commit_count,
+        })
+    }
+
+    fn lookup_position(&self, oid: &GitOid) -> Option<u32> {
+        let first = oid[0] as usize;
+        let mut upper = self.fan[first];
+        let mut lower = if first == 0 { 0 } else { self.fan[first - 1] };
+
+        while lower < upper {
+            let mid = (lower + upper) / 2;
+            let mid_oid = self.oid_at(mid).ok()?;
+            match oid.as_slice().cmp(mid_oid.as_slice()) {
+                std::cmp::Ordering::Less => upper = mid,
+                std::cmp::Ordering::Equal => return Some(mid),
+                std::cmp::Ordering::Greater => lower = mid + 1,
+            }
+        }
+        None
+    }
+
+    fn oid_at(&self, pos: u32) -> Result<GitOid> {
+        if pos >= self.commit_count {
+            bail!("commit-graph position {pos} out of bounds");
+        }
+        let start = self
+            .oid_lookup_offset
+            .checked_add(pos as usize * self.hash_len)
+            .context("commit-graph OIDL offset overflow")?;
+        let slice = self
+            .data
+            .get(start..start + self.hash_len)
+            .context("commit-graph OIDL entry out of bounds")?;
+        slice
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("commit-graph OIDL entry has invalid hash width"))
+    }
+
+    fn parent_oids_for(&self, oid: &GitOid) -> Result<Vec<GitOid>> {
+        let pos = self
+            .lookup_position(oid)
+            .context("HEAD or parent OID is not present in commit-graph")?;
+        let parent_positions = self.parent_positions_for(pos)?;
+        parent_positions
+            .into_iter()
+            .map(|p| self.oid_at(p))
+            .collect()
+    }
+
+    fn parent_positions_for(&self, pos: u32) -> Result<Vec<u32>> {
+        if pos >= self.commit_count {
+            bail!("commit-graph position {pos} out of bounds");
+        }
+
+        let entry_size = self.hash_len + COMMIT_GRAPH_COMMIT_DATA_SANS_HASH;
+        let start = self
+            .commit_data_offset
+            .checked_add(pos as usize * entry_size)
+            .context("commit-graph CDAT entry offset overflow")?;
+        let entry = self
+            .data
+            .get(start..start + entry_size)
+            .context("commit-graph CDAT entry out of bounds")?;
+
+        let parent1 = read_u32_from(entry, self.hash_len, "commit-graph parent1")?;
+        let parent2 = read_u32_from(entry, self.hash_len + 4, "commit-graph parent2")?;
+
+        let mut parents = Vec::new();
+        if parent1 != COMMIT_GRAPH_NO_PARENT {
+            if parent1 & COMMIT_GRAPH_EXTENDED_EDGE_MASK != 0 {
+                bail!("commit-graph parent1 cannot reference EDGE list");
+            }
+            parents.push(self.validate_parent_position(parent1)?);
+        }
+
+        if parent2 == COMMIT_GRAPH_NO_PARENT {
+            return Ok(parents);
+        }
+
+        if parent2 & COMMIT_GRAPH_EXTENDED_EDGE_MASK == 0 {
+            parents.push(self.validate_parent_position(parent2)?);
+            return Ok(parents);
+        }
+
+        let edge_idx = parent2 & !COMMIT_GRAPH_EXTENDED_EDGE_MASK;
+        let edge_range = self
+            .edge_chunk_range
+            .clone()
+            .context("commit-graph parent references missing EDGE chunk")?;
+        let mut cursor = edge_range
+            .start
+            .checked_add(edge_idx as usize * 4)
+            .context("commit-graph EDGE offset overflow")?;
+
+        loop {
+            let raw = read_u32_be_at(&self.data, cursor, "commit-graph EDGE parent")?;
+            cursor = cursor
+                .checked_add(4)
+                .context("commit-graph EDGE cursor overflow")?;
+
+            if raw & COMMIT_GRAPH_EXTENDED_EDGE_MASK != 0 {
+                let last = raw & !COMMIT_GRAPH_EXTENDED_EDGE_MASK;
+                parents.push(self.validate_parent_position(last)?);
+                break;
+            }
+            parents.push(self.validate_parent_position(raw)?);
+
+            if cursor > edge_range.end {
+                bail!("commit-graph EDGE traversal overflow");
+            }
+        }
+
+        Ok(parents)
+    }
+
+    fn validate_parent_position(&self, pos: u32) -> Result<u32> {
+        if pos >= self.commit_count {
+            bail!("commit-graph parent position {pos} out of bounds");
+        }
+        Ok(pos)
+    }
+}
+
+fn resolve_commit_graph_path(git_dir: &Path) -> Result<PathBuf> {
+    let info_dir = git_dir.join("objects").join("info");
+    let monolithic = info_dir.join("commit-graph");
+    if monolithic.is_file() {
+        return Ok(monolithic);
+    }
+
+    let split_dir = info_dir.join("commit-graphs");
+    let chain = split_dir.join("commit-graph-chain");
+    if chain.is_file() {
+        let content = std::fs::read_to_string(&chain)
+            .with_context(|| format!("failed to read '{}'", chain.display()))?;
+        let last = content
+            .lines()
+            .map(str::trim)
+            .rfind(|l| !l.is_empty())
+            .context("commit-graph chain file is empty")?;
+        return Ok(split_dir.join(format!("graph-{last}.graph")));
+    }
+
+    bail!("commit-graph file not found")
+}
+
+fn read_u32_from(buf: &[u8], offset: usize, what: &str) -> Result<u32> {
+    let bytes = buf
+        .get(offset..offset + 4)
+        .with_context(|| format!("truncated {what} at offset {offset}"))?;
+    let mut arr = [0u8; 4];
+    arr.copy_from_slice(bytes);
+    Ok(u32::from_be_bytes(arr))
+}
+
 /// Look up `oid` in a **v2** pack index, then extract from the `.pack`.
 fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Result<RawObject> {
     // -- v2 index header ------------------------------------------------
@@ -461,7 +883,8 @@ fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Resu
                     .context("pack idx big-offset index overflow")?,
             )
             .context("pack idx big-offset pointer overflow")?;
-        read_u64_be_at(idx, big_off, "pack idx 64-bit offset")? as usize
+        usize::try_from(read_u64_be_at(idx, big_off, "pack idx 64-bit offset")?)
+            .context("pack idx 64-bit offset does not fit in usize")?
     } else {
         raw_off as usize
     };
@@ -1066,18 +1489,25 @@ mod tests {
     }
 
     struct BackendOverrideGuard {
-        previous: u8,
+        previous_pack: u8,
+        previous_traversal: u8,
         _lock: MutexGuard<'static, ()>,
     }
 
     impl BackendOverrideGuard {
         fn set(mode: u8) -> Self {
+            Self::set_with(mode, TEST_TRAVERSAL_AUTO)
+        }
+
+        fn set_with(pack_mode: u8, traversal_mode: u8) -> Self {
             let lock = backend_override_lock()
                 .lock()
                 .expect("backend override mutex should not be poisoned");
-            let previous = set_test_backend_override(mode);
+            let previous_pack = set_test_backend_override(pack_mode);
+            let previous_traversal = set_test_traversal_override(traversal_mode);
             Self {
-                previous,
+                previous_pack,
+                previous_traversal,
                 _lock: lock,
             }
         }
@@ -1085,7 +1515,8 @@ mod tests {
 
     impl Drop for BackendOverrideGuard {
         fn drop(&mut self) {
-            let _ = set_test_backend_override(self.previous);
+            let _ = set_test_backend_override(self.previous_pack);
+            let _ = set_test_traversal_override(self.previous_traversal);
         }
     }
 
@@ -1109,6 +1540,12 @@ mod tests {
         git(&["commit", "-m", "binary"], path);
 
         git(&["gc", "--aggressive", "--prune=now"], path);
+        dir
+    }
+
+    fn create_commit_graph_repo() -> tempfile::TempDir {
+        let dir = create_packed_repo();
+        git(&["commit-graph", "write", "--reachable"], dir.path());
         dir
     }
 
@@ -1306,5 +1743,68 @@ mod tests {
             .map(|c| c.message.as_str())
             .collect();
         assert_eq!(mmap_messages, legacy_messages);
+    }
+
+    #[test]
+    fn test_commit_graph_and_legacy_traversal_are_parity_equivalent() {
+        let dir = create_commit_graph_repo();
+
+        let graph_analysis = {
+            let _guard =
+                BackendOverrideGuard::set_with(TEST_BACKEND_AUTO, TEST_TRAVERSAL_COMMIT_GRAPH_ONLY);
+            analyze_git_repo(dir.path()).unwrap()
+        };
+
+        let legacy_analysis = {
+            let _guard =
+                BackendOverrideGuard::set_with(TEST_BACKEND_AUTO, TEST_TRAVERSAL_LEGACY_ONLY);
+            analyze_git_repo(dir.path()).unwrap()
+        };
+
+        assert_eq!(graph_analysis.head_hex, legacy_analysis.head_hex);
+        assert_eq!(graph_analysis.commit_count, legacy_analysis.commit_count);
+        let graph_oids: Vec<GitOid> = graph_analysis.commits.iter().map(|c| c.oid).collect();
+        let legacy_oids: Vec<GitOid> = legacy_analysis.commits.iter().map(|c| c.oid).collect();
+        assert_eq!(graph_oids, legacy_oids);
+        let graph_messages: Vec<&str> = graph_analysis
+            .commits
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        let legacy_messages: Vec<&str> = legacy_analysis
+            .commits
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        assert_eq!(graph_messages, legacy_messages);
+    }
+
+    #[test]
+    fn test_stale_commit_graph_falls_back_to_legacy() {
+        let dir = create_commit_graph_repo();
+        let path = dir.path();
+
+        std::fs::write(path.join("post_graph.txt"), "latest\n").unwrap();
+        git(&["add", "."], path);
+        git(&["commit", "-m", "post-graph"], path);
+
+        let analysis = analyze_git_repo(path).unwrap();
+        assert_eq!(analysis.commits.last().unwrap().message, "post-graph");
+
+        let legacy = {
+            let _guard =
+                BackendOverrideGuard::set_with(TEST_BACKEND_AUTO, TEST_TRAVERSAL_LEGACY_ONLY);
+            analyze_git_repo(path).unwrap()
+        };
+        assert_eq!(analysis.head_hex, legacy.head_hex);
+        assert_eq!(analysis.commit_count, legacy.commit_count);
+        let analysis_messages: Vec<&str> = analysis
+            .commits
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        let legacy_messages: Vec<&str> =
+            legacy.commits.iter().map(|c| c.message.as_str()).collect();
+        assert_eq!(analysis_messages, legacy_messages);
     }
 }
