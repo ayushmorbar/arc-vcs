@@ -1,4 +1,5 @@
 use std::collections::{HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::repo::Repository;
@@ -490,6 +491,83 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
 /// bytes-uploaded counter is updated.
 const HEAVY_BLOB_THRESHOLD: u64 = 5_242_880; // 5 MiB
 
+#[derive(Clone, Default)]
+struct FirstErrorSlot {
+    inner: Arc<Mutex<Option<anyhow::Error>>>,
+}
+
+impl FirstErrorSlot {
+    fn capture(&self, error: anyhow::Error) {
+        if let Ok(mut slot) = self.inner.lock()
+            && slot.is_none()
+        {
+            *slot = Some(error);
+        }
+    }
+
+    fn is_set(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(true)
+    }
+
+    fn take(&self) -> Option<anyhow::Error> {
+        self.inner.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
+fn validate_blob_sources_parallel(local: &Repository, blob_hashes: &[Blake3Hash]) -> anyhow::Result<()> {
+    if blob_hashes.is_empty() {
+        return Ok(());
+    }
+
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get().min(4))
+        .unwrap_or(1);
+    if workers <= 1 || blob_hashes.len() <= 1 {
+        for hash in blob_hashes {
+            let blob_path = local.store.blob_file_path(hash);
+            let _ = blob_path
+                .metadata()
+                .map_err(|e| anyhow::anyhow!("cannot stat local blob at '{}': {e}", blob_path.display()))?;
+        }
+        return Ok(());
+    }
+
+    let inputs: Vec<std::path::PathBuf> = blob_hashes
+        .iter()
+        .map(|hash| local.store.blob_file_path(hash))
+        .collect();
+    let slot = FirstErrorSlot::default();
+    let chunk_size = inputs.len().div_ceil(workers).max(1);
+
+    std::thread::scope(|scope| {
+        for chunk in inputs.chunks(chunk_size) {
+            let slot = slot.clone();
+            scope.spawn(move || {
+                for path in chunk {
+                    if slot.is_set() {
+                        return;
+                    }
+                    if let Err(error) = path.metadata() {
+                        slot.capture(anyhow::anyhow!(
+                            "cannot stat local blob at '{}': {error}",
+                            path.display()
+                        ));
+                        return;
+                    }
+                }
+            });
+        }
+    });
+
+    if let Some(error) = slot.take() {
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Stream each blob file to `PUT {remote_url}/blobs/{hex}` without loading it
 /// into RAM.  Both 200 (already existed) and 201 (created) are success codes.
 ///
@@ -505,6 +583,8 @@ fn upload_blobs(
     blob_hashes: &[Blake3Hash],
     total_bytes: u64,
 ) -> anyhow::Result<()> {
+    validate_blob_sources_parallel(local, blob_hashes)?;
+
     let mp = indicatif::MultiProgress::new();
     let master_style = indicatif::ProgressStyle::with_template(
         "{bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec}) {msg}",
@@ -785,5 +865,14 @@ mod tests {
                 "B's CAS must contain A's head change after push"
             );
         }
+    }
+
+    #[test]
+    fn first_error_slot_keeps_initial_error() {
+        let slot = FirstErrorSlot::default();
+        slot.capture(anyhow::anyhow!("first"));
+        slot.capture(anyhow::anyhow!("second"));
+        let err = slot.take().expect("must keep first error");
+        assert!(err.to_string().contains("first"));
     }
 }

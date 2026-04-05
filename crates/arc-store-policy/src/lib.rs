@@ -7,6 +7,8 @@ use arc_policy::{PolicyAtom, PolicyDomain, PolicyLattice, PolicyValue, SourceTra
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use thiserror::Error;
 
+mod text;
+
 #[derive(Debug, Error)]
 pub enum PolicyStoreError {
     #[error("failed to read '{path}': {source}")]
@@ -117,7 +119,7 @@ impl ArcIgnoreMatcher {
     }
 
     fn explain_path_kind(&self, path: &str, is_dir: bool) -> IgnorePolicyTrace {
-        let normalized = path.replace('\\', "/");
+        let normalized = text::normalize_slashes(path).into_owned();
         let trace = self.lattice.resolve_with(&normalized, |atom, query| {
             self.rules.get(atom.key.as_ref()).is_some_and(|rule| {
                 rule.matcher
@@ -384,8 +386,14 @@ fn parse_config_includes(
     workspace_root: &Path,
 ) -> Vec<Result<IncludeDirective, PolicyStoreError>> {
     let mut out = Vec::new();
+    let mut buffers = text::Buffers::default();
     for raw_line in bytes.split(|b| *b == b'\n') {
-        let line_cow = String::from_utf8_lossy(raw_line);
+        let mut with_src = buffers.use_foreign_src(raw_line);
+        let (src, dest) = with_src.src_and_dest();
+        dest.extend(src.iter().copied().filter(|b| *b != b'\r'));
+        with_src.swap();
+        let (src, _dest) = with_src.src_and_dest();
+        let line_cow = String::from_utf8_lossy(src);
         let line = line_cow.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -401,7 +409,8 @@ fn parse_config_includes(
             let mut parts = rest.splitn(2, '=');
             let prefix = parts.next().unwrap_or("").trim();
             let include = parts.next().unwrap_or("").trim().trim_matches('"');
-            let root_norm = workspace_root.to_string_lossy().replace('\\', "/");
+            let root_lossy = workspace_root.to_string_lossy();
+            let root_norm = text::normalize_slashes(root_lossy.as_ref());
             if !prefix.is_empty() && root_norm.starts_with(prefix) {
                 out.push(resolve_include(source_path, workspace_root, include));
             }
@@ -483,8 +492,15 @@ impl<'a> IgnoreLoader<'a> {
             source,
         })?;
 
+        let mut buffers = text::Buffers::default();
+
         for (line_idx, raw_line) in bytes.split(|b| *b == b'\n').enumerate() {
-            let line_cow = String::from_utf8_lossy(raw_line);
+            let mut with_src = buffers.use_foreign_src(raw_line);
+            let (src, dest) = with_src.src_and_dest();
+            dest.extend(src.iter().copied().filter(|b| *b != b'\r'));
+            with_src.swap();
+            let (src, _dest) = with_src.src_and_dest();
+            let line_cow = String::from_utf8_lossy(src);
             let line = line_cow.trim();
 
             if line.is_empty() {

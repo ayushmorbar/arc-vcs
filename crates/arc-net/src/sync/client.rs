@@ -9,16 +9,19 @@ use arc_store_types::newtypes::ChangeId;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tokio_util::codec::Framed;
 use tracing::instrument;
 
 use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
+use super::backoff::QuadraticBackoff;
+use super::endpoint::SyncEndpoint;
 use super::protocol::{
     HandshakeRequest, HandshakeResponse, SyncCapability, negotiate_capabilities,
 };
 
 const HANDSHAKE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_ATTEMPTS: usize = 4;
 
 /// Perform a native handshake against a remote arc sync endpoint.
 #[instrument(skip_all)]
@@ -36,9 +39,9 @@ pub(crate) async fn sync_remote_from_repo(
     view_heads: HashMap<String, ChangeId>,
     repo_path: &Path,
 ) -> Result<HandshakeResponse> {
-    let socket = TcpStream::connect(addr)
-        .await
-        .with_context(|| format!("failed to connect to native sync remote at {addr}"))?;
+    let endpoint = SyncEndpoint::parse(addr)
+        .context("invalid native sync endpoint")?;
+    let socket = connect_with_retry(&endpoint).await?;
     let mut framed = Framed::new(socket, ArcSyncCodec::new());
 
     let request = HandshakeRequest {
@@ -99,6 +102,49 @@ pub(crate) async fn sync_remote_from_repo(
 
     stream_required_changes(&mut framed, repo_path, &response.required_changes).await?;
     Ok(response)
+}
+
+#[instrument(skip_all)]
+async fn connect_with_retry(endpoint: &SyncEndpoint) -> Result<TcpStream> {
+    let mut waits = QuadraticBackoff::default();
+    let mut last_error: Option<anyhow::Error> = None;
+
+    for attempt in 1..=CONNECT_ATTEMPTS {
+        match TcpStream::connect(endpoint.socket_addr()).await {
+            Ok(socket) => return Ok(socket),
+            Err(error) if attempt < CONNECT_ATTEMPTS && is_retryable_connect_error(&error) => {
+                last_error = Some(anyhow::anyhow!(
+                    "connect attempt {attempt} to {endpoint} failed: {error}"
+                ));
+                if let Some(wait) = waits.next() {
+                    sleep(wait).await;
+                }
+            }
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "failed to connect to native sync remote at {endpoint}: {error}"
+                ));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        anyhow::anyhow!("failed to connect to native sync remote at {endpoint}")
+    }))
+}
+
+fn is_retryable_connect_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::AddrNotAvailable
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 #[instrument(skip_all)]
@@ -192,7 +238,14 @@ mod tests {
 
     use crate::sync::client::sync_remote;
     use crate::sync::client::sync_remote_from_repo;
+    use crate::sync::endpoint::SyncEndpoint;
     use crate::sync::server;
+
+    #[test]
+    fn sync_endpoint_parser_rejects_invalid_input() {
+        assert!(SyncEndpoint::parse("http://example.com:7777").is_err());
+        assert!(SyncEndpoint::parse("tcp://user:secret@localhost:7777").is_err());
+    }
 
     #[tokio::test]
     async fn sync_remote_roundtrips_handshake_with_server() {

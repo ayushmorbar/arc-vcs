@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use arc_store_types::newtypes::ChangeId;
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ pub const SERVER_CAPABILITIES: &[SyncCapability] = &[
 ];
 
 /// Initial client hello for native arc sync.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct HandshakeRequest {
     /// Protocol version requested by the client.
     pub version: u32,
@@ -44,6 +45,20 @@ pub struct HandshakeRequest {
     /// Capabilities preferred by the caller but not mandatory.
     #[serde(default)]
     pub optional_capabilities: Vec<SyncCapability>,
+}
+
+impl fmt::Debug for HandshakeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redacted_token = self.auth_token.as_ref().map(|_| "<redacted>");
+        f.debug_struct("HandshakeRequest")
+            .field("version", &self.version)
+            .field("min_version", &self.min_version)
+            .field("auth_token", &redacted_token)
+            .field("view_heads", &self.view_heads)
+            .field("required_capabilities", &self.required_capabilities)
+            .field("optional_capabilities", &self.optional_capabilities)
+            .finish()
+    }
 }
 
 /// Server response to a [`HandshakeRequest`].
@@ -100,4 +115,25 @@ pub fn negotiate_capabilities(
     rejected_required.dedup();
 
     (negotiated, rejected_required)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handshake_request_debug_redacts_auth_token() {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: Some("secret-token".to_string()),
+            view_heads: HashMap::new(),
+            required_capabilities: vec![SyncCapability::PayloadStreamV1],
+            optional_capabilities: vec![],
+        };
+
+        let rendered = format!("{request:?}");
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("secret-token"));
+    }
 }

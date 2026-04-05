@@ -5,8 +5,12 @@
 
 /// Native TCP sync client.
 pub mod client;
+/// Backoff utilities used by sync retries.
+pub mod backoff;
 /// Length-prefixed binary frame codec used over TCP streams.
 pub mod codec;
+/// Endpoint parsing and redacted display helpers.
+pub mod endpoint;
 /// Protocol handshake payloads and status envelopes.
 pub mod protocol;
 /// Native TCP sync server.
