@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
 use crate::ast::LanguagePlugin;
-use arc_core::algebra::{Atom, NodePath};
-use arc_core::store::cas::ObjectStore;
+use arc_algebra_types::{Atom, NodePath};
+use arc_store_cas::ObjectStore;
 
 /// Raw AST node content (serialized bytes) — internal to this module only.
 type ASTNode = Vec<u8>;
@@ -242,9 +242,9 @@ mod tests {
     use super::*;
     use crate::ast::LanguagePlugin;
 
-    fn make_store() -> (tempfile::TempDir, arc_core::store::cas::ObjectStore) {
+    fn make_store() -> (tempfile::TempDir, arc_store_cas::ObjectStore) {
         let dir = tempfile::tempdir().unwrap();
-        let store = arc_core::store::cas::ObjectStore::new(dir.path());
+        let store = arc_store_cas::ObjectStore::new(dir.path());
         (dir, store)
     }
 
@@ -326,3 +326,4 @@ mod tests {
         );
     }
 }
+

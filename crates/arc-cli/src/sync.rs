@@ -2,11 +2,12 @@ use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::repo::Repository;
-use arc_core::algebra::Atom;
-use arc_core::algebra::Blake3Hash;
-use arc_core::network::{DeltaPayload, SyncResponse};
-use arc_core::store::change::Change;
-use arc_core::store::view::View;
+use crate::store_compat::ObjectStoreChangeExt;
+use arc_algebra_types::Atom;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_network::{DeltaPayload, SyncResponse};
+use arc_store_view::View;
 
 /// Resolve `name_or_path` to a concrete URL or filesystem path.
 ///
@@ -681,14 +682,14 @@ mod tests {
 
         // --- Set up Repo A with a file ---
         let mut repo_a = Repository::init(&path_a).unwrap();
-        let (author_a, key_a) = arc_core::store::author::test_keypair();
+        let (author_a, key_a) = arc_store_types::author::test_keypair();
         repo_a.set_identity(author_a, key_a);
         fs::write(path_a.join("a.rs"), "fn a() {}").unwrap();
         repo_a.snap("add a.rs", false).unwrap();
 
         // --- Init Repo B and pull from A ---
         let mut repo_b = Repository::init(&path_b).unwrap();
-        let (author_b, key_b) = arc_core::store::author::test_keypair();
+        let (author_b, key_b) = arc_store_types::author::test_keypair();
         repo_b.set_identity(author_b, key_b);
         pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();
 
@@ -724,7 +725,7 @@ mod tests {
         );
 
         // Verify graph completeness: B's graph should have all of A's changes.
-        let view_b = arc_core::store::view::View::load(&path_b, "main").unwrap();
+        let view_b = arc_store_view::View::load(&path_b, "main").unwrap();
         assert!(
             view_b.heads.len() >= 2,
             "merged view must have at least 2 heads after divergent pull, got: {}",
@@ -756,22 +757,22 @@ mod tests {
 
         // Set up A with one file.
         let mut repo_a = Repository::init(&path_a).unwrap();
-        let (author_a, key_a) = arc_core::store::author::test_keypair();
+        let (author_a, key_a) = arc_store_types::author::test_keypair();
         repo_a.set_identity(author_a, key_a);
         fs::write(path_a.join("widget.rs"), "pub fn widget() {}").unwrap();
         repo_a.snap("add widget.rs", false).unwrap();
 
         // Initialise an empty B.
         let mut repo_b = Repository::init(&path_b).unwrap();
-        let (author_b, key_b) = arc_core::store::author::test_keypair();
+        let (author_b, key_b) = arc_store_types::author::test_keypair();
         repo_b.set_identity(author_b, key_b);
 
         // Push A's view to B.
         push(&mut repo_a, path_b.to_str().unwrap(), "main").unwrap();
 
         // B's view heads must exactly match A's after push.
-        let view_a = arc_core::store::view::View::load(&path_a, "main").unwrap();
-        let view_b = arc_core::store::view::View::load(&path_b, "main").unwrap();
+        let view_a = arc_store_view::View::load(&path_a, "main").unwrap();
+        let view_b = arc_store_view::View::load(&path_b, "main").unwrap();
         assert_eq!(
             view_a.heads, view_b.heads,
             "pushed view heads must match A's heads"
@@ -786,3 +787,4 @@ mod tests {
         }
     }
 }
+

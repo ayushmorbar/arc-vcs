@@ -6,7 +6,7 @@
 //!    in the Phase 42 plan).
 //! 2. Query the local intent vector store for the top-3 semantically similar
 //!    prior changes so the AI is grounded in this repository's conventions.
-//! 3. Build a structured prompt and call `arc_core::ai::generate_code`.
+//! 3. Build a structured prompt and call `arc_ai::generate_code`.
 //! 4. Write the result back to the file.
 //! 5. Save a Ghost Node (`PendingAiChange { kind: Generate }`) to
 //!    `.arc/ai/pending.json`.
@@ -17,7 +17,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use arc_core::ai::extract_code_fence;
+use arc_ai::extract_code_fence;
 
 use crate::ai_pending::{PendingAiChange, has_pending_ai, save_pending_ai};
 use crate::repo::Repository;
@@ -72,7 +72,7 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
     let rt =
         tokio::runtime::Runtime::new().context("failed to start async runtime for arc generate")?;
     let raw_response = rt
-        .block_on(arc_core::ai::generate_code(&prompt))
+        .block_on(arc_ai::generate_code(&prompt))
         .context("AI code generation failed")?;
 
     let generated = extract_code_fence(&raw_response);
@@ -104,8 +104,8 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
 /// embedding provider is unavailable.  This is a best-effort operation —
 /// `arc generate` still proceeds without context on failure.
 fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
-    use arc_core::ai::embedding::{EmbeddingProvider, HybridProvider};
-    use arc_core::ai::vector_store::VectorStore;
+    use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
+    use arc_ai::vector_store::VectorStore;
 
     let db_path = repo
         .shared_root
@@ -147,7 +147,7 @@ fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
     ctx
 }
 
-fn parse_hex_hash(hex: &str) -> Option<arc_core::algebra::Blake3Hash> {
+fn parse_hex_hash(hex: &str) -> Option<arc_algebra_types::Blake3Hash> {
     if hex.len() != 64 {
         return None;
     }
@@ -171,3 +171,4 @@ fn build_prompt(goal: &str, file_context: &str, prior_context: &str) -> String {
     prompt.push_str(&format!("\nGoal: {goal}\n"));
     prompt
 }
+

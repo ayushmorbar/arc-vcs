@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Context;
-use arc_core::store::newtypes::{ChangeId, SnapshotId};
+use arc_store_types::newtypes::{ChangeId, SnapshotId};
 use tracing::instrument;
 
 /// Summary emitted by GitHub governance checks.
@@ -198,7 +198,7 @@ fn is_pinned_action_ref(value: &str) -> bool {
 mod tests {
     use std::fs;
 
-    use arc_core::store::newtypes::{ChangeId, SnapshotId};
+    use arc_store_types::newtypes::{ChangeId, SnapshotId};
 
     use super::audit_github_governance;
 
@@ -295,3 +295,4 @@ mod tests {
         assert!(report.pinned_action_references > 0);
     }
 }
+

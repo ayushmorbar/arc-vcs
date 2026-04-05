@@ -6,7 +6,8 @@ license = "MIT OR Apache-2.0"
 description = "arc language plugins: tree-sitter AST diffing and source reconstruction"
 
 [dependencies]
-arc-core = { path = "../arc-core" }
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-store-cas = { path = "../arc-store-cas" }
 tree-sitter = "0.26.8"
 tree-sitter-rust = "0.24.2"
 anyhow = "1.0.102"

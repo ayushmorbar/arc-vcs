@@ -3,8 +3,8 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use arc_core::ai::{LlmResolver, MockResolver};
-use arc_core::store::author::generate_transient_keypair_seed;
+use arc_ai::{LlmResolver, MockResolver};
+use arc_store_types::author::generate_transient_keypair_seed;
 
 use crate::repo::Repository;
 
@@ -130,3 +130,4 @@ impl Drop for CwdGuard {
         let _ = std::env::set_current_dir(&self.previous);
     }
 }
+

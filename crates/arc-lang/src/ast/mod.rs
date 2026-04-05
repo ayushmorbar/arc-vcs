@@ -3,8 +3,8 @@ pub mod rust_plugin;
 
 use std::collections::HashMap;
 
-use arc_core::algebra::{Atom, NodePath};
-use arc_core::store::cas::ObjectStore;
+use arc_algebra_types::{Atom, NodePath};
+use arc_store_cas::ObjectStore;
 
 /// Trait for language-specific AST parsing and diffing.
 ///
@@ -33,3 +33,4 @@ pub trait LanguagePlugin {
     fn unparse(&self, state: &HashMap<NodePath, Vec<u8>>, filepath: &str)
     -> Result<String, String>;
 }
+

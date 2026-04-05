@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Context;
-use arc_core::store::newtypes::{ChangeId, SnapshotId};
+use arc_store_types::newtypes::{ChangeId, SnapshotId};
 use tracing::instrument;
 
 /// Summary emitted by workspace policy checks.
@@ -254,3 +254,4 @@ mod tests {
         dir.path().join(file)
     }
 }
+

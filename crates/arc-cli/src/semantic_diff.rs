@@ -43,7 +43,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use anyhow::Result;
-use arc_core::algebra::Atom;
+use arc_algebra_types::Atom;
 use owo_colors::OwoColorize;
 use similar::{ChangeTag, TextDiff};
 
@@ -590,3 +590,4 @@ mod tests {
         group_and_render_semantic(&[]).expect("empty atoms must not error");
     }
 }
+

@@ -10,34 +10,36 @@ use arc_net::ai::AiProvider;
 use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
-use arc_core::ai::AiResolver;
-use arc_core::ai::embedding::{EmbeddingProvider, HybridProvider};
-use arc_core::ai::vector_store::VectorStore;
-use arc_core::algebra::apply::{BlameState, MaterializedState, apply_change};
-use arc_core::algebra::commute::commutes;
-use arc_core::algebra::sparse::SparseMatcher;
-use arc_core::algebra::{Atom, Blake3Hash, NodePath};
-use arc_core::engine::mutator;
-use arc_core::store::author::{Author, PublicKeyBytes, load_identity};
-use arc_core::store::bisect::{
+use arc_ai::AiResolver;
+use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
+use arc_ai::vector_store::VectorStore;
+use arc_algebra::apply::{BlameState, MaterializedState};
+use arc_algebra::commute::commutes;
+use arc_algebra::sparse::SparseMatcher;
+use arc_algebra_types::{Atom, Blake3Hash, NodePath};
+use arc_change::Change;
+use arc_engine::mutator;
+use arc_lang::ast::LanguagePlugin;
+use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_store_cas::ObjectStore;
+use arc_store_graph::ChangeGraph;
+use arc_store_graph::bisect::{
     BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
     load_state as load_bisect_state, save_state as save_bisect_state,
 };
-use arc_core::store::cas::ObjectStore;
-use arc_core::store::change::Change;
-use arc_core::store::graph::ChangeGraph;
-use arc_core::store::newtypes::{ChangeId, MutationId};
-use arc_core::store::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
-use arc_core::store::refs::{
+use arc_store_types::author::{Author, PublicKeyBytes, load_identity};
+use arc_store_types::newtypes::{ChangeId, MutationId};
+use arc_store_types::refs::{
     read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
     read_tag_heads, read_tag_map,
 };
-use arc_core::store::tag::Tag;
-use arc_core::store::view::View;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_store_types::tag::Tag;
+use arc_store_view::View;
+use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+
+use crate::store_compat::{ObjectStoreChangeExt, apply_change};
 
 use crate::ai_pending::{
     PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
@@ -2361,7 +2363,7 @@ impl Repository {
 
     /// Return all changes selected by `revset`, newest-first.
     pub fn log_revset(&mut self, revset: &str) -> anyhow::Result<Vec<Change>> {
-        let expr = arc_core::revset::parse(revset)
+        let expr = arc_revset::parse(revset)
             .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
         let expr = constrain_touched_to_current_view(&expr);
         self.prepare_revset(&expr)?;
@@ -2370,7 +2372,7 @@ impl Repository {
         let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
         let mut refs_resolver =
             |function_name: &str| self.resolve_revset_reference_heads(function_name);
-        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids_with_refs(
+        let selected: BTreeSet<ChangeId> = arc_revset::compile_change_ids_with_refs(
             &expr,
             Arc::clone(&graph),
             &mut resolver,
@@ -2558,7 +2560,7 @@ impl Repository {
 
     #[tracing::instrument(skip_all, fields(revset = %revset))]
     fn resolve_revset_ids(&mut self, revset: &str) -> anyhow::Result<BTreeSet<ChangeId>> {
-        let expr = arc_core::revset::parse(revset)
+        let expr = arc_revset::parse(revset)
             .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
         let expr = constrain_touched_to_current_view(&expr);
         self.prepare_revset(&expr)?;
@@ -2567,7 +2569,7 @@ impl Repository {
         let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
         let mut refs_resolver =
             |function_name: &str| self.resolve_revset_reference_heads(function_name);
-        let selected: BTreeSet<ChangeId> = arc_core::revset::compile_change_ids_with_refs(
+        let selected: BTreeSet<ChangeId> = arc_revset::compile_change_ids_with_refs(
             &expr,
             Arc::clone(&graph),
             &mut resolver,
@@ -3615,7 +3617,7 @@ impl Repository {
             None => return Ok(None),
         };
 
-        if matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite)
+        if matches!(op.kind, arc_store_view::oplog::OperationKind::Rewrite)
             && let Err(err) = self.rollback_rewrite_map_entries(&op.rewrite_map)
         {
             let _ = OpLog::new(&arc_dir).append(&op);
@@ -3684,7 +3686,7 @@ impl Repository {
             return Ok(None);
         };
 
-        if matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite) {
+        if matches!(op.kind, arc_store_view::oplog::OperationKind::Rewrite) {
             stack.push(op);
             self.save_redo_stack(&stack)?;
             anyhow::bail!(
@@ -5229,19 +5231,13 @@ impl Repository {
     ///
     /// This hydrates referenced view heads and full 64-character hash symbols
     /// so ancestor traversal does not truncate on missing graph nodes.
-    pub fn prepare_revset(
-        &mut self,
-        expr: &arc_core::revset::RevsetExpression,
-    ) -> anyhow::Result<()> {
+    pub fn prepare_revset(&mut self, expr: &arc_revset::RevsetExpression) -> anyhow::Result<()> {
         self.prepare_revset_impl(expr)
     }
 
-    fn prepare_revset_impl(
-        &mut self,
-        expr: &arc_core::revset::RevsetExpression,
-    ) -> anyhow::Result<()> {
+    fn prepare_revset_impl(&mut self, expr: &arc_revset::RevsetExpression) -> anyhow::Result<()> {
         match expr {
-            arc_core::revset::RevsetExpression::Symbol(symbol) => {
+            arc_revset::RevsetExpression::Symbol(symbol) => {
                 if symbol == "@" {
                     let current = self.current_view_name()?;
                     self.hydrate(&current)?;
@@ -5261,8 +5257,8 @@ impl Repository {
 
                 Ok(())
             }
-            arc_core::revset::RevsetExpression::StringLiteral(_) => Ok(()),
-            arc_core::revset::RevsetExpression::Function { name, args } => {
+            arc_revset::RevsetExpression::StringLiteral(_) => Ok(()),
+            arc_revset::RevsetExpression::Function { name, args } => {
                 if matches!(name.as_str(), "tags" | "remote_branches" | "bookmarks") {
                     let heads = self.resolve_revset_reference_heads(name)?;
                     if !heads.is_empty() {
@@ -5276,8 +5272,8 @@ impl Repository {
                 }
                 Ok(())
             }
-            arc_core::revset::RevsetExpression::Intersection(left, right)
-            | arc_core::revset::RevsetExpression::Union(left, right) => {
+            arc_revset::RevsetExpression::Intersection(left, right)
+            | arc_revset::RevsetExpression::Union(left, right) => {
                 self.prepare_revset_impl(left)?;
                 self.prepare_revset_impl(right)
             }
@@ -5298,33 +5294,33 @@ impl Repository {
 }
 
 fn constrain_touched_to_current_view(
-    expr: &arc_core::revset::RevsetExpression,
-) -> arc_core::revset::RevsetExpression {
+    expr: &arc_revset::RevsetExpression,
+) -> arc_revset::RevsetExpression {
     if !contains_function(expr, "touched") {
         return expr.clone();
     }
 
-    arc_core::revset::RevsetExpression::Intersection(
+    arc_revset::RevsetExpression::Intersection(
         Box::new(expr.clone()),
-        Box::new(arc_core::revset::RevsetExpression::Function {
+        Box::new(arc_revset::RevsetExpression::Function {
             name: "ancestors".to_string(),
-            args: vec![arc_core::revset::RevsetExpression::Symbol("@".to_string())],
+            args: vec![arc_revset::RevsetExpression::Symbol("@".to_string())],
         }),
     )
 }
 
-fn contains_function(expr: &arc_core::revset::RevsetExpression, name: &str) -> bool {
+fn contains_function(expr: &arc_revset::RevsetExpression, name: &str) -> bool {
     match expr {
-        arc_core::revset::RevsetExpression::Function {
+        arc_revset::RevsetExpression::Function {
             name: fn_name,
             args,
         } => fn_name == name || args.iter().any(|arg| contains_function(arg, name)),
-        arc_core::revset::RevsetExpression::Intersection(left, right)
-        | arc_core::revset::RevsetExpression::Union(left, right) => {
+        arc_revset::RevsetExpression::Intersection(left, right)
+        | arc_revset::RevsetExpression::Union(left, right) => {
             contains_function(left, name) || contains_function(right, name)
         }
-        arc_core::revset::RevsetExpression::Symbol(_)
-        | arc_core::revset::RevsetExpression::StringLiteral(_) => false,
+        arc_revset::RevsetExpression::Symbol(_)
+        | arc_revset::RevsetExpression::StringLiteral(_) => false,
     }
 }
 
@@ -6406,7 +6402,7 @@ mod tests {
         assert_eq!(repo.current_view_name().unwrap(), "main");
 
         // Verify the main view can be loaded and has empty heads.
-        let main_view = arc_core::store::view::View::load(&repo_path, "main").unwrap();
+        let main_view = arc_store_view::View::load(&repo_path, "main").unwrap();
         assert_eq!(main_view.name, "main");
         assert!(main_view.heads.is_empty());
 
@@ -6426,7 +6422,7 @@ mod tests {
         let repo_path = dir.path().join("snap_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Write a Rust file into the working directory.
@@ -6469,7 +6465,7 @@ mod tests {
         let repo_path = dir.path().join("merge_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap file A on main.
@@ -6517,7 +6513,7 @@ mod tests {
         );
 
         // The main view should have 2 heads (one from each branch).
-        let main_view = arc_core::store::view::View::load(&repo_path, "main").unwrap();
+        let main_view = arc_store_view::View::load(&repo_path, "main").unwrap();
         assert_eq!(
             main_view.heads.len(),
             2,
@@ -6532,7 +6528,7 @@ mod tests {
         let repo_path = dir.path().join("abandon_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("lib.rs"), "fn v1() {}\n").unwrap();
@@ -6558,7 +6554,7 @@ mod tests {
         let repo_path = dir.path().join("redo_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("lib.rs"), "fn base() {}\n").unwrap();
@@ -6595,7 +6591,7 @@ mod tests {
         let repo_path = dir.path().join("bisect_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("lib.rs"), "fn v1() {}\n").unwrap();
@@ -6632,7 +6628,7 @@ mod tests {
         let repo_path = dir.path().join("revset_log_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         fs::write(repo_path.join("main.rs"), "fn main() { let a = 1; }").unwrap();
@@ -6656,12 +6652,12 @@ mod tests {
         let mut reopened = Repository::open(&repo_path).unwrap();
         reopened.set_identity(author, signing_key);
 
-        let expr = arc_core::revset::parse("ancestors(feature)").unwrap();
+        let expr = arc_revset::parse("ancestors(feature)").unwrap();
         reopened.prepare_revset(&expr).unwrap();
 
         let graph = reopened.graph_snapshot();
         let mut resolver = |symbol: &str| reopened.resolve_revset_symbol(symbol);
-        let ids: HashSet<Blake3Hash> = arc_core::revset::compile(&expr, graph, &mut resolver)
+        let ids: HashSet<Blake3Hash> = arc_revset::compile(&expr, graph, &mut resolver)
             .unwrap()
             .collect();
 
@@ -6681,7 +6677,7 @@ mod tests {
         let repo_path = dir.path().join("revset_touched_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("main.rs"), "fn main() { let a = 1; }\n").unwrap();
@@ -6701,7 +6697,7 @@ mod tests {
 
         repo.switch_view("main").unwrap();
         let mut reopened = Repository::open(&repo_path).unwrap();
-        let (author2, signing_key2) = arc_core::store::author::test_keypair();
+        let (author2, signing_key2) = arc_store_types::author::test_keypair();
         reopened.set_identity(author2, signing_key2);
 
         let selected = reopened.log_revset("touched(\"main.rs\")").unwrap();
@@ -6722,7 +6718,7 @@ mod tests {
         let repo_path = dir.path().join("multi_head_log_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("base.rs"), "fn base() {}\n").unwrap();
@@ -6756,7 +6752,7 @@ mod tests {
         let repo_path = dir.path().join("conflict_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap initial file on main.
@@ -6794,7 +6790,7 @@ mod tests {
             "working file must contain conflict markers, got: {content}"
         );
 
-        let main_view = arc_core::store::view::View::load(&repo_path, "main").unwrap();
+        let main_view = arc_store_view::View::load(&repo_path, "main").unwrap();
         assert_eq!(
             main_view.heads.len(),
             1,
@@ -6816,13 +6812,13 @@ mod tests {
 
     #[test]
     fn test_ai_conflict_resolution() {
-        use arc_core::ai::MockResolver;
+        use arc_ai::MockResolver;
 
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path().join("ai_resolve_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap initial file on main.
@@ -6884,7 +6880,7 @@ mod tests {
         );
 
         // Now approve: should write Author::AI change, advance view, clear pending.
-        let (approve_author, approve_key) = arc_core::store::author::test_keypair();
+        let (approve_author, approve_key) = arc_store_types::author::test_keypair();
         let merge_id = repo
             .approve_pending_ai(&approve_author, &approve_key)
             .unwrap();
@@ -6906,7 +6902,7 @@ mod tests {
         let changes = repo.log().unwrap();
         let ai_changes: Vec<_> = changes
             .iter()
-            .filter(|c| matches!(&c.author, arc_core::store::author::Author::AI { .. }))
+            .filter(|c| matches!(&c.author, arc_store_types::author::Author::AI { .. }))
             .collect();
         assert!(
             !ai_changes.is_empty(),
@@ -6939,7 +6935,7 @@ mod tests {
         let repo_path = dir.path().join("ai_resolve_provider_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("shared.rs"), "fn shared() {}").unwrap();
@@ -6966,12 +6962,12 @@ mod tests {
         let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
         assert!(content.contains("let a = 1") && content.contains("let b = 2"));
 
-        let (approve_author, approve_key) = arc_core::store::author::test_keypair();
+        let (approve_author, approve_key) = arc_store_types::author::test_keypair();
         let _ = repo
             .approve_pending_ai(&approve_author, &approve_key)
             .unwrap();
 
-        let oplog = arc_core::store::oplog::OpLog::new(&repo.shared_root.join(".arc"));
+        let oplog = arc_store_view::oplog::OpLog::new(&repo.shared_root.join(".arc"));
         let ops = oplog.read_all().unwrap();
         assert!(
             ops.iter().any(|op| op.command == "ai resolve"),
@@ -7050,7 +7046,7 @@ mod tests {
         let repo_path = dir.path().join("merge_tool_resolve_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
@@ -7106,7 +7102,7 @@ mod tests {
         let repo_path = dir.path().join("merge_tool_accept_unchanged_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
@@ -7141,7 +7137,7 @@ mod tests {
         let repo_path = dir.path().join("merge_tool_unchanged_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
@@ -7208,7 +7204,7 @@ mod tests {
         let repo_path = dir.path().join("blame_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap an initial version.
@@ -7245,7 +7241,7 @@ mod tests {
         let repo_path = dir.path().join("stash_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap initial file.
@@ -7297,7 +7293,7 @@ mod tests {
         let repo_path = dir.path().join("cp_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         // ── main: snap fn a() ──────────────────────────────────────────────
@@ -7324,7 +7320,7 @@ mod tests {
         repo.cherry_pick(&b_id).unwrap();
 
         // The same hash must appear in main's heads — no duplication.
-        let view = arc_core::store::view::View::load(&repo_path, "main").unwrap();
+        let view = arc_store_view::View::load(&repo_path, "main").unwrap();
         assert!(
             view.heads.contains(&b_id),
             "cherry-picked hash must be present in destination view's heads"
@@ -7367,7 +7363,7 @@ mod tests {
         let repo_path = dir.path().join("revert_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap "fn alpha() {}" into the repository.
@@ -7418,7 +7414,7 @@ mod tests {
         let repo_path = dir.path().join("tag_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("lib.rs"), "fn lib() {}").unwrap();
@@ -7475,7 +7471,7 @@ mod tests {
         let repo_path = dir.path().join("bookmark_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("lib.rs"), "fn lib() { 1 }\n").unwrap();
@@ -7565,7 +7561,7 @@ mod tests {
         let repo_path = dir.path().join("implicit_ignore_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join(".env"), "API_KEY=super-secret").unwrap();
@@ -7595,7 +7591,7 @@ mod tests {
         let repo_path = dir.path().join("implicit_ignore_delete_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         let blob_hash = repo.store.write_blob(b"legacy").unwrap();
@@ -7638,7 +7634,7 @@ mod tests {
         let repo_path = dir.path().join("blob_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Write a non-Rust markdown file and snap it.
@@ -7695,7 +7691,7 @@ mod tests {
         let repo_path = dir.path().join("undo_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Snap a markdown file.
@@ -7749,7 +7745,7 @@ mod tests {
         let repo_path = dir.path().join("rewrite_undo_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("main.rs"), "fn a() {}\n").unwrap();
@@ -7774,7 +7770,7 @@ mod tests {
             .find(|entry| entry.command == "squash")
             .expect("oplog must contain squash operation");
         assert!(
-            matches!(op.kind, arc_core::store::oplog::OperationKind::Rewrite),
+            matches!(op.kind, arc_store_view::oplog::OperationKind::Rewrite),
             "squash must be stored as rewrite operation"
         );
         assert!(!op.rewrite_map.is_empty(), "rewrite map must be recorded");
@@ -7790,7 +7786,7 @@ mod tests {
         let repo_path = dir.path().join("op_restore_revert_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
@@ -7854,7 +7850,7 @@ mod tests {
         let repo_path = dir.path().join("op_missing_id_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
@@ -7877,7 +7873,7 @@ mod tests {
         let repo_path = dir.path().join("sparse_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Create two files in different directories.
@@ -7917,7 +7913,7 @@ mod tests {
         let repo_path = dir.path().join("sparse_full_restore_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
@@ -7957,7 +7953,7 @@ mod tests {
 
         // Initialise primary and snap a file.
         let mut primary = Repository::init(&primary_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         primary.set_identity(author.clone(), signing_key.clone());
         fs::write(primary_path.join("lib.rs"), "fn lib() {}").unwrap();
         primary.snap("add lib.rs", false).unwrap().expect("snap");
@@ -8018,7 +8014,7 @@ mod tests {
         let repo_path = dir.path().join("gc_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         // Snap something so there is at least one reachable change.
@@ -8067,7 +8063,7 @@ mod tests {
         let repo_path = dir.path().join("orphan_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         // Snap a change so there is at least one reachable blob.
@@ -8125,7 +8121,7 @@ mod tests {
         let repo_path = dir.path().join("compact_project");
 
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author.clone(), signing_key.clone());
 
         // Snap A: introduce fn_a.
@@ -8192,7 +8188,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path().join("amend_project");
         let mut repo = Repository::init(&repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         // Create a file and snap it.

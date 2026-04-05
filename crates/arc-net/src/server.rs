@@ -12,12 +12,20 @@ use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
-use arc_core::algebra::{Atom, Blake3Hash};
-use arc_core::network::{DeltaPayload, SyncResponse, verify_payload};
-use arc_core::store::author::Author;
-use arc_core::store::cas::ObjectStore;
-use arc_core::store::change::Change;
-use arc_core::store::view::View;
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_change::Change;
+use arc_network::{DeltaPayload, SyncResponse, verify_payload};
+use arc_store_cas::ObjectStore;
+use arc_store_types::author::Author;
+use arc_store_view::View;
+
+fn write_change(store: &ObjectStore, change: &Change) -> Result<(), ()> {
+    let bytes = bincode::serialize(change).map_err(|_| ())?;
+    store
+        .write_object(&change.id, &bytes)
+        .map(|_| ())
+        .map_err(|_| ())
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -43,13 +51,13 @@ fn load_or_generate_server_identity(
     if identity_path.exists() {
         let json = std::fs::read_to_string(&identity_path)?;
         let id: ServerIdentity = serde_json::from_str(&json)?;
-        let author = arc_core::store::author::server_author_from_seed(
+        let author = arc_store_types::author::server_author_from_seed(
             &id.canonical_id,
             &id.secret_key_bytes,
         );
         Ok((author, id.secret_key_bytes))
     } else {
-        let (author, seed) = arc_core::store::author::generate_server_keypair_seed("arc-server");
+        let (author, seed) = arc_store_types::author::generate_server_keypair_seed("arc-server");
         let id = ServerIdentity {
             canonical_id: match &author {
                 Author::Server { canonical_id, .. } => canonical_id.clone(),
@@ -328,12 +336,12 @@ async fn post_sync(
 
             // Write BOTH: original stays as the SLSA L4 audit root; canonical
             // is the version distributed to other clients.
-            if store.write_change(change).is_err() || store.write_change(&canonical).is_err() {
+            if write_change(&store, change).is_err() || write_change(&store, &canonical).is_err() {
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
             rewritten_map.insert(change.id, canonical_id);
         } else {
-            if store.write_change(change).is_err() {
+            if write_change(&store, change).is_err() {
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         }
@@ -395,8 +403,8 @@ async fn post_sync(
 /// Start the arc HTTP server exposing this repository's CAS.
 ///
 /// Five endpoints:
-/// - `GET  /views/:name`      → [`arc_core::store::view::View`] as JSON
-/// - `GET  /objects/:hash`    → raw `bincode` bytes of a [`arc_core::store::change::Change`]
+/// - `GET  /views/:name`      → [`arc_store_view::View`] as JSON
+/// - `GET  /objects/:hash`    → raw `bincode` bytes of a [`arc_change::Change`]
 /// - `GET  /blobs/:hash`      → raw bytes of a CAS blob
 /// - `PUT  /blobs/:hash`      → streaming blob intake with BLAKE3 verification
 /// - `POST /sync/:view_name`  → accepts a [`DeltaPayload`]; verifies Ed25519 signatures;

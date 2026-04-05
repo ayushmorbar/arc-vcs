@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use arc_core::algebra::{Atom, Blake3Hash};
+use arc_algebra_types::{Atom, Blake3Hash};
 use serde::{Deserialize, Serialize};
 
 // ── PendingKind ───────────────────────────────────────────────────────────────
@@ -137,3 +137,4 @@ pub fn clear_pending_ai(repo_root: &Path) {
 pub fn has_pending_ai(repo_root: &Path) -> bool {
     pending_path(repo_root).exists()
 }
+

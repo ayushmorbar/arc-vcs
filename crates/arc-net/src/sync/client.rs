@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use arc_core::algebra::Blake3Hash;
-use arc_core::store::change::Change;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
 use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
@@ -172,11 +172,11 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
-    use arc_core::algebra::Atom;
-    use arc_core::store::author::test_keypair;
-    use arc_core::store::cas::ObjectStore;
-    use arc_core::store::change::Change;
-    use arc_core::store::view::View;
+    use arc_algebra_types::Atom;
+    use arc_change::Change;
+    use arc_store_cas::ObjectStore;
+    use arc_store_types::author::test_keypair;
+    use arc_store_view::View;
     use tokio::net::TcpListener;
     use tokio::time::sleep;
 
@@ -227,8 +227,9 @@ mod tests {
         );
 
         let client_store = ObjectStore::new(client_root.path());
+        let change_bytes = bincode::serialize(&change).expect("change serialize should succeed");
         client_store
-            .write_change(&change)
+            .write_object(&change.id, &change_bytes)
             .expect("client CAS write should succeed");
         View::new("main", HashSet::from([change.id]))
             .save(client_root.path())
@@ -258,7 +259,9 @@ mod tests {
         let server_store = ObjectStore::new(server_root.path());
         let mut loaded = None;
         for _ in 0..50 {
-            if let Ok(change_on_server) = server_store.read_change(&change.id) {
+            if let Ok(change_bytes) = server_store.read_object(&change.id)
+                && let Ok(change_on_server) = bincode::deserialize::<Change>(&change_bytes)
+            {
                 loaded = Some(change_on_server);
                 break;
             }

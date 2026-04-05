@@ -12,13 +12,13 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
 use arc_cli::workspace_policy::audit_workspace_policy;
-use arc_core::algebra::Blake3Hash;
-use arc_core::algebra::apply::MaterializedState;
-use arc_core::store::author::{Author, load_identity, save_identity};
-use arc_core::store::newtypes::{ChangeId, SnapshotId};
-use arc_core::store::oplog::OperationAgent;
-use arc_core::store::synthesis::{SynthesisSnapshot, list_snapshot_ids};
-use arc_core::store::view::View;
+use arc_algebra_types::Blake3Hash;
+use arc_algebra::apply::MaterializedState;
+use arc_store_types::author::{Author, load_identity, save_identity};
+use arc_store_types::newtypes::{ChangeId, SnapshotId};
+use arc_store_view::oplog::OperationAgent;
+use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
+use arc_store_view::View;
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
 use arc_git_bridge::pack::encode_packfile;
@@ -71,7 +71,7 @@ fn load_ephemeral_session_identity(
     } else {
         let session_id = std::env::var("ARC_EPHEMERAL_RUNNER")
             .unwrap_or_else(|_| format!("ephemeral-{}", std::process::id()));
-        let (author, seed) = arc_core::store::author::generate_transient_keypair_seed(&session_id);
+        let (author, seed) = arc_store_types::author::generate_transient_keypair_seed(&session_id);
         if let Some(parent) = session_path.parent() {
             std::fs::create_dir_all(parent).context("failed to create .arc/local/ directory")?;
         }
@@ -1013,7 +1013,7 @@ fn projected_files_from_state(
 fn main() -> anyhow::Result<()> {
     // Initialise the tempfile registry eagerly so no allocations happen inside
     // a signal handler later.
-    arc_core::store::tempfile::init();
+    arc_store_view::tempfile::init();
 
     // Register UNIX termination signals to trigger cleanup before exit.
     // On Windows, tempfile cleanup happens via Drop — no signal handler needed.
@@ -1026,7 +1026,7 @@ fn main() -> anyhow::Result<()> {
             // operations are used inside `cleanup_signal_safe`.
             unsafe {
                 signal_hook::low_level::register(sig, || {
-                    arc_core::store::tempfile::cleanup_signal_safe();
+                    arc_store_view::tempfile::cleanup_signal_safe();
                 })?;
             }
         }
@@ -1055,10 +1055,10 @@ fn main() -> anyhow::Result<()> {
 
             // --- Git auto-detection (Phase D) ---
             let do_import = if !no_git {
-                match arc_core::git_bridge::resolve_git_dir(target_path) {
+                match arc_git::resolve_git_dir(target_path) {
                     Ok(_git_dir) => {
                         // Count commits for the prompt.
-                        let count = arc_core::git_bridge::analyze_git_repo(target_path)
+                        let count = arc_git::analyze_git_repo(target_path)
                             .map(|a| a.commit_count)
                             .unwrap_or(0);
                         eprint!(
@@ -1088,7 +1088,7 @@ fn main() -> anyhow::Result<()> {
                     Err(_) => {
                         // No identity yet: read git user.name/email as defaults.
                         let (git_name, git_email) =
-                            arc_core::git_bridge::read_git_user_config(target_path)
+                            arc_git::read_git_user_config(target_path)
                                 .unwrap_or_else(|| ("arc user".into(), "".into()));
                         eprintln!(
                             "No arc cryptographic identity found.\n\
@@ -1149,7 +1149,7 @@ fn main() -> anyhow::Result<()> {
                 let _ = std::io::stderr().flush();
 
                 let rt = tokio::runtime::Runtime::new().context("failed to start async runtime")?;
-                match rt.block_on(arc_core::ai::generate_message(&diff_summary)) {
+                match rt.block_on(arc_ai::generate_message(&diff_summary)) {
                     Ok(msg) => {
                         eprintln!(); // newline after the spinner text
                         println!("{} {msg}", "Generated:".green().bold());
@@ -1528,7 +1528,7 @@ fn main() -> anyhow::Result<()> {
             let frontier = View::load(&repo.shared_root, &name)?
                 .heads
                 .into_iter()
-                .map(arc_core::store::newtypes::ChangeId::from)
+                .map(arc_store_types::newtypes::ChangeId::from)
                 .collect::<Vec<_>>();
             let snapshots = list_snapshot_ids(&repo.shared_root)?;
 
@@ -3335,7 +3335,7 @@ fn short_change_id(id: ChangeId) -> String {
     hex[..8].to_string()
 }
 
-fn display_bisect_counts(state: &arc_core::store::bisect::BisectState) -> (usize, usize) {
+fn display_bisect_counts(state: &arc_store_graph::bisect::BisectState) -> (usize, usize) {
     if state.find_good {
         (state.bad_count(), state.good_count())
     } else {
@@ -3343,7 +3343,7 @@ fn display_bisect_counts(state: &arc_core::store::bisect::BisectState) -> (usize
     }
 }
 
-use arc_core::algebra::Atom;
+use arc_algebra_types::Atom;
 
 fn atom_display_label(atom: &Atom) -> String {
     match atom {
@@ -3551,3 +3551,4 @@ mod tests {
         assert_eq!(expanded, test_raw_args(&["arc", "--", "st"]));
     }
 }
+

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
 
-use arc_core::algebra::Atom;
-use arc_core::store::author::Author;
-use arc_core::store::change::Change;
-use arc_core::store::newtypes::ChangeId;
+use arc_algebra_types::Atom;
+use arc_store_types::author::Author;
+use arc_change::Change;
+use arc_store_types::newtypes::ChangeId;
 use owo_colors::OwoColorize;
 
 /// Renders a revision DAG into stable, line-oriented ASCII/Unicode output.
@@ -412,10 +412,10 @@ fn author_label(author: &Author) -> String {
 mod tests {
     use std::collections::HashSet;
 
-    use arc_core::algebra::Atom;
-    use arc_core::store::author::test_keypair;
-    use arc_core::store::change::Change;
-    use arc_core::store::newtypes::ChangeId;
+    use arc_algebra_types::Atom;
+    use arc_store_types::author::test_keypair;
+    use arc_change::Change;
+    use arc_store_types::newtypes::ChangeId;
 
     use super::{GraphDecorations, GraphRenderer, LogTemplate};
 
@@ -423,8 +423,8 @@ mod tests {
         let (author, key) = test_keypair();
         let author = if ai {
             match author {
-                arc_core::store::author::Author::Human { key, .. } => {
-                    arc_core::store::author::Author::AI {
+                arc_store_types::author::Author::Human { key, .. } => {
+                    arc_store_types::author::Author::AI {
                         model: "gpt-test".to_string(),
                         human_sponsor: key,
                     }
@@ -524,3 +524,4 @@ mod tests {
         assert!(err.contains("unsupported template field"));
     }
 }
+

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use arc_core::algebra::Blake3Hash;
+use arc_algebra_types::Blake3Hash;
 use serde::{Deserialize, Serialize};
 
 /// Initial client hello for native arc sync.
@@ -23,3 +23,4 @@ pub struct HandshakeResponse {
     /// Object hashes the server needs from the client.
     pub required_hashes: Vec<Blake3Hash>,
 }
+

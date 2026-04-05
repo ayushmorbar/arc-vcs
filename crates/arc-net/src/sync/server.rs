@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use arc_core::algebra::Blake3Hash;
-use arc_core::store::change::Change;
-use arc_core::store::view::View;
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_store_view::View;
 use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
@@ -287,3 +287,4 @@ fn is_valid_view_name(name: &str) -> bool {
     name.chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
 }
+

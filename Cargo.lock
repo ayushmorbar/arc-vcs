@@ -172,10 +172,21 @@ name = "arc-cli"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
- "arc-core",
+ "arc-ai",
+ "arc-algebra",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-engine",
+ "arc-git",
  "arc-git-bridge",
  "arc-lang",
  "arc-net",
+ "arc-network",
+ "arc-revset",
+ "arc-store-cas",
+ "arc-store-graph",
+ "arc-store-types",
+ "arc-store-view",
  "arc-swap",
  "async-trait",
  "bincode",
@@ -256,8 +267,12 @@ name = "arc-daemon"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
+ "arc-algebra",
+ "arc-algebra-types",
+ "arc-change",
  "arc-cli",
- "arc-core",
+ "arc-store-types",
+ "arc-store-view",
  "notify",
  "serde",
  "serde_json",
@@ -317,7 +332,8 @@ name = "arc-lang"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
- "arc-core",
+ "arc-algebra-types",
+ "arc-store-cas",
  "tempfile",
  "tree-sitter",
  "tree-sitter-rust",
@@ -328,7 +344,12 @@ name = "arc-net"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
- "arc-core",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-network",
+ "arc-store-cas",
+ "arc-store-types",
+ "arc-store-view",
  "async-trait",
  "axum",
  "bincode",

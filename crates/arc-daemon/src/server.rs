@@ -1,11 +1,11 @@
 use anyhow::Context as _;
 use arc_cli::repo::Repository;
-use arc_core::algebra::{Atom, Blake3Hash};
-use arc_core::store::author::Author;
-use arc_core::store::author::load_identity;
-use arc_core::store::newtypes::ChangeId;
-use arc_core::store::oplog::OpLog;
-use arc_core::store::view::View;
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_store_types::author::Author;
+use arc_store_types::author::load_identity;
+use arc_store_types::newtypes::ChangeId;
+use arc_store_view::oplog::OpLog;
+use arc_store_view::View;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::json;
@@ -283,7 +283,7 @@ fn parse_path(params: Option<serde_json::Value>) -> Result<std::path::PathBuf, R
 }
 
 fn tracked_files_from_state(
-    state: &arc_core::algebra::apply::MaterializedState,
+    state: &arc_algebra::apply::MaterializedState,
 ) -> std::collections::HashSet<String> {
     let mut tracked = std::collections::HashSet::new();
     for key in state.keys() {
@@ -334,7 +334,7 @@ fn upsert_status(map: &mut std::collections::HashMap<String, String>, file: &str
 }
 
 fn file_attribution_from_history(
-    history_newest_first: &[arc_core::store::change::Change],
+    history_newest_first: &[arc_change::Change],
 ) -> (
     std::collections::HashSet<String>,
     std::collections::HashSet<String>,
@@ -418,7 +418,7 @@ mod tests {
         let repo_path = dir.path();
 
         let mut repo = Repository::init(repo_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         repo.set_identity(author, signing_key);
 
         std::fs::write(repo_path.join("tracked.rs"), "fn a() {}\n").unwrap();
@@ -459,3 +459,4 @@ mod tests {
         }
     }
 }
+

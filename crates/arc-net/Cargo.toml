@@ -6,7 +6,12 @@ license = "MIT OR Apache-2.0"
 description = "arc HTTP transport layer: read-only CAS and view server"
 
 [dependencies]
-arc-core = { path = "../arc-core" }
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-change = { path = "../arc-change" }
+arc-network = { path = "../arc-network" }
+arc-store-cas = { path = "../arc-store-cas" }
+arc-store-types = { path = "../arc-store-types" }
+arc-store-view = { path = "../arc-store-view" }
 axum = "0.8.8"
 tokio = { version = "1.51.0", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }

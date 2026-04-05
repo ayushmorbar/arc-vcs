@@ -5,12 +5,13 @@ use std::time::Duration;
 use indicatif::ProgressBar;
 
 use crate::repo::{Repository, prefix_atom_path};
-use arc_core::git_bridge;
-use arc_core::store::author::Author;
-use arc_core::store::change::Change;
-use arc_core::store::view::View;
+use crate::store_compat::ObjectStoreChangeExt;
+use arc_change::Change;
+use arc_git as git_bridge;
 use arc_lang::ast::LanguagePlugin;
 use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_store_types::author::Author;
+use arc_store_view::View;
 
 /// Import a Git repository's history into an `arc` repository.
 ///
@@ -34,7 +35,7 @@ pub fn import_repo(
     let plugin = RustPlugin::new();
 
     // commit OID → arc Blake3Hash
-    let mut oid_to_arc: HashMap<[u8; 20], arc_core::algebra::Blake3Hash> = HashMap::new();
+    let mut oid_to_arc: HashMap<[u8; 20], arc_algebra_types::Blake3Hash> = HashMap::new();
     // commit OID → tree OID (to retrieve parent file snapshots)
     let mut oid_to_tree: HashMap<[u8; 20], [u8; 20]> = HashMap::new();
 
@@ -49,7 +50,7 @@ pub fn import_repo(
         ));
 
         // Map parent OIDs to arc deps.
-        let deps: HashSet<arc_core::algebra::Blake3Hash> = commit
+        let deps: HashSet<arc_algebra_types::Blake3Hash> = commit
             .parents
             .iter()
             .filter_map(|p| oid_to_arc.get(p).copied())
@@ -176,7 +177,7 @@ mod tests {
         // Import into a fresh arc repository.
         let arc_path = arc_dir.path().join("imported");
         let mut arc_repo = Repository::init(&arc_path).unwrap();
-        let (author, signing_key) = arc_core::store::author::test_keypair();
+        let (author, signing_key) = arc_store_types::author::test_keypair();
         import_repo(git_path, &mut arc_repo, &author, &signing_key).unwrap();
 
         // Verify the arc graph has exactly 2 changes.
@@ -195,7 +196,7 @@ mod tests {
         let branch_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // Verify the branch view was saved with at least one head.
-        let imported_view = arc_core::store::view::View::load(&arc_path, &branch_name).unwrap();
+        let imported_view = arc_store_view::View::load(&arc_path, &branch_name).unwrap();
         assert!(
             !imported_view.heads.is_empty(),
             "imported branch view '{branch_name}' must have at least one head after import"

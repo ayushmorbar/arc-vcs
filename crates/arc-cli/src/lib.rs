@@ -33,6 +33,7 @@ pub mod repo;
 /// Semantic text diff rendering: Sesame alignment, intent annotation, and
 /// BDiff-inspired inline sub-expression highlighting.
 pub mod semantic_diff;
+mod store_compat;
 /// Fetch and pull synchronization primitives.
 pub mod sync;
 /// Typed workspace tooling policy audit utilities.

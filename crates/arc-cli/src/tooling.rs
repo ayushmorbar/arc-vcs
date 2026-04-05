@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Context;
-use arc_core::store::newtypes::{ChangeId, SnapshotId};
+use arc_store_types::newtypes::{ChangeId, SnapshotId};
 use serde::Deserialize;
 use tracing::instrument;
 
@@ -158,7 +158,7 @@ fn read_mise_required_tasks(path: &Path) -> anyhow::Result<Vec<String>> {
 mod tests {
     use std::fs;
 
-    use arc_core::store::newtypes::{ChangeId, SnapshotId};
+    use arc_store_types::newtypes::{ChangeId, SnapshotId};
 
     use super::audit_workspace_tooling;
 
@@ -243,3 +243,4 @@ mod tests {
         assert_eq!(report.present_required_tasks.len(), 3);
     }
 }
+
