@@ -1,16 +1,32 @@
-//! Pure-Rust Git history reader.
+//! BLUF: `arc-git` is the Git ingress edge for the `arc` DAG.
 //!
-//! Opens a legacy Git repository, decompresses loose and packed objects,
-//! parses commit metadata, and walks the DAG from HEAD - without linking
-//! to libgit2 or depending on the `gix` crate.  Only [`flate2`] is used
-//! for zlib decompression.
+//! It reads legacy Git repositories and emits deterministic commit/tree/blob
+//! structures that upstream `arc` crates can translate into Spacetime-DAG
+//! changes and CRDT-algebra operations.
 //!
-//! # Design (inspired by gitoxide)
+//! ## Purity and I/O boundary
 //!
-//! The `gix` project splits Git I/O across many fine-grained crates
-//! (`gix-odb`, `gix-pack`, `gix-object`, `gix-revwalk`, ...).  We follow
-//! the same logical layering inside a single module: ref resolution ->
-//! object I/O (loose + pack) -> commit parsing -> DAG traversal.
+//! This crate is an I/O boundary by design:
+//! - It performs filesystem reads of `.git` refs, loose objects, and packfiles.
+//! - It performs pure parsing/walking after bytes are loaded.
+//! - It does not mutate repository state.
+//!
+//! ## Why this crate exists
+//!
+//! The `arc` architecture keeps Git compatibility concerns outside algebra and
+//! provenance layers. `arc-git` isolates SHA-1 object decoding and history walk
+//! logic so Ed25519 provenance and CRDT semantics remain independent from Git
+//! storage internals.
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use std::path::Path;
+//!
+//! let analysis = arc_git::analyze_git_repo(Path::new("."))?;
+//! println!("HEAD={} commits={}", analysis.head_hex, analysis.commit_count);
+//! # Ok::<(), anyhow::Error>(())
+//! ```
 
 use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, HashSet, VecDeque};

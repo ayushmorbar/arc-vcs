@@ -1,3 +1,33 @@
+//! BLUF: `arc-algebra-types` defines the canonical atom vocabulary for `arc`.
+//!
+//! It provides the pure data model used by higher layers to describe
+//! Spacetime-DAG operations as structural AST edits and conflict algebra.
+//!
+//! ## Purity and I/O boundary
+//!
+//! This crate is pure compute and data types only:
+//! - No filesystem I/O
+//! - No network I/O
+//! - No cryptographic key material handling
+//!
+//! ## Why this crate exists
+//!
+//! CRDT and replay semantics depend on stable, language-agnostic primitives.
+//! Centralizing `Atom` and hash aliases here prevents dependency cycles and
+//! keeps operation algebra reusable across store, network, and CLI layers.
+//!
+//! ## Example
+//!
+//! ```
+//! use arc_algebra_types::Atom;
+//!
+//! let op = Atom::Insert {
+//!     at: vec!["file".into(), "src/main.rs".into(), "fn_foo".into()],
+//!     content_hash: [0u8; 32],
+//! };
+//! assert_eq!(op.paths().len(), 1);
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 /// BLAKE3 content-addressed identity - 32-byte hash.

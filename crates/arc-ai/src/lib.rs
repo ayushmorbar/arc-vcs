@@ -1,13 +1,31 @@
-//! AI orchestration: conflict resolution, AST-aware commit-message generation,
-//! and agentic code generation.
+//! BLUF: `arc-ai` is the AI orchestration edge for intent-aware workflows.
 //!
-//! Capabilities:
-//! - [`AiResolver`] / [`MockResolver`] / [`LlmResolver`]: three-way conflict resolution.
-//! - [`generate_message`]: async call to produce a conventional commit message.
-//! - [`generate_code`]: async call to produce generated code for `arc generate`.
-//! - [`extract_code_fence`]: shared helper to strip code fences from LLM output.
-//! - [`embedding`]: local + API embedding providers for semantic intent indexing.
-//! - [`vector_store`]: SQLite-backed cosine-similarity search index.
+//! It centralizes LLM calls used by `arc` for conflict resolution, message
+//! generation, code generation, and semantic embedding retrieval.
+//!
+//! ## Purity and I/O boundary
+//!
+//! This crate is a network and local-model I/O boundary:
+//! - Network I/O: OpenAI-compatible HTTP APIs for chat and embeddings.
+//! - Disk I/O: embedding model cache and SQLite vector index.
+//! - Pure logic: prompt shaping, response normalization, and fence extraction.
+//!
+//! ## Why this crate exists
+//!
+//! `arc` keeps CRDT and Spacetime-DAG mechanics deterministic and auditable,
+//! while isolating non-deterministic AI interactions in one boundary crate.
+//! This separation preserves strong Ed25519 provenance guarantees in core
+//! change objects even when AI is used as an assistant.
+//!
+//! ## Example
+//!
+//! ```no_run
+//! # async fn run() -> Result<(), anyhow::Error> {
+//! let msg = arc_ai::generate_message("insert fn foo; rename bar -> baz").await?;
+//! println!("{}", msg);
+//! # Ok(())
+//! # }
+//! ```
 //!
 //! Environment variables (shared by all network functions):
 //!
@@ -29,12 +47,14 @@ use serde_json::json;
 ///
 /// Reads `ARC_AI_KEY` (required), `ARC_AI_URL` (default: `https://api.openai.com`), and
 /// `ARC_AI_MODEL` (default: `gpt-4o-mini`) from the environment.  Compatible with every
-/// provider that exposes the `/v1/chat/completions` endpoint: OpenAI, Anthropic (compat),
-/// Groq, Together, Azure OpenAI, Ollama, LM Studio, and any local inference server.
+/// provider exposing an OpenAI-compatible `/v1/chat/completions` endpoint and
+/// Bearer-token auth: OpenAI, Anthropic-compatible proxies, Groq, Together,
+/// Ollama-compatible gateways, LM Studio, and similar local inference servers.
 ///
 /// # Errors
-/// Returns `Err` if `ARC_AI_KEY` is unset (hard configuration failure) or if the HTTP
-/// request itself fails (transient - callers should offer an interactive fallback).
+/// Returns `Err` if `ARC_AI_KEY` is unset, if HTTP client construction fails,
+/// if the request fails in flight, or if the provider response cannot be parsed
+/// as valid JSON.
 pub async fn generate_message(diff_summary: &str) -> Result<String> {
     let api_key = std::env::var("ARC_AI_KEY").context(
         "ARC_AI_KEY environment variable must be set. Export it before using --auto-msg.",

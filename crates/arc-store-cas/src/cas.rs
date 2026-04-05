@@ -78,10 +78,18 @@ impl ObjectStore {
         self.root.join("store").join(&hex[..2]).join(&hex[2..])
     }
 
-    /// Persist a [`Change`] to the CAS.
+    /// Persist an object under its precomputed BLAKE3 key.
     ///
-    /// Returns the change's `id` (its BLAKE3 hash). If the object already
-    /// exists on disk the write is skipped (deduplication).
+    /// Semantic guarantee: storage is content-addressed by caller-supplied
+    /// BLAKE3 keys, and duplicate writes under an existing path are skipped.
+    ///
+    /// This is a local best-effort dedup behavior, not a crash-atomic
+    /// multi-writer protocol.
+    ///
+    /// Durability note: this method performs a direct file write and does not
+    /// issue an explicit fsync. It guarantees deterministic path placement and
+    /// dedup semantics, but power-loss durability must be provided by a higher
+    /// durability layer if required.
     pub fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
         let path = self.object_path(hash);
         if path.exists() {
@@ -94,7 +102,7 @@ impl ObjectStore {
         Ok(*hash)
     }
 
-    /// Read a [`Change`] back from the CAS.
+    /// Read an object back from CAS by BLAKE3 key.
     ///
     /// Files < 4 096 bytes are read into a `Vec<u8>`; larger objects are
     /// memory-mapped to avoid a heap copy.

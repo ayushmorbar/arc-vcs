@@ -49,8 +49,9 @@ pub struct Change {
     /// that this Change was collapsed from (Phase 39 Identity Collapsing).
     ///
     /// Set by the server when it re-signs a transient-author Change under
-    /// `Author::Server`.  The original Change stays in CAS forever so
-    /// auditors can always verify the pre-collapse authorship (SLSA L4).
+    /// `Author::Server`.  In production deployments the original Change is
+    /// expected to be retained in CAS so auditors can verify pre-collapse
+    /// authorship (SLSA L4-style auditability).
     ///
     /// `None` for all ordinary (non-collapsed) Changes.
     /// Excluded from `compute_id` — it is provenance metadata, not content,
@@ -177,7 +178,8 @@ impl Change {
     /// Change must also be re-signed because deps are part of the hash).
     ///
     /// Both the original Change AND this canonical Change should be written
-    /// to CAS — the original serves as the permanent SLSA L4 audit root.
+    /// to CAS by the calling layer — the original acts as the audit root for
+    /// provenance reconstruction.
     pub fn new_canonical(
         deps: HashSet<Blake3Hash>,
         atoms: Vec<Atom>,
