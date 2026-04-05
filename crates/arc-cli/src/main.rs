@@ -1037,6 +1037,14 @@ fn main() -> anyhow::Result<()> {
     }
     let cli = Cli::parse_from(&raw_args);
 
+    // Extension-style global pre-command behavior driven by config.
+    if let Ok(config) = load_merged_config(std::path::Path::new("."))
+        && let Some(greet) = config.ui.greet.as_deref()
+        && !greet.trim().is_empty()
+    {
+        println!("{greet}");
+    }
+
     match cli.command {
         Command::Init { path, no_git } => {
             let target = path.unwrap_or_else(|| ".".to_string());
@@ -1223,8 +1231,10 @@ fn main() -> anyhow::Result<()> {
                     repo.log_revset(&revset)?
                 };
                 let parsed_template = if let Some(raw_template) = template.as_deref() {
+                    let config = load_merged_config(std::path::Path::new("."))?;
+                    let resolved_template = resolve_log_template_alias(raw_template, &config);
                     Some(
-                        LogTemplate::parse(raw_template)
+                        LogTemplate::parse(&resolved_template)
                             .map_err(|msg| anyhow::anyhow!("invalid --template value: {msg}"))?,
                     )
                 } else {
@@ -1376,13 +1386,64 @@ fn main() -> anyhow::Result<()> {
                 repo.set_identity(author, signing_key);
 
                 let cfg = load_merged_config(std::path::Path::new("."))?;
-                if let Some(tool) = cfg.merge.tool.as_deref() {
+                let merge_tool_resolution = if let Some(tool) = cfg.merge.tool.as_deref() {
                     eprintln!("[arc] Using merge tool '{}' for conflict resolution.", tool);
-                    repo.resolve_conflict_with_merge_tool(Some(tool))?;
-                    println!(
-                        "[arc] Resolution staged as Ghost Node. \
-                         Review changes then run 'arc ai approve'."
-                    );
+                    Some(repo.resolve_conflict_with_merge_tool(Some(tool)))
+                } else {
+                    None
+                };
+
+                if let Some(result) = merge_tool_resolution {
+                    match result {
+                        Ok(()) => {
+                            println!(
+                                "[arc] Resolution staged as Ghost Node. \
+                                 Review changes then run 'arc ai approve'."
+                            );
+                        }
+                        Err(err) => {
+                            let err_text = format!("{err:#}");
+                            let should_fallback = err_text.contains("failed to execute merge tool")
+                                || err_text.contains("exited with status")
+                                || err_text.contains("produced empty output");
+                            if !should_fallback {
+                                return Err(err);
+                            }
+
+                            eprintln!(
+                                "[arc] Merge-tool resolution failed ({err_text}). Falling back to AI provider."
+                            );
+                            let provider_name =
+                                cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
+                            let model = cfg
+                                .ai
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                            let endpoint = cfg.ai.endpoint.clone();
+                            let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
+                                anyhow::anyhow!(
+                                    "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
+                                )
+                            })?;
+
+                            let provider = build_provider(provider_name, &model, endpoint, api_key)?;
+                            eprintln!(
+                                "[arc] Using AI provider '{}' with model '{}'.",
+                                provider_name, model
+                            );
+
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()?;
+                            rt.block_on(repo.resolve_conflict_with_provider(provider.as_ref(), &model))?;
+
+                            println!(
+                                "[arc] Resolution staged as Ghost Node. \
+                                 Review changes then run 'arc ai approve'."
+                            );
+                        }
+                    }
                 } else {
                     let provider_name = cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
                     let model = cfg
@@ -2207,6 +2268,7 @@ fn main() -> anyhow::Result<()> {
                                 "diff_formatter": {"type": "string"},
                                 "conflict_marker_style": {"type": "string"},
                                 "progress_indicator": {"type": "boolean"},
+                                "greet": {"type": "string"},
                                 "movement": {
                                     "type": "object",
                                     "properties": {
@@ -2634,6 +2696,9 @@ fn main() -> anyhow::Result<()> {
                 if let Some(v) = config.ui.progress_indicator {
                     println!("progress_indicator = {v}");
                 }
+                if let Some(v) = &config.ui.greet {
+                    println!("greet = {v}");
+                }
                 if let Some(v) = config.ui.movement.edit {
                     println!("movement.edit = {v}");
                 }
@@ -2872,6 +2937,16 @@ fn prompt_yes_no(prompt: &str) -> anyhow::Result<bool> {
     Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
 
+fn resolve_log_template_alias(raw_template: &str, config: &ArcConfig) -> String {
+    if let Some(template) = config.template_aliases.get(raw_template) {
+        return template.clone();
+    }
+    if let Some(template) = config.templates.get(raw_template) {
+        return template.clone();
+    }
+    raw_template.to_string()
+}
+
 struct TagSetUpdate {
     name: String,
     needs_write: bool,
@@ -2937,6 +3012,7 @@ fn config_get(cfg: &ArcConfig, key: &str) -> Option<String> {
         "ui.diff_formatter" => cfg.ui.diff_formatter.clone(),
         "ui.conflict_marker_style" => cfg.ui.conflict_marker_style.clone(),
         "ui.progress_indicator" => cfg.ui.progress_indicator.map(|v| v.to_string()),
+        "ui.greet" => cfg.ui.greet.clone(),
         "ui.movement.edit" => cfg.ui.movement.edit.map(|v| v.to_string()),
         "merge.tool" => cfg.merge.tool.clone(),
         "ai.provider" => cfg.ai.provider.clone(),
@@ -2987,6 +3063,7 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
         "ui.graph_style" => cfg.ui.graph_style = Some(value.to_string()),
         "ui.diff_formatter" => cfg.ui.diff_formatter = Some(value.to_string()),
         "ui.conflict_marker_style" => cfg.ui.conflict_marker_style = Some(value.to_string()),
+        "ui.greet" => cfg.ui.greet = Some(value.to_string()),
         "ui.progress_indicator" => {
             cfg.ui.progress_indicator = Some(
                 value
@@ -3047,7 +3124,7 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
                     "unknown config key '{key}'; known keys: \
                      user.name, user.email, ui.color, ui.pager, ui.editor, \
                      ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.movement.edit, merge.tool, \
+                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
                      ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
@@ -3071,6 +3148,7 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
         "ui.diff_formatter" => cfg.ui.diff_formatter = None,
         "ui.conflict_marker_style" => cfg.ui.conflict_marker_style = None,
         "ui.progress_indicator" => cfg.ui.progress_indicator = None,
+        "ui.greet" => cfg.ui.greet = None,
         "ui.movement.edit" => cfg.ui.movement.edit = None,
         "merge.tool" => cfg.merge.tool = None,
         "ai.provider" => cfg.ai.provider = None,
@@ -3101,7 +3179,7 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
                     "unknown config key '{key}'; known keys: \
                      user.name, user.email, ui.color, ui.pager, ui.editor, \
                      ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.movement.edit, merge.tool, \
+                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
                      ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
@@ -3240,5 +3318,30 @@ mod tests {
         assert!(plan.updates[1].needs_write);
         assert_eq!(plan.updates[2].name, "v2");
         assert!(!plan.updates[2].needs_write);
+    }
+
+    #[test]
+    fn resolve_log_template_alias_prefers_template_aliases() {
+        let mut config = ArcConfig::default();
+        config
+            .template_aliases
+            .insert("compact".to_string(), "{id_short} {intent}".to_string());
+        config
+            .templates
+            .insert("compact".to_string(), "{id} {intent}".to_string());
+
+        let resolved = resolve_log_template_alias("compact", &config);
+        assert_eq!(resolved, "{id_short} {intent}");
+    }
+
+    #[test]
+    fn resolve_log_template_alias_falls_back_to_templates() {
+        let mut config = ArcConfig::default();
+        config
+            .templates
+            .insert("verbose".to_string(), "{id} {author} {intent}".to_string());
+
+        let resolved = resolve_log_template_alias("verbose", &config);
+        assert_eq!(resolved, "{id} {author} {intent}");
     }
 }

@@ -105,6 +105,9 @@ pub struct UiConfig {
     /// Whether progress indicators are shown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress_indicator: Option<bool>,
+    /// Optional greeting emitted before each CLI command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub greet: Option<String>,
     /// Movement UI defaults.
     #[serde(default)]
     pub movement: UiMovementConfig,
@@ -120,6 +123,7 @@ impl Default for UiConfig {
             diff_formatter: None,
             conflict_marker_style: None,
             progress_indicator: None,
+            greet: None,
             movement: UiMovementConfig::default(),
         }
     }
@@ -258,6 +262,7 @@ pub fn synthesized_defaults_config() -> ArcConfig {
     cfg.ui.diff_formatter = Some(":color-words".to_string());
     cfg.ui.conflict_marker_style = Some("diff".to_string());
     cfg.ui.progress_indicator = Some(true);
+    cfg.ui.greet = None;
     cfg.ui.movement.edit = Some(false);
     if cfg!(windows) {
         cfg.ui.pager = Some(":builtin".to_string());
@@ -1863,6 +1868,7 @@ impl Repository {
         let mut merge_atoms = Vec::new();
         let mut combined_intent = format!("merge-tool({selected_name}): ");
         let mut affected_files: Vec<PathBuf> = Vec::new();
+        let mut resolved_file_updates: Vec<(PathBuf, Vec<u8>)> = Vec::new();
 
         let g = self.graph.load_full();
         for (id_a, id_b) in &conflict.conflicting_pairs {
@@ -1918,12 +1924,8 @@ impl Repository {
 
             if path.len() >= 2 && path[0] == "file" {
                 let file_path = self.work_root.join(&path[1]);
-                if let Some(parent) = file_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::write(&file_path, &resolved)
-                    .map_err(|e| anyhow::anyhow!("failed to write resolved file: {e}"))?;
                 affected_files.push(PathBuf::from(&path[1]));
+                resolved_file_updates.push((file_path, resolved.clone()));
             }
 
             combined_intent.push_str(&change_a.intent);
@@ -1942,6 +1944,15 @@ impl Repository {
             merge_atoms,
             merge_deps.into_iter().collect(),
         );
+
+        for (file_path, resolved) in resolved_file_updates {
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&file_path, &resolved)
+                .map_err(|e| anyhow::anyhow!("failed to write resolved file: {e}"))?;
+        }
+
         save_pending_ai(&self.shared_root, &pending)?;
 
         fs::remove_file(&conflict_path)?;
@@ -5271,11 +5282,11 @@ fn run_external_merge_tool_once(
         "merge tool '{program}' exited with status {status}"
     );
 
-    let resolved = fs::read(&output_file)
-        .map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
+    let resolved =
+        fs::read(&output_file).map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
     anyhow::ensure!(
-        !resolved.is_empty() && resolved != ours_content,
-        "merge tool '{tool_name}' produced unchanged or empty output"
+        !resolved.is_empty(),
+        "merge tool '{tool_name}' produced empty output"
     );
     Ok(resolved)
 }
@@ -5807,6 +5818,9 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
         if global.ui.progress_indicator.is_some() {
             merged.ui.progress_indicator = global.ui.progress_indicator;
         }
+        if global.ui.greet.is_some() {
+            merged.ui.greet = global.ui.greet;
+        }
         if global.ui.movement.edit.is_some() {
             merged.ui.movement.edit = global.ui.movement.edit;
         }
@@ -5863,6 +5877,9 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     }
     if local.ui.progress_indicator.is_some() {
         merged.ui.progress_indicator = local.ui.progress_indicator;
+    }
+    if local.ui.greet.is_some() {
+        merged.ui.greet = local.ui.greet;
     }
     if local.ui.movement.edit.is_some() {
         merged.ui.movement.edit = local.ui.movement.edit;
@@ -6840,7 +6857,42 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_tool_resolution_rejects_unchanged_output() {
+    fn test_merge_tool_resolution_accepts_unchanged_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("merge_tool_accept_unchanged_project");
+
+        let mut repo = Repository::init(&repo_path).unwrap();
+        let (author, signing_key) = arc_core::store::author::test_keypair();
+        repo.set_identity(author, signing_key);
+
+        fs::write(repo_path.join("shared.rs"), "fn shared() {}\n").unwrap();
+        repo.snap("initial shared.rs", false).unwrap();
+
+        repo.create_view("feature").unwrap();
+        repo.switch_view("feature").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let a = 1; }\n").unwrap();
+        repo.snap("modify shared.rs on feature", false).unwrap();
+
+        repo.switch_view("main").unwrap();
+        fs::write(repo_path.join("shared.rs"), "fn shared() { let b = 2; }\n").unwrap();
+        repo.snap("modify shared.rs on main", false).unwrap();
+        repo.merge_view("feature").unwrap();
+
+        configure_test_merge_tool(&repo_path, "copy-ours");
+        repo.resolve_conflict_with_merge_tool(None).unwrap();
+
+        assert!(
+            repo_path
+                .join(".arc")
+                .join("ai")
+                .join("pending.json")
+                .exists(),
+            "unchanged output should still stage a pending resolution"
+        );
+    }
+
+    #[test]
+    fn test_merge_tool_resolution_rejects_nonzero_exit() {
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path().join("merge_tool_unchanged_project");
 
@@ -6861,11 +6913,11 @@ mod tests {
         repo.snap("modify shared.rs on main", false).unwrap();
         repo.merge_view("feature").unwrap();
 
-        configure_test_merge_tool(&repo_path, "copy-ours");
+        configure_test_merge_tool(&repo_path, "exit-fail");
 
         let err = repo.resolve_conflict_with_merge_tool(None).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("unchanged or empty output"));
+        assert!(msg.contains("exited with status"));
         assert!(repo_path.join(".arc").join("conflict").exists());
         assert!(
             !repo_path
