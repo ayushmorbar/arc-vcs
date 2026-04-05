@@ -1,3 +1,8 @@
+---
+title: Network Transport
+description: Documentation page for Network Transport.
+---
+
 # Network Transport
 
 arc's network transport is built on **Delta-State CRDT** principles: instead

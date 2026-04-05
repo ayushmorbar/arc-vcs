@@ -1,3 +1,8 @@
+---
+title: Documentation Summary
+description: Table of contents for arc documentation.
+---
+
 # Summary
 
 [Introduction](introduction.md)

@@ -1,3 +1,8 @@
+---
+title: Ci Integration
+description: Documentation page for Ci Integration.
+---
+
 # CI Integration (GitHub Actions and GitLab CI)
 
 Status: Stable

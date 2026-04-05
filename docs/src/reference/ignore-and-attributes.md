@@ -1,3 +1,8 @@
+---
+title: Ignore And Attributes
+description: Documentation page for Ignore And Attributes.
+---
+
 # Ignore & Attributes
 
 arc provides two mechanisms for controlling which files are tracked: `.arcignore` for exclusion and sparse checkout patterns for inclusion.

@@ -1,3 +1,8 @@
+---
+title: ADR 003 Git Bridge
+description: Documentation page for ADR 003 Git Bridge.
+---
+
 # ADR 003 - Pure Local DAG with Translation on the Wire
 
 | Field        | Value         |

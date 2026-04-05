@@ -1,3 +1,8 @@
+---
+title: 002 Ast Over Text
+description: Documentation page for 002 Ast Over Text.
+---
+
 # ADR 002 — AST-Level Diffing over Line-Based Diffing
 
 | Field | Value |

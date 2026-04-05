@@ -1,3 +1,8 @@
+---
+title: Config
+description: Documentation page for Config.
+---
+
 # Configuration
 
 ## BLUF

@@ -1,3 +1,8 @@
+---
+title: Conflict Resolution
+description: Documentation page for Conflict Resolution.
+---
+
 # Conflict Resolution Policy
 
 Status: Stable policy for current implementation

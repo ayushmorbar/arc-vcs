@@ -1,3 +1,8 @@
+---
+title: Ast Diffing
+description: Documentation page for Ast Diffing.
+---
+
 # AST Diffing
 
 This document explains how arc translates source code changes into typed `Atom` objects using Tree-sitter's concrete syntax tree (CST), and how those atoms drive the algebraic patch theory.

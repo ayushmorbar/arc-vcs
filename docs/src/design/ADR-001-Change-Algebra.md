@@ -1,3 +1,8 @@
+---
+title: ADR 001 Change Algebra
+description: Documentation page for ADR 001 Change Algebra.
+---
+
 # ADR 001 - Change Algebra over Snapshot Diffs
 
 | Field        | Value         |

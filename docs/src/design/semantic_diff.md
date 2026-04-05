@@ -1,3 +1,8 @@
+---
+title: Semantic Diff
+description: Documentation page for Semantic Diff.
+---
+
 # Semantic Diff Engine
 
 This document explains why `arc diff` looks different from `git diff`, how the

@@ -1,3 +1,8 @@
+---
+title: Everyday
+description: Documentation page for Everyday.
+---
+
 # Everyday Workflow
 
 This page covers the commands you will use in every arc session.

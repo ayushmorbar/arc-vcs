@@ -1,3 +1,8 @@
+---
+title: Debugging
+description: Documentation page for Debugging.
+---
+
 # Debugging and Hyper-Observability
 
 Status: Stable

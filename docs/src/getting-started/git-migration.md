@@ -1,3 +1,8 @@
+---
+title: Git Migration
+description: Documentation page for Git Migration.
+---
+
 # Migrating from Git
 
 This page explicitly breaks the mental model you built over years of using Git. Read it carefully before reaching for familiar concepts.

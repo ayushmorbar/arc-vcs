@@ -1,3 +1,8 @@
+---
+title: 003 Crdt Over Ot
+description: Documentation page for 003 Crdt Over Ot.
+---
+
 # ADR 003 — CRDT + Commutativity over Operational Transform
 
 | Field | Value |

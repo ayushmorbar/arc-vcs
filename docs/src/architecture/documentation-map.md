@@ -1,3 +1,8 @@
+---
+title: Documentation Map
+description: Documentation page for Documentation Map.
+---
+
 # Documentation Map (2026 DX/UX)
 
 Purpose: Single source of truth for what is documented, where it lives, and which layer it serves.

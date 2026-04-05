@@ -1,3 +1,8 @@
+---
+title: ADR 002 Jujutsu Workflow
+description: Documentation page for ADR 002 Jujutsu Workflow.
+---
+
 # ADR 002 - Jujutsu-Style Workflow as the Default UX
 
 | Field        | Value         |

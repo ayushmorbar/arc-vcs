@@ -1,3 +1,8 @@
+---
+title: Team Workflow
+description: Documentation page for Team Workflow.
+---
+
 # Team Workflow: Day 2 Operations
 
 Status: Stable

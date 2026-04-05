@@ -1,3 +1,8 @@
+---
+title: Glossary
+description: Documentation page for Glossary.
+---
+
 # Glossary
 
 ---

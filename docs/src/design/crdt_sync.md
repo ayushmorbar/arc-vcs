@@ -1,3 +1,8 @@
+---
+title: Crdt Sync
+description: Documentation page for Crdt Sync.
+---
+
 # CRDT Network Sync
 
 This document describes arc's network synchronisation model: how views and changes are distributed across nodes, how the merge lattice is defined, and how causal stability enables safe garbage collection.

@@ -1,3 +1,8 @@
+---
+title: Large Monorepo Playbook
+description: Documentation page for Large Monorepo Playbook.
+---
+
 # Large Monorepo Playbook (Sparse and Mounts)
 
 Status: Stable

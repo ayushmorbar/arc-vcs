@@ -1,3 +1,8 @@
+---
+title: Ai Intents
+description: Documentation page for Ai Intents.
+---
+
 # AI Intents & Resolution
 
 arc provides a pluggable AI resolution layer for handling semantic conflicts that cannot be automatically merged. This page documents the `AiResolver` trait, the `MockResolver` for testing, and the full resolution workflow.

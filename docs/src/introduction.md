@@ -25,7 +25,7 @@ ADR-004 decomposed the old monolithic core into micro-crate slices:
 - Transport: `arc-network`, `arc-net`
 - Product surfaces: `arc-cli`, `arc-daemon`, `arc-git-bridge`, `arc-lang`, `arc-ai`
 
-> **Note:** `arc-core` is now a compatibility facade during migration, not the long-term architecture center.
+> **Note:** A temporary compatibility facade exists during migration, but the long-term architecture is the split micro-crate DAG.
 
 ## Purity And Crash Consistency
 

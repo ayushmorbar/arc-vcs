@@ -1,3 +1,8 @@
+---
+title: Troubleshoot Sync
+description: Documentation page for Troubleshoot Sync.
+---
+
 # Troubleshoot Sync
 
 Use this guide when `fetch`, `pull`, `push`, or `sync` behaves unexpectedly.

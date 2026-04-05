@@ -1,3 +1,8 @@
+---
+title: Release Docs Checklist
+description: Documentation page for Release Docs Checklist.
+---
+
 # Release Docs Checklist
 
 Use this checklist before cutting a new release.

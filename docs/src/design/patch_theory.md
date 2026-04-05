@@ -1,3 +1,8 @@
+---
+title: Patch Theory
+description: Documentation page for Patch Theory.
+---
+
 # Patch Theory
 
 This document provides a formal treatment of arc's algebraic foundation. It is intended for contributors, researchers, and engineers who want to reason precisely about correctness guarantees.

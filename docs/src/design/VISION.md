@@ -1,3 +1,8 @@
+---
+title: VISION
+description: Documentation page for VISION.
+---
+
 # Vision: arc in the Agentic Era (2026)
 
 `arc` is engineered as a verifiable, AI-native version control substrate for long-lived software systems. This document defines the architectural standards we apply to keep the platform reliable under autonomous and human collaboration.

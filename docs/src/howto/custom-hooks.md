@@ -1,3 +1,8 @@
+---
+title: Custom Hooks
+description: Documentation page for Custom Hooks.
+---
+
 # Custom Hooks
 
 This guide walks you through configuring and debugging lifecycle hooks in arc. By the end you will have a working pre-snap linter that blocks commits with compiler errors.

@@ -16,7 +16,7 @@ Bottom line up front: arc manages complexity by separating pure semantics from s
 | Persistence      | `arc-store-cas`, `arc-store-graph`, `arc-store-view`            | CAS storage, DAG state, view pointers, operation log            |
 | Transport        | `arc-network`, `arc-net`                                        | Payload protocol, sync ingress/egress                           |
 | Product surfaces | `arc-cli`, `arc-daemon`, `arc-git-bridge`, `arc-lang`, `arc-ai` | UX orchestration, IDE bridge, Git boundary, AST and AI adapters |
-| Compatibility    | `arc-core`                                                      | Transitional facade during migration                            |
+| Compatibility    | migration facade                                                | Transitional shim while consumers finish direct micro-crate adoption |
 
 ## Dependency Rules
 

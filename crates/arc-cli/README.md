@@ -1,35 +1,36 @@
 # arc-cli
 
-CLI orchestrator crate for arc.
+![crate](https://img.shields.io/badge/crate-arc--cli-blue)
+![role](https://img.shields.io/badge/role-orchestrator-4c8)
 
-## Purpose
+## BLUF
 
-`arc-cli` is the command-facing orchestration layer. It wires together core algebra/storage, language plugins, network services, and Git bridge interoperability.
+`arc-cli` is the product entrypoint and orchestration surface for arc workflows. It composes semantic, storage, transport, and interop crates into one operator-facing command experience.
 
-## Command Surface
+## Architectural Role (The DAG)
 
-Top-level command groups include:
+- Depends on: `arc-ai`, `arc-algebra`, `arc-algebra-types`, `arc-change`, `arc-engine`, `arc-network`, `arc-revset`, `arc-store-cas`, `arc-store-graph`, `arc-store-types`, `arc-store-view`, `arc-lang`, `arc-net`, `arc-git`, `arc-git-bridge`.
+- Depended on by: `arc-daemon`.
+- Position: top-level orchestration layer; no lower crate should depend on `arc-cli`.
 
-- Repository lifecycle: `init`, `status`, `diff`, `snap`, `log`, `verify`, `info`
-- Change operations: `cherry-pick`, `revert`, `restore`, `amend`, `squash`, `diffedit`
-- View control: `view`, `checkout`, `branch`, `undo`, `op`
-- AI workflows: `ai resolve`, `ai approve`, `ai generate`
-- Sync and remotes: `sync`, `fetch`, `pull`, `push`, `serve`, `remote`
-- Advanced workflows: `sparse`, `mount`, `workspace`, `gc`, `compact`
+## Purity & I/O Boundary
 
-See repository docs for full syntax: `docs/src/reference/cli-reference.md`.
+`arc-cli` is an **I/O boundary**.
 
-## Module Layout
+- Reads and writes repository working trees.
+- Initiates network sync and Git bridge interactions.
+- Coordinates durable state updates through storage crates.
 
-- `repo`: repository orchestration and command implementations.
-- `sync`: native synchronization primitives.
-- `interop`: external VCS import and interop helpers.
-- `semantic_diff`: semantic/text diff rendering.
-- `ai_pending`: pending AI change state handling.
-- `bugreport`: diagnostics packaging.
+## Key Types/Exports
 
-## Dependency Boundaries
+- `repo::Repository`
+- `sync::{fetch, pull, push}`
+- `generate`, `semantic_diff`, `graph_render` module surfaces
 
-- Owns orchestration, not low-level storage primitives.
-- Defers formal model and persistence mechanics to `arc-core`.
-- Defers transport-specific Git protocol details to `arc-git-bridge`.
+```rust
+use arc_cli::repo::Repository;
+
+let mut repo = Repository::open(".")?;
+let _ = repo.log()?;
+# Ok::<(), anyhow::Error>(())
+```

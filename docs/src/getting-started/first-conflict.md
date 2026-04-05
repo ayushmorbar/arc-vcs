@@ -1,3 +1,8 @@
+---
+title: First Conflict
+description: Documentation page for First Conflict.
+---
+
 # First Conflict: Your Arc Aha Moment
 
 Status: Stable
