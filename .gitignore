@@ -1,6 +1,8 @@
 # --- Project Specific ---
 # Ignore the research directory where you are testing jj-main
 research/
+# Ignore generated book files
+docs/book/*
 
 # --- Rust/Cargo ---
 # The primary build directory
