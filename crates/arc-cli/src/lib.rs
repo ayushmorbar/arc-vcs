@@ -28,6 +28,7 @@ pub mod governance;
 pub mod graph_render;
 /// Git repository interoperability tools.
 pub mod interop;
+mod progress;
 /// Top-level repository operations and VCS commands.
 pub mod repo;
 /// Semantic text diff rendering: Sesame alignment, intent annotation, and

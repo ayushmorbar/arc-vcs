@@ -404,12 +404,12 @@ pub struct GcResult {
 ///
 /// Worker threads produce `anyhow::Result<Option<Atom>>` for each file;
 /// this reducer collects the `Some` variants into a `Vec<Atom>`.
-struct BlobAtomReducer {
+pub(super) struct BlobAtomReducer {
     atoms: Vec<Atom>,
 }
 
 impl BlobAtomReducer {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { atoms: Vec::new() }
     }
 }
@@ -582,7 +582,7 @@ impl Repository {
     }
 
     /// Return a reference to the signing identity, or an error if unset.
-    fn signing_identity(&self) -> anyhow::Result<(&Author, &ed25519_dalek::SigningKey)> {
+    pub(super) fn signing_identity(&self) -> anyhow::Result<(&Author, &ed25519_dalek::SigningKey)> {
         self.identity
             .as_ref()
             .map(|(a, k)| (a, k))
@@ -825,7 +825,7 @@ impl Repository {
     /// one `arc` process mutates the repository at a time.  If the lock is
     /// already held by another process, this call blocks until it is released.
     /// The lock is automatically released when the [`Repository`] is dropped.
-    fn acquire_lock(&mut self) -> anyhow::Result<()> {
+    pub(super) fn acquire_lock(&mut self) -> anyhow::Result<()> {
         // Re-entrancy guard: if this Repository instance already holds the lock
         // (e.g. a top-level command already called acquire_lock() and then
         // invokes another method that also calls it), return immediately without
@@ -848,403 +848,6 @@ impl Repository {
         }
         self.lock_file = Some(file);
         Ok(())
-    }
-
-    /// Snapshot the current working directory into an implicit working-copy
-    /// change at the tip of the current view.
-    ///
-    /// Returns `Ok(false)` when there is nothing to snapshot.
-    pub fn snapshot(&mut self) -> anyhow::Result<bool> {
-        self.acquire_lock()?;
-        let view_name = self.current_view_name()?;
-        self.hydrate(&view_name)?;
-        let state = self.materialize(&view_name)?;
-
-        let atoms = self.compute_working_directory_delta(&state)?;
-        if atoms.is_empty() {
-            return Ok(false);
-        }
-
-        let mut view = View::load(&self.shared_root, &view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let before_heads = view.heads.clone();
-        let (author, signing_key) = self.signing_identity()?;
-
-        self.write_blob_atoms(&atoms)?;
-        let change = Change::new(
-            view.heads.clone(),
-            atoms,
-            "snapshot working copy",
-            author.clone(),
-            signing_key,
-        );
-
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph_add_change(change.clone());
-
-        view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
-
-        self.log_operation(
-            "snapshot working copy",
-            &view_name,
-            before_heads,
-            HashSet::from([change.id]),
-        )?;
-
-        Ok(true)
-    }
-
-    /// Finalize the current implicit working-copy change with user-facing
-    /// commit metadata.
-    pub fn finalize_snapshot(&mut self, message: &str) -> anyhow::Result<Blake3Hash> {
-        self.acquire_lock()?;
-        let view_name = self.current_view_name()?;
-        self.hydrate(&view_name)?;
-
-        let mut view = View::load(&self.shared_root, &view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        if view.heads.len() != 1 {
-            anyhow::bail!(
-                "finalize_snapshot requires exactly one head; view '{}' has {} heads",
-                view_name,
-                view.heads.len()
-            );
-        }
-
-        let old_head = *view.heads.iter().next().unwrap();
-        let old_change = self
-            .graph
-            .load()
-            .get(&old_head)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("change {} missing from graph", _hex(&old_head)))?;
-
-        let (author, signing_key) = self.signing_identity()?;
-        let new_change = Change::new(
-            old_change.deps.clone(),
-            old_change.atoms.clone(),
-            message,
-            author.clone(),
-            signing_key,
-        );
-
-        self.store
-            .write_change(&new_change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph_add_change(new_change.clone());
-        let _ = self.try_embed_change(&new_change);
-
-        view.heads = HashSet::from([new_change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
-
-        self.log_operation(
-            "snap",
-            &view_name,
-            HashSet::from([old_head]),
-            HashSet::from([new_change.id]),
-        )?;
-
-        Ok(new_change.id)
-    }
-
-    /// Fork the next empty implicit working-copy change on top of the current
-    /// finalized commit.
-    pub fn fork_empty_snapshot(&mut self) -> anyhow::Result<Blake3Hash> {
-        self.acquire_lock()?;
-        let view_name = self.current_view_name()?;
-        self.hydrate(&view_name)?;
-
-        let mut view = View::load(&self.shared_root, &view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let before_heads = view.heads.clone();
-        let (author, signing_key) = self.signing_identity()?;
-
-        let wc_change = Change::new(
-            view.heads.clone(),
-            Vec::new(),
-            "snapshot working copy",
-            author.clone(),
-            signing_key,
-        );
-
-        self.store
-            .write_change(&wc_change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph_add_change(wc_change.clone());
-
-        view.heads = HashSet::from([wc_change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
-
-        self.log_operation(
-            "snapshot working copy",
-            &view_name,
-            before_heads,
-            HashSet::from([wc_change.id]),
-        )?;
-
-        Ok(wc_change.id)
-    }
-
-    /// Scan the working directory, diff against the materialized history,
-    /// and create a new semantic `Change`.
-    ///
-    /// Returns `Some(change_id)` if a change was created, or `None` if
-    /// the working directory matches the materialized state exactly.
-    ///
-    /// Each file is decomposed into top-level AST items via `diff()`.
-    /// The resulting atoms are prefixed with `["file", filepath]` so that
-    /// `unparse()` can later reconstruct source per file.
-    pub fn snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<Option<Blake3Hash>> {
-        // Guard: refuse to snap while a diffedit is in progress.
-        let diffedit_lock = self.shared_root.join(".arc").join("diffedit_target");
-        if diffedit_lock.exists() {
-            anyhow::bail!(
-                "A diffedit is in progress. Run 'arc diffedit --apply' to finish, \
-                 or 'arc diffedit --abort' to cancel."
-            );
-        }
-        // State Lock: refuse to snap while an AI change is pending approval.
-        if has_pending_ai(&self.shared_root) {
-            anyhow::bail!(
-                "An AI change is pending approval.\n\
-                 Run 'arc ai approve' to sign and commit it, \
-                 or delete '.arc/ai/pending.json' to discard it."
-            );
-        }
-        self.run_hook("pre-snap")?;
-        self.acquire_lock()?;
-        let view_name = self.current_view_name()?;
-        tracing::info!(view = %view_name, message, "snap started");
-        self.hydrate(&view_name)?;
-        let state = self.materialize(&view_name)?;
-
-        // Compute every atom that would represent the current working-directory
-        // delta relative to the materialized state.
-        let raw_atoms = self.compute_working_directory_delta(&state)?;
-
-        if raw_atoms.is_empty() {
-            return Ok(None);
-        }
-
-        // Interactive staging: filter atoms the user does not want to stage.
-        // Deletion / directory atoms are always kept to avoid ghost-file state.
-        let all_atoms: Vec<Atom> = if interactive {
-            let mut last_file: Option<String> = None;
-            select_atoms_interactively(raw_atoms, |filepath, label| {
-                use std::io::Write;
-
-                if last_file.as_deref() != Some(filepath) {
-                    println!("-- {filepath} --");
-                    last_file = Some(filepath.to_string());
-                }
-                print!("  {label}\n  Stage this change? [y/N] ");
-                std::io::stdout().flush().ok();
-                let mut line = String::new();
-                std::io::stdin().read_line(&mut line).ok();
-                line.trim().eq_ignore_ascii_case("y")
-            })
-        } else {
-            raw_atoms
-        };
-
-        // Strip the interactive-filtered result: if nothing left after filtering
-        // file-AST atoms, and the only remaining atoms are non-AST (dirs etc.),
-        // check whether there are any real changes.
-        let has_file_change = all_atoms.iter().any(|a| {
-            a.paths().first().and_then(|p| p.first()).map(|s| s == "file").unwrap_or(false)
-                || matches!(a, Atom::Directory { .. })
-                || matches!(a, Atom::Delete { at, .. } if at.first().map(|s| s == "dir").unwrap_or(false))
-        });
-
-        if !has_file_change && all_atoms.is_empty() {
-            return Ok(None);
-        }
-
-        if all_atoms.is_empty() {
-            return Ok(None);
-        }
-
-        let mut view = View::load(&self.shared_root, &view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-
-        let (author, signing_key) = self.signing_identity()?;
-
-        // Persist raw bytes for every Atom::Blob before committing the change.
-        self.write_blob_atoms(&all_atoms)?;
-
-        let change = Change::new(
-            view.heads.clone(),
-            all_atoms,
-            message,
-            author.clone(),
-            signing_key,
-        );
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
-        self.graph_add_change(change.clone());
-
-        // Update the semantic intent index (no-op if index not yet initialised).
-        let _ = self.try_embed_change(&change);
-
-        // Capture the current frontier before advancing it.
-        let before_heads = view.heads.clone();
-
-        // Advance the frontier: new change becomes the sole head.
-        view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
-
-        // Record the completed snap in the spacetime log.
-        self.log_operation("snap", &view_name, before_heads, HashSet::from([change.id]))?;
-
-        tracing::info!(change_id = ?change.id, "snap complete");
-        Ok(Some(change.id))
-    }
-
-    /// Compute every [`Atom`] that represents the difference between the
-    /// materialized `state` and the current working directory.
-    ///
-    /// This is the pure-computation core shared by [`snap`] and [`status`].
-    /// It never touches the CAS, the graph, or any view file.
-    fn compute_working_directory_delta(
-        &self,
-        state: &MaterializedState,
-    ) -> anyhow::Result<Vec<Atom>> {
-        let plugin = RustPlugin::new();
-        let sparse_matcher = sparse_matcher_for_root(&self.work_root);
-        let arcignore = load_arcignore(&self.work_root);
-        let rs_files = collect_rs_files(&self.work_root, &arcignore)?;
-        let mut atoms: Vec<Atom> = Vec::new();
-
-        for filepath in &rs_files {
-            if !sparse_matcher.matches_file_path(filepath) {
-                continue;
-            }
-            let new_src = fs::read_to_string(self.work_root.join(filepath))?;
-            let old_src = plugin.unparse(state, filepath).unwrap_or_default();
-            if old_src == new_src {
-                continue;
-            }
-            let ast_atoms = plugin
-                .diff(&old_src, &new_src, &self.store)
-                .map_err(|e| anyhow::anyhow!("diff error for {filepath}: {e}"))?;
-            if ast_atoms.is_empty() {
-                continue;
-            }
-            for atom in ast_atoms {
-                atoms.push(prefix_atom_path(atom, filepath));
-            }
-        }
-
-        // ── Pass 2: Non-Rust files — parallel BLAKE3 blob diff ─────────────
-        let all_files = collect_all_files(&self.work_root, &arcignore)?;
-        let tracked_files: HashSet<String> = state
-            .keys()
-            .filter(|k| k.len() == 2 && k[0] == "file")
-            .map(|k| k[1].clone())
-            .collect();
-        let non_rs_files: Vec<String> = all_files
-            .into_iter()
-            .filter(|f| sparse_matcher.matches_file_path(f))
-            .filter(|f| !f.ends_with(".rs"))
-            .filter(|f| tracked_files.contains(f.as_str()) || !is_implicitly_ignored(Path::new(f)))
-            .collect();
-        let work_root: &std::path::Path = &self.work_root;
-        let blob_atoms = parallel::in_parallel(
-            non_rs_files.into_iter(),
-            None,
-            |_| blake3::Hasher::new(),
-            |filepath: String, hasher: &mut blake3::Hasher| -> anyhow::Result<Option<Atom>> {
-                let bytes = fs::read(work_root.join(&filepath))
-                    .map_err(|e| anyhow::anyhow!("failed to read '{filepath}': {e}"))?;
-                hasher.reset();
-                hasher.update(&bytes);
-                let new_hash: Blake3Hash = *hasher.finalize().as_bytes();
-                let path_key = vec!["file".to_string(), filepath];
-                if let Some(existing) = state.get(&path_key)
-                    && existing.starts_with(b"ARC_BLOB_REF:")
-                    && existing.len() >= 45
-                {
-                    let old_hash: Blake3Hash = existing[13..45].try_into().unwrap_or([0u8; 32]);
-                    if old_hash == new_hash {
-                        return Ok(None);
-                    }
-                }
-                Ok(Some(Atom::Blob {
-                    path: path_key,
-                    hash: new_hash,
-                }))
-            },
-            BlobAtomReducer::new(),
-        )?;
-        atoms.extend(blob_atoms);
-
-        // Deleted files.
-        let state_filepaths = extract_filepaths_from_state(state);
-        for filepath in &state_filepaths {
-            // Sparse Safety Law: do not emit Delete for files hidden by sparse cone.
-            if !sparse_matcher.matches_file_path(filepath) {
-                continue;
-            }
-            if !self.work_root.join(filepath).exists() {
-                let prefix = ["file".to_string(), filepath.clone()];
-                for key in state.keys() {
-                    // >= covers blob keys (len==2) as well as AST sub-keys (len>2).
-                    if key.len() >= prefix.len() && key[..prefix.len()] == prefix[..] {
-                        let prior_bytes = state.get(key).cloned().unwrap_or_default();
-                        let prior_hash = self.store.write_blob(&prior_bytes).map_err(|e| {
-                            anyhow::anyhow!("CAS write error for deleted file: {e}")
-                        })?;
-                        atoms.push(Atom::Delete {
-                            at: key.clone(),
-                            prior_hash,
-                        });
-                    }
-                }
-            }
-        }
-
-        // New / removed empty directories.
-        let dir_key = |rel: &str| vec!["dir".to_string(), rel.to_string()];
-        let existing_dirs: HashSet<String> = state
-            .keys()
-            .filter(|k| k.len() == 2 && k[0] == "dir")
-            .filter(|k| sparse_matcher.matches_file_path(&k[1]))
-            .map(|k| k[1].clone())
-            .collect();
-        for rel_dir in collect_empty_dirs(&self.work_root, &arcignore)? {
-            if !sparse_matcher.matches_file_path(&rel_dir) {
-                continue;
-            }
-            if !existing_dirs.contains(&rel_dir) {
-                atoms.push(Atom::Directory {
-                    path: dir_key(&rel_dir),
-                });
-            }
-        }
-        for rel_dir in &existing_dirs {
-            if !self.work_root.join(rel_dir).exists() {
-                let key = dir_key(rel_dir);
-                let prior_bytes = state.get(&key).cloned().unwrap_or_default();
-                let prior_hash = self
-                    .store
-                    .write_blob(&prior_bytes)
-                    .map_err(|e| anyhow::anyhow!("CAS write error for deleted dir: {e}"))?;
-                atoms.push(Atom::Delete {
-                    at: key,
-                    prior_hash,
-                });
-            }
-        }
-
-        Ok(atoms)
     }
 
     /// Create a new view forked from the current view's heads.
@@ -1304,225 +907,6 @@ impl Repository {
         // Update HEAD.
         self.set_current_view_name(target)?;
 
-        Ok(())
-    }
-
-    /// Merge `target_name` view into the current view using the algebraic
-    /// merge law.
-    ///
-    /// If all exclusive changes commute, the merge is a simple head-union
-    /// with no merge commit. If any pair conflicts, aborts with an error.
-    pub fn merge_view(&mut self, target_name: &str) -> anyhow::Result<()> {
-        self.hydrate(target_name)?;
-        let target_view = View::load(&self.shared_root, target_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{target_name}': {e}"))?;
-        self.merge_heads(&target_view.heads)
-    }
-
-    /// Merge an arbitrary set of heads into the current view.
-    ///
-    /// This is the head-based primitive underlying `merge_view`. It performs
-    /// a dirty-check on the working directory before mutating any state,
-    /// then runs the algebraic commutativity check on the exclusive deltas.
-    pub fn merge_heads(&mut self, target_heads: &HashSet<Blake3Hash>) -> anyhow::Result<()> {
-        self.acquire_lock()?;
-        let current_name = self.current_view_name()?;
-        tracing::info!(view = %current_name, "merge_heads started");
-
-        // Hydrate both sides (idempotent — already-present nodes are skipped).
-        self.hydrate(&current_name)?;
-        self.hydrate_heads(target_heads)?;
-
-        let current_view = View::load(&self.shared_root, &current_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{current_name}': {e}"))?;
-
-        // --- Dirty working-directory check ---
-        let current_state = self.materialize_heads(&current_view.heads)?;
-        check_working_dir_clean(&self.work_root, &current_state, &self.store, "merging")?;
-
-        // Find LCA.
-        let lca_heads = self
-            .graph
-            .load()
-            .merge_base(&current_view.heads, target_heads);
-
-        // Compute ancestors from each side and from the LCA.
-        let ancestors_current = self.graph.load().ancestors(&current_view.heads);
-        let ancestors_target = self.graph.load().ancestors(target_heads);
-        let ancestors_lca = if lca_heads.is_empty() {
-            HashSet::new()
-        } else {
-            self.graph.load().ancestors(&lca_heads)
-        };
-
-        // ΔA = changes in current but not in LCA ancestry.
-        let delta_a: Vec<Blake3Hash> = ancestors_current
-            .difference(&ancestors_lca)
-            .copied()
-            .collect();
-
-        // ΔB = changes in target but not in LCA ancestry.
-        let delta_b: Vec<Blake3Hash> = ancestors_target
-            .difference(&ancestors_lca)
-            .copied()
-            .collect();
-
-        let mut delta_a = delta_a;
-        let mut delta_b = delta_b;
-        delta_a.sort();
-        delta_b.sort();
-
-        // Cross-product commutativity check.
-        let mut conflicting_pairs = Vec::new();
-        let g = self.graph.load_full();
-        for &id_a in &delta_a {
-            let change_a = g
-                .get(&id_a)
-                .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
-            for &id_b in &delta_b {
-                let change_b = g
-                    .get(&id_b)
-                    .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
-                if !commutes(change_a, change_b) {
-                    conflicting_pairs.push((id_a, id_b));
-                }
-            }
-        }
-
-        if !conflicting_pairs.is_empty() {
-            // Preserve legacy metadata for Ghost Node / resolve workflow.
-            let conflict = PendingConflict {
-                current_view: current_name.clone(),
-                target_heads: target_heads.clone(),
-                conflicting_pairs: conflicting_pairs.clone(),
-            };
-            let conflict_path = self.shared_root.join(".arc").join("conflict");
-            let bytes = bincode::serialize(&conflict)
-                .map_err(|e| anyhow::anyhow!("failed to serialize conflict: {e}"))?;
-            fs::write(&conflict_path, bytes)?;
-
-            // Materialize the three states used to build first-class conflict atoms.
-            let target_state = self.materialize_heads(target_heads)?;
-            let lca_state = if lca_heads.is_empty() {
-                MaterializedState::new()
-            } else {
-                self.materialize_heads(&lca_heads)?
-            };
-
-            let mut conflict_atoms = Vec::new();
-            let mut seen_paths: HashSet<NodePath> = HashSet::new();
-
-            for (id_a, id_b) in &conflicting_pairs {
-                let change_a = g
-                    .get(id_a)
-                    .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?;
-                let change_b = g
-                    .get(id_b)
-                    .ok_or_else(|| anyhow::anyhow!("conflicting change missing from graph"))?;
-
-                let overlap = find_overlapping_path(&change_a.atoms, &change_b.atoms)
-                    .ok_or_else(|| anyhow::anyhow!("no overlapping path found for conflict"))?;
-
-                if !seen_paths.insert(overlap.clone()) {
-                    continue;
-                }
-
-                let base_bytes = extract_content_at_path(&lca_state, &overlap);
-                let ours_bytes = extract_content_at_path(&current_state, &overlap);
-                let theirs_bytes = extract_content_at_path(&target_state, &overlap);
-
-                let base_hash = self
-                    .store
-                    .write_blob(&base_bytes)
-                    .map_err(|e| anyhow::anyhow!("failed to write conflict base blob: {e}"))?;
-                let ours_hash = self
-                    .store
-                    .write_blob(&ours_bytes)
-                    .map_err(|e| anyhow::anyhow!("failed to write conflict side blob: {e}"))?;
-                let theirs_hash = self
-                    .store
-                    .write_blob(&theirs_bytes)
-                    .map_err(|e| anyhow::anyhow!("failed to write conflict side blob: {e}"))?;
-
-                let mut bases = vec![base_hash];
-                let mut sides = vec![ours_hash, theirs_hash];
-                bases.sort();
-                sides.sort();
-
-                conflict_atoms.push(Atom::Conflict {
-                    bases,
-                    sides,
-                    at: overlap,
-                });
-            }
-
-            conflict_atoms.sort_by(|a, b| {
-                let a_path = match a {
-                    Atom::Conflict { at, .. } => at,
-                    _ => unreachable!("conflict_atoms only contains Atom::Conflict"),
-                };
-                let b_path = match b {
-                    Atom::Conflict { at, .. } => at,
-                    _ => unreachable!("conflict_atoms only contains Atom::Conflict"),
-                };
-                a_path.cmp(b_path)
-            });
-
-            if conflict_atoms.is_empty() {
-                anyhow::bail!("detected semantic conflict but failed to construct conflict atoms");
-            }
-
-            let (author, signing_key) = self.signing_identity()?;
-            let mut merge_deps = current_view.heads.clone();
-            merge_deps.extend(target_heads);
-            let conflict_change = Change::new(
-                merge_deps,
-                conflict_atoms,
-                format!("merge conflict: {} pair(s)", conflicting_pairs.len()),
-                author.clone(),
-                signing_key,
-            );
-
-            self.store
-                .write_change(&conflict_change)
-                .map_err(|e| anyhow::anyhow!("failed to persist conflict change: {e}"))?;
-            self.graph_add_change(conflict_change.clone());
-
-            let prev_heads = current_view.heads.clone();
-            let merged_heads = HashSet::from([conflict_change.id]);
-
-            let updated_view = View::new(&current_name, merged_heads.clone());
-            updated_view
-                .save(&self.shared_root)
-                .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
-
-            self.log_operation("merge", &current_name, prev_heads, merged_heads.clone())?;
-
-            let merged_state = self.materialize_heads(&merged_heads)?;
-            write_state_to_working_dir(&self.work_root, &self.shared_root, &merged_state)?;
-            self.run_hook("post-merge")?;
-            tracing::info!("merge_heads complete (conflict change)");
-            return Ok(());
-        }
-
-        // All commute — union the heads.
-        let prev_heads = current_view.heads.clone();
-        let mut merged_heads = current_view.heads;
-        merged_heads.extend(target_heads);
-
-        let updated_view = View::new(&current_name, merged_heads.clone());
-        updated_view
-            .save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save merged view: {e}"))?;
-
-        // Record the completed merge in the spacetime log.
-        self.log_operation("merge", &current_name, prev_heads, merged_heads.clone())?;
-
-        // Re-materialize and write to working directory.
-        let merged_state = self.materialize_heads(&merged_heads)?;
-        write_state_to_working_dir(&self.work_root, &self.shared_root, &merged_state)?;
-        self.run_hook("post-merge")?;
-        tracing::info!("merge_heads complete");
         Ok(())
     }
 
@@ -2108,7 +1492,7 @@ impl Repository {
     /// that embedding failures never block a snap or merge commit.  The index
     /// is only updated when `.arc/ai/embeddings.db` already exists (meaning
     /// the user has already run `arc log --intent` to bootstrap the index).
-    fn try_embed_change(&self, change: &Change) -> anyhow::Result<()> {
+    pub(super) fn try_embed_change(&self, change: &Change) -> anyhow::Result<()> {
         let db_path = self
             .shared_root
             .join(".arc")
@@ -2361,33 +1745,6 @@ impl Repository {
             .collect()
     }
 
-    /// Return all changes selected by `revset`, newest-first.
-    pub fn log_revset(&mut self, revset: &str) -> anyhow::Result<Vec<Change>> {
-        let expr = arc_revset::parse(revset)
-            .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
-        let expr = constrain_touched_to_current_view(&expr);
-        self.prepare_revset(&expr)?;
-
-        let graph = self.graph_snapshot();
-        let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
-        let mut refs_resolver =
-            |function_name: &str| self.resolve_revset_reference_heads(function_name);
-        let selected: BTreeSet<ChangeId> = arc_revset::compile_change_ids_with_refs(
-            &expr,
-            Arc::clone(&graph),
-            &mut resolver,
-            &mut refs_resolver,
-        )?
-        .collect();
-
-        let mut ordered_ids = graph.topological_sort_ids(&selected);
-        ordered_ids.reverse();
-        ordered_ids
-            .into_iter()
-            .map(|id| self.read_change(&Blake3Hash::from(id)))
-            .collect()
-    }
-
     /// Start a new bisect session from a revset range.
     #[tracing::instrument(skip_all, fields(range = %range_revset, find_good = find_good))]
     pub fn bisect_start(
@@ -2543,40 +1900,6 @@ impl Repository {
             last_len = hits;
         }
         Ok((total_nanos, last_len))
-    }
-
-    /// Benchmark revset evaluation by counting selected revisions.
-    pub fn bench_revset(&mut self, revset: &str, iterations: u32) -> anyhow::Result<(u128, usize)> {
-        let mut total_nanos = 0u128;
-        let mut last_count = 0usize;
-        for _ in 0..iterations.max(1) {
-            let start = Instant::now();
-            let selected = self.resolve_revset_ids(revset)?;
-            total_nanos += start.elapsed().as_nanos();
-            last_count = selected.len();
-        }
-        Ok((total_nanos, last_count))
-    }
-
-    #[tracing::instrument(skip_all, fields(revset = %revset))]
-    fn resolve_revset_ids(&mut self, revset: &str) -> anyhow::Result<BTreeSet<ChangeId>> {
-        let expr = arc_revset::parse(revset)
-            .map_err(|e| anyhow::anyhow!("invalid revset '{}': {e}", revset))?;
-        let expr = constrain_touched_to_current_view(&expr);
-        self.prepare_revset(&expr)?;
-
-        let graph = self.graph_snapshot();
-        let mut resolver = |symbol: &str| self.resolve_revset_symbol_typed(symbol);
-        let mut refs_resolver =
-            |function_name: &str| self.resolve_revset_reference_heads(function_name);
-        let selected: BTreeSet<ChangeId> = arc_revset::compile_change_ids_with_refs(
-            &expr,
-            Arc::clone(&graph),
-            &mut resolver,
-            &mut refs_resolver,
-        )?
-        .collect();
-        Ok(selected)
     }
 
     /// Semantic search over the current view's history using embedding similarity.
@@ -2749,7 +2072,7 @@ impl Repository {
         serde_json::from_str(&json).map_err(|e| anyhow::anyhow!(".arc/config.json is corrupt: {e}"))
     }
 
-    fn write_config(&self, config: &RepoConfig) -> anyhow::Result<()> {
+    pub(super) fn write_config(&self, config: &RepoConfig) -> anyhow::Result<()> {
         let path = self.config_path();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -2769,7 +2092,7 @@ impl Repository {
     /// **Windows note:** shell built-ins such as `echo` are not standalone
     /// executables and are not in `PATH`. Use an explicit interpreter
     /// (e.g. `cmd /C echo hello`) or a real binary.
-    fn run_hook(&self, event: &str) -> anyhow::Result<()> {
+    pub(super) fn run_hook(&self, event: &str) -> anyhow::Result<()> {
         let hooks = self.read_config()?.hooks;
         let commands = match hooks.get(event) {
             Some(v) if !v.is_empty() => v.clone(),
@@ -2798,39 +2121,6 @@ impl Repository {
             }
         }
         Ok(())
-    }
-
-    // ------------------------------------------------------------------
-    // Remotes
-    // ------------------------------------------------------------------
-
-    /// Store a named remote URL alias in `.arc/config.json`.
-    ///
-    /// If a remote with the same name already exists it is overwritten,
-    /// making this operation idempotent.
-    pub fn add_remote(&self, name: &str, url: &str) -> anyhow::Result<()> {
-        let mut config = self.read_config()?;
-        config.remotes.insert(name.to_string(), url.to_string());
-        self.write_config(&config)
-    }
-
-    /// Return all configured remote aliases.
-    pub fn list_remotes(&self) -> anyhow::Result<HashMap<String, String>> {
-        Ok(self.read_config()?.remotes)
-    }
-
-    /// Remove a named remote alias from `.arc/config.json`.
-    ///
-    /// Returns an actionable error if the remote does not exist.
-    pub fn remove_remote(&self, name: &str) -> anyhow::Result<()> {
-        let mut config = self.read_config()?;
-        if config.remotes.remove(name).is_none() {
-            anyhow::bail!(
-                "Remote '{}' does not exist. Use 'arc remote list' to see available remotes.",
-                name
-            );
-        }
-        self.write_config(&config)
     }
 
     // ------------------------------------------------------------------
@@ -3319,7 +2609,7 @@ impl Repository {
     ///
     /// Called from [`snap`](Self::snap) so that `apply_change` (which is pure)
     /// can later find the bytes it needs without performing disk I/O itself.
-    fn write_blob_atoms(&self, atoms: &[Atom]) -> anyhow::Result<()> {
+    pub(super) fn write_blob_atoms(&self, atoms: &[Atom]) -> anyhow::Result<()> {
         for atom in atoms {
             if let Atom::Blob { path, hash } = atom {
                 let filepath = path
@@ -3344,7 +2634,7 @@ impl Repository {
     ///
     /// Delegates entirely to [`OpLog`]; the 1 000-entry sliding-window
     /// compaction and backward-compat deserialization are handled there.
-    fn log_operation(
+    pub(super) fn log_operation(
         &self,
         command: &str,
         view: &str,
@@ -4081,71 +3371,6 @@ impl Repository {
         Ok(change.id)
     }
 
-    /// Clone or update all mounted sub-repositories declared in the current view.
-    ///
-    /// For each `ARC_MOUNT:` token in the materialized state:
-    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository
-    ///   is initialised and the target view is fetched via the internal sync API.
-    /// * If `.arc/` already exists, the repository is opened and the view is
-    ///   fetched to pick up new changes before switching.
-    ///
-    /// A progress spinner is shown for the full sync pass.
-    pub fn mount_sync(&mut self) -> anyhow::Result<()> {
-        use std::time::Duration;
-
-        let view_name = self.current_view_name()?;
-        self.hydrate(&view_name)?;
-        let state = self.materialize(&view_name)?;
-
-        // Collect all ARC_MOUNT: entries.
-        let mounts: Vec<(String, String, String)> = state
-            .iter()
-            .filter_map(|(key, value)| {
-                if key.len() == 2 && key[0] == "file" && value.starts_with(b"ARC_MOUNT:") {
-                    let info = std::str::from_utf8(value)
-                        .ok()?
-                        .strip_prefix("ARC_MOUNT:")?;
-                    let (url, tgt) = info.split_once('|')?;
-                    Some((key[1].clone(), url.to_string(), tgt.to_string()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if mounts.is_empty() {
-            println!("No mounts declared in current view.");
-            return Ok(());
-        }
-
-        let pb = indicatif::ProgressBar::new_spinner();
-        pb.enable_steady_tick(Duration::from_millis(80));
-        pb.set_message(format!("Syncing {} mount(s)...", mounts.len()));
-
-        for (path, url, target) in &mounts {
-            pb.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
-            let mount_dir = self.work_root.join(path);
-            let arc_sub = mount_dir.join(".arc");
-            let mut sub_repo = if arc_sub.exists() {
-                Repository::open(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to open mount '{}': {e}", path))?
-            } else {
-                fs::create_dir_all(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to create mount dir '{}': {e}", path))?;
-                Repository::init(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to init mount '{}': {e}", path))?
-            };
-            crate::sync::fetch(&mut sub_repo, url, target)
-                .map_err(|e| anyhow::anyhow!("fetch failed for mount '{}': {e}", path))?;
-            sub_repo
-                .switch_view(target)
-                .map_err(|e| anyhow::anyhow!("switch_view failed for mount '{}': {e}", path))?;
-        }
-
-        pb.finish_with_message(format!("Synced {} mount(s).", mounts.len()));
-        Ok(())
-    }
-
     // ------------------------------------------------------------------
     // Workspaces
     // ------------------------------------------------------------------
@@ -4320,6 +3545,9 @@ impl Repository {
         if let Ok(rd) = fs::read_dir(&views_dir) {
             for entry in rd.filter_map(|e| e.ok()) {
                 let name = entry.file_name().to_string_lossy().into_owned();
+                if name.ends_with(".bak") || name.ends_with(".tmp") {
+                    continue;
+                }
                 if let Ok(view) = View::load(&self.shared_root, &name) {
                     per_view_ancestors.push(self.graph.load().ancestors(&view.heads));
                 }
@@ -4488,10 +3716,15 @@ impl Repository {
         if let Ok(rd) = fs::read_dir(&views_dir) {
             for entry in rd.filter_map(|e| e.ok()) {
                 let name = entry.file_name().to_string_lossy().into_owned();
+                if name.ends_with(".bak") || name.ends_with(".tmp") {
+                    continue;
+                }
                 if let Ok(view) = View::load(&self.shared_root, &name) {
                     // Ensure the graph is hydrated for this view.
                     self.hydrate_heads(&view.heads)?;
-                    per_view_ancestors.push(self.graph.load().ancestors(&view.heads));
+                    let mut ancestors = self.graph.load().ancestors(&view.heads);
+                    ancestors.extend(view.heads.iter().copied());
+                    per_view_ancestors.push(ancestors);
                     all_view_names.push(name);
                 }
             }
@@ -4546,8 +3779,21 @@ impl Repository {
         let mut paths: Vec<&NodePath> = state.keys().collect();
         paths.sort();
 
+        let file_roots_with_descendants: HashSet<String> = state
+            .keys()
+            .filter(|k| k.len() > 2 && k.first().map(|s| s == "file").unwrap_or(false))
+            .map(|k| k[1].clone())
+            .collect();
+
         let mut atoms: Vec<Atom> = Vec::with_capacity(paths.len());
         for path in paths {
+            if path.len() == 2
+                && path.first().map(|s| s == "file").unwrap_or(false)
+                && file_roots_with_descendants.contains(&path[1])
+            {
+                continue;
+            }
+
             let content = &state[path];
             if path.first().map(|s| s == "dir").unwrap_or(false) {
                 atoms.push(Atom::Directory { path: path.clone() });
@@ -4628,7 +3874,8 @@ impl Repository {
         // --- Step 9: physically delete the compacted CAS objects -----------
         let store_dir = self.shared_root.join(".arc").join("store");
         for id in &causally_stable {
-            let path = store_dir.join(_hex(id));
+            let hex = _hex(id);
+            let path = store_dir.join(&hex[..2]).join(&hex[2..]);
             // Ignore errors — the file may already be absent if compact() is
             // run multiple times or gc() ran concurrently.
             let _ = fs::remove_file(&path);
@@ -5293,7 +4540,7 @@ impl Repository {
     }
 }
 
-fn constrain_touched_to_current_view(
+pub(super) fn constrain_touched_to_current_view(
     expr: &arc_revset::RevsetExpression,
 ) -> arc_revset::RevsetExpression {
     if !contains_function(expr, "touched") {
@@ -5325,7 +4572,7 @@ fn contains_function(expr: &arc_revset::RevsetExpression, name: &str) -> bool {
 }
 
 /// Format a [`Blake3Hash`] as a lowercase 64-character hex string.
-fn _hex(hash: &Blake3Hash) -> String {
+pub(super) fn _hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -5557,7 +4804,7 @@ fn atom_file_path(atom: &Atom) -> Option<&str> {
     atom.paths().first()?.get(1).map(String::as_str)
 }
 
-fn select_atoms_interactively<F>(raw_atoms: Vec<Atom>, mut prompt: F) -> Vec<Atom>
+pub(super) fn select_atoms_interactively<F>(raw_atoms: Vec<Atom>, mut prompt: F) -> Vec<Atom>
 where
     F: FnMut(&str, &str) -> bool,
 {
@@ -5625,7 +4872,7 @@ fn atom_label(atom: &Atom) -> String {
 }
 
 /// Find the first overlapping AST path between two sets of atoms.
-fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath> {
+pub(super) fn find_overlapping_path(atoms_a: &[Atom], atoms_b: &[Atom]) -> Option<NodePath> {
     for a in atoms_a {
         for b in atoms_b {
             for pa in a.paths() {
@@ -5694,7 +4941,7 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
 ///
 /// Looks for keys whose first segment is `"file"` and extracts the second
 /// segment as the filepath.
-fn extract_filepaths_from_state(state: &MaterializedState) -> HashSet<String> {
+pub(super) fn extract_filepaths_from_state(state: &MaterializedState) -> HashSet<String> {
     let mut paths = HashSet::new();
     for key in state.keys() {
         if key.len() >= 2 && key[0] == "file" {
@@ -5707,7 +4954,7 @@ fn extract_filepaths_from_state(state: &MaterializedState) -> HashSet<String> {
 /// Extract content at the given path from a materialized state.
 ///
 /// Returns an empty `Vec` if the path is not present.
-fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8> {
+pub(super) fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8> {
     state.get(path).cloned().unwrap_or_default()
 }
 
@@ -5715,7 +4962,7 @@ fn extract_content_at_path(state: &MaterializedState, path: &NodePath) -> Vec<u8
 ///
 /// Returns an error if un-snapped changes are detected, preventing
 /// destructive overwrites during `merge_heads`, `pull`, or `switch_view`.
-fn check_working_dir_clean(
+pub(super) fn check_working_dir_clean(
     root: &Path,
     state: &MaterializedState,
     store: &ObjectStore,
@@ -5761,7 +5008,7 @@ fn check_working_dir_clean(
 /// `work_root` is where files are written; `shared_root` is where the CAS
 /// (`.arc/blobs/`) lives. For normal repos both are the same; for workspaces
 /// they differ.
-fn write_state_to_working_dir(
+pub(super) fn write_state_to_working_dir(
     work_root: &Path,
     shared_root: &Path,
     state: &MaterializedState,
@@ -5888,7 +5135,7 @@ fn simple_pattern_match(pattern: &str, text: &str) -> bool {
     dp[p.len()][s.len()]
 }
 
-fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
+pub(super) fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
     SparseMatcher::from_patterns(&load_sparse_patterns(root))
 }
 
@@ -6127,7 +5374,7 @@ fn load_agentignore(root: &Path) -> Gitignore {
     builder.build().unwrap_or(Gitignore::empty())
 }
 
-fn load_arcignore(root: &Path) -> Gitignore {
+pub(super) fn load_arcignore(root: &Path) -> Gitignore {
     let path = root.join(".arcignore");
     let mut builder = GitignoreBuilder::new(root);
     if path.exists() {
@@ -6136,7 +5383,10 @@ fn load_arcignore(root: &Path) -> Gitignore {
     builder.build().unwrap_or(Gitignore::empty())
 }
 
-fn collect_empty_dirs(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_empty_dirs(
+    root: &Path,
+    arcignore: &Gitignore,
+) -> anyhow::Result<Vec<String>> {
     let mut result = Vec::new();
     collect_empty_dirs_recursive(root, root, arcignore, &mut result)?;
     result.sort();
@@ -6192,7 +5442,7 @@ fn collect_empty_dirs_recursive(
 }
 
 /// Recursively collect `*.rs` file paths relative to `root`.
-fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_rs_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -6205,7 +5455,7 @@ fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<St
 /// extension. Implicit ignore policy is applied later in
 /// [`Repository::compute_working_directory_delta`] so previously tracked files
 /// can still be diffed and deleted safely.
-fn collect_all_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_all_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_all_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -6312,7 +5562,7 @@ fn contains_hard_ignored_dir(path: &Path) -> bool {
     })
 }
 
-fn is_implicitly_ignored(file_path: &Path) -> bool {
+pub(super) fn is_implicitly_ignored(file_path: &Path) -> bool {
     if std::env::var("ARC_TRACK_IMPLICITLY_IGNORED").is_ok_and(|v| v == "1") {
         return false;
     }
