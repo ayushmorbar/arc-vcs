@@ -6,14 +6,17 @@ docs/book/*
 
 # --- Rust/Cargo ---
 # The primary build directory
+/target
 /target/
 # Generated documentation
+/rendered-docs
 /rendered-docs/
 # Snapshot testing artifacts (insta, etc.)
 *.pending-snap
 
 # --- Environment & Shell ---
 # direnv configuration and state
+.direnv
 .direnv/
 .envrc
 

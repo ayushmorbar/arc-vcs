@@ -3,8 +3,8 @@ use std::hash::Hash;
 
 use serde::Serialize;
 
-use crate::algebra::{Atom, Blake3Hash};
-use crate::store::author::Author;
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_store_types::author::Author;
 
 pub use arc_content_hash_derive::ContentHash;
 

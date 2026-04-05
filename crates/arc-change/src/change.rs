@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
-use crate::algebra::{Atom, Blake3Hash};
-use crate::store::author::{Author, PublicKeyBytes, Signature};
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_store_types::author::{Author, PublicKeyBytes, Signature};
 
 /// An atomic, replayable change — the fundamental unit in arc.
 ///
@@ -152,7 +152,7 @@ impl Change {
     /// Build a canonicalized Change from existing fields, signed with a new key.
     /// Used by the server for identity collapsing (Dual-Provenance -- Phase 39).
     ///
-    /// Identical to [`new_canonical`] but accepts a raw 32-byte Ed25519 seed
+    /// Identical to [`Self::new_canonical`] but accepts a raw 32-byte Ed25519 seed
     /// rather than a `SigningKey`.  This lets callers (e.g. `arc-net`) hold
     /// only the seed bytes in their state without taking a hard dep on the
     /// `ed25519-dalek` crate.
@@ -207,6 +207,8 @@ impl Change {
     ///   without changing the CAS address.
     /// - `author` is included so the identity is content-addressed alongside
     ///   the payload; substituting a different author changes the id.
+    /// - `deps` are sorted before hashing, so `HashSet` insertion order can
+    ///   never change the resulting id across machines or runs.
     /// - `collapsed_from` and `signature` are intentionally excluded so
     ///   provenance metadata never affects the content-addressed identity.
     pub(crate) fn compute_id(
@@ -274,8 +276,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::algebra::Atom;
-    use crate::store::author::test_keypair;
+    use arc_algebra_types::Atom;
+    use arc_store_types::author::test_keypair;
 
     #[test]
     fn test_cryptographic_provenance() {
@@ -491,7 +493,7 @@ mod tests {
     /// different author whose `collapsed_from` points to the original id.
     #[test]
     fn test_new_canonical_sets_collapsed_from_and_verifies() {
-        use crate::store::author::PublicKeyBytes;
+        use arc_store_types::author::PublicKeyBytes;
 
         let (original_author, original_key) = test_keypair();
         let original = Change::new(
@@ -508,7 +510,7 @@ mod tests {
         // Build a server signing key (different seed from the test keypair).
         let server_key = ed25519_dalek::SigningKey::from_bytes(&[99u8; 32]);
         let server_pubkey: PublicKeyBytes = server_key.verifying_key().to_bytes();
-        let server_author = crate::store::author::Author::Server {
+        let server_author = arc_store_types::author::Author::Server {
             canonical_id: "arc-server".to_string(),
             key: server_pubkey,
         };
@@ -545,7 +547,7 @@ mod tests {
     /// verification layers.
     #[test]
     fn test_transient_author_verifies() {
-        use crate::store::author::generate_transient_keypair_seed;
+        use arc_store_types::author::generate_transient_keypair_seed;
         use ed25519_dalek::SigningKey;
 
         let (author, seed) = generate_transient_keypair_seed("ci-runner-42");

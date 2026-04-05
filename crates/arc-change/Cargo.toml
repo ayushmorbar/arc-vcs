@@ -1,0 +1,15 @@
+[package]
+name = "arc-change"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Change model and cryptographic hashing traits for arc"
+
+[dependencies]
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-store-types = { path = "../arc-store-types" }
+serde = { version = "1.0.228", features = ["derive"] }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+blake3 = "1.8.4"
+bincode = "1.3.2"
+arc-content-hash-derive = { path = "../arc-content-hash-derive" }

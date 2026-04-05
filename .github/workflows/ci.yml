@@ -16,19 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      toolchain: stable  # <-- Ensures $toolchain is available to all steps
+      toolchain: stable # <-- Ensures $toolchain is available to all steps
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: stable
           components: clippy,rustfmt
 
       - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01
 
       - name: Format check
         run: cargo fmt --all --check

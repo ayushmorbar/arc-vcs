@@ -6,10 +6,6 @@ pub mod bisect;
 pub mod blake3_hasher;
 /// Content-addressable object store (BLAKE3 CAS).
 pub mod cas;
-/// Immutable semantic changes and their dependency metadata.
-pub mod change;
-/// Deterministic content-hash trait and derive macro.
-pub mod content_hash;
 /// Change dependency graph and ancestry algorithms.
 pub mod graph;
 /// Crash-consistent synthesized architecture snapshots.
@@ -18,6 +14,10 @@ pub mod synthesis;
 pub mod tempfile;
 
 pub use arc_store_cas::cas::*;
+pub use arc_change::change;
+pub use arc_change::change::*;
+pub use arc_change::content_hash;
+pub use arc_change::content_hash::*;
 pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 /// Append-only spacetime operation log for O(1) undo.

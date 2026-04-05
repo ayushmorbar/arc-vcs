@@ -138,6 +138,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-change"
+version = "0.1.0-beta.6"
+dependencies = [
+ "arc-algebra-types",
+ "arc-content-hash-derive",
+ "arc-store-types",
+ "bincode",
+ "blake3",
+ "ed25519-dalek",
+ "serde",
+]
+
+[[package]]
 name = "arc-cli"
 version = "0.1.0-beta.6"
 dependencies = [
@@ -195,7 +208,7 @@ dependencies = [
  "anyhow",
  "arc-ai",
  "arc-algebra-types",
- "arc-content-hash-derive",
+ "arc-change",
  "arc-git",
  "arc-store-cas",
  "arc-store-types",
