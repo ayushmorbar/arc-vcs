@@ -1,284 +1,337 @@
 # CLI Reference
 
-Status key:
+## BLUF
 
-- Stable: expected daily user surface
-- Advanced: power-user or specialist operation
-- Internal: integration/runtime command, not normal workflow
+Arc commands operate on two linked timelines:
 
-Use `arc <command> --help` for command-local defaults and clap-generated details.
+- Change timeline: semantic changes (`arc snap`, `arc log`, `arc diff`, `arc revert`).
+- Operation timeline: repository/view transitions (`arc op log`, `arc op restore`, `arc op revert`, `arc undo`).
+
+If you are correcting repository state, start with operation commands.
+
+---
 
 ## Global
 
-Syntax:
+```bash
+arc --help
+arc --version
+```
 
-- `arc --help`
-- `arc --version`
+Use command-local help for authoritative flags:
 
-Mental model:
-Global flags are discovery and version checks; behavior lives in subcommands.
+```bash
+arc <command> --help
+```
 
-## Repository Lifecycle (Stable)
+---
 
-### `arc init`
+## Core Daily Commands
 
-- Syntax: `arc init [path] [--no-git]`
-- Why: create Arc repository metadata and optional Git import onboarding path.
-- Flags:
-  - Safety: `--no-git` skips git auto-detection/import prompt.
-- Example: `arc init .`
+### Initialize
 
-### `arc snap`
+```bash
+arc init [path] [--no-git]
+```
 
-- Syntax: `arc snap -m <message> [--auto-msg] [--interactive]`
-- Why: snapshot working semantic delta into a signed change.
-- Flags:
-  - Output: `-m, --message` explicit intent message.
-  - Productivity: `--auto-msg` asks configured AI to synthesize message.
-  - Advanced: `-i, --interactive` is accepted but currently deprecated and ignored in current auto-snapshot flow.
-- Example: `arc snap -m "feat: add parser"`
+- Creates `.arc/` metadata.
+- Optionally imports Git history unless `--no-git` is set.
 
-### `arc status`
+### Snapshot
 
-- Syntax: `arc status`
-- Why: inspect unsnapped semantic changes for current view.
-- Example: `arc status`
+```bash
+arc snap -m "message"
+arc snap --auto-msg
+arc snap -i -m "message"
+```
 
-### `arc diff`
+- Records semantic working changes as a new change.
+- `--auto-msg` asks configured AI for a message.
+- `-i/--interactive` enables interactive atom staging.
 
-- Syntax: `arc diff [--semantic]`
-- Why: view working delta as text or structural semantic view.
-- Flags:
-  - Output: `--semantic` for structural/intent-centric output.
-- Example: `arc diff --semantic`
+### Inspect Working State
 
-### `arc log`
+```bash
+arc status
+arc diff [--semantic]
+```
 
-- Syntax: `arc log [-r <revset>] [--intent <query>]`
-- Why: inspect history by graph expression or semantic query.
-- Flags:
-  - Output: `-r, --revset` graph selection expression (default `ancestors(@)`).
-  - Advanced: `--intent` embedding-based semantic lookup.
-- Example: `arc log -r "ancestors(@)"`
+- `status` shows pending semantic atoms.
+- `diff --semantic` emphasizes structure over plain text.
 
-### `arc verify`
+### Inspect History
 
-- Syntax: `arc verify`
-- Why: verify graph provenance/signature consistency.
-- Example: `arc verify`
+```bash
+arc log [-r <revset>] [--intent <query>] [--template <row-template>]
+```
 
-### `arc blame`
+- Default revset is `ancestors(@)`.
+- `--intent` performs semantic retrieval.
+- `--template` controls non-semantic row rendering.
 
-- Syntax: `arc blame <filepath>`
-- Why: attribute semantic nodes to authored changes.
-- Example: `arc blame src/main.rs`
+---
 
-### `arc info`
+## Operation Log Time-Travel
 
-- Syntax: `arc info`
-- Why: show repository telemetry/dashboard summary.
+### View Operation Timeline
 
-### `arc bug-report`
+```bash
+arc op log
+```
 
-- Syntax: `arc bug-report [--output <file>] [--include-raw-intent]`
-- Why: create reproducible support artifact.
-- Flags:
-  - Output: `--output` path override.
-  - Safety: `--include-raw-intent` may include sensitive text.
+Shows operation id, timestamp, view, agent, command, and before/after heads.
 
-### `arc tour`
+### Restore To Post-Operation State
 
-- Syntax: `arc tour`
-- Why: interactive onboarding in terminal.
+```bash
+arc op restore <op-id>
+```
 
-## Change Operations (Stable + Advanced)
+Repositions current view to the selected operation's resulting state.
 
-### `arc cherry-pick`
+### Revert A Specific Operation
 
-- Syntax: `arc cherry-pick <hash>`
-- Why: port one change into current view.
+```bash
+arc op revert <op-id>
+```
 
-### `arc revert`
+Negates the selected operation by restoring its pre-operation heads.
 
-- Syntax: `arc revert <hash-or-ref>`
-- Why: semantically invert and apply a change.
+### Undo Most Recent Operation
 
-### `arc restore`
+```bash
+arc undo
+```
 
-- Syntax: `arc restore <filepath>`
-- Why: restore file to snapped state of current view.
+Fast rollback for the latest view-mutating operation.
 
-### `arc amend` (Advanced)
+See also: [Time-Travel With Operation Log](../howto/oplog-time-travel.md).
 
-- Syntax: `arc amend [-m <message>]`
-- Why: rewrite most recent snap while preserving operation continuity.
+---
 
-### `arc squash` (Advanced)
+## Change Operations
 
-- Syntax: `arc squash --into <rev>`
-- Why: collapse a linear range into one canonical change.
+```bash
+arc cherry-pick <hash>
+arc revert <hash-or-ref>
+arc restore <filepath>
+arc amend [-m <message>]
+arc squash --into <rev>
+```
 
-### `arc diffedit` (Advanced)
+- `cherry-pick`: port one change into current view.
+- `revert`: semantically invert a change.
+- `restore`: restore a file to snapped state.
+- `amend`/`squash`: history-shaping commands.
 
-- Syntax:
-  - `arc diffedit --prepare <rev> [-m <message>]`
-  - `arc diffedit --apply [-m <message>]`
-- Why: two-step external edit and apply flow for change rewriting.
+### Diff Edit Workflow
 
-## Views and History Control (Stable)
+```bash
+arc diffedit --prepare <rev> [-m <message>]
+arc diffedit --apply [-m <message>]
+```
 
-### `arc view`
+Two-step external edit/apply flow for controlled rewrites.
 
-- Syntax:
-  - `arc view create <name>`
-  - `arc view switch <name>`
-  - `arc view merge <name>`
-- Why: create/switch/merge named head sets.
+---
 
-### Aliases
+## Views, Checkout, and Branch-Like Flows
 
-- `arc checkout <name>` is an alias for `view switch`.
-- `arc branch [name]` lists views when omitted, creates view when provided.
+```bash
+arc view create <name>
+arc view switch <name>
+arc view merge <name>
+```
 
-### `arc undo`
+Aliases:
 
-- Syntax: `arc undo`
-- Why: rollback latest view-mutating operation using operation log.
+```bash
+arc checkout <name>
+arc branch [name]
+```
 
-### `arc op log`
+- `checkout` aliases `view switch`.
+- `branch` lists views when omitted, creates when provided.
 
-- Syntax: `arc op log`
-- Why: inspect operation history (not just change history).
+---
 
-## Stash and Tags (Stable)
+## Verification and Policy
 
-### Stash
+```bash
+arc verify [--tooling] [--governance] [--workspace-policy]
+```
 
-- `arc stash push`
-- `arc stash pop`
-- `arc stash list`
+- Base `verify`: provenance/signature consistency.
+- `--tooling`: validates reproducible tooling policies under `.config/`.
+- `--governance`: validates governance/CI policy under `.github/`.
+- `--workspace-policy`: validates root workspace policy files (for example `.editorconfig`, `.gitattributes`, and required directives).
 
-Why: temporary parking lot for dirty state.
+---
 
-### Tags
+## Bisect and Bench
 
-- `arc tag <name> <hash-or-ref>`
-- `arc tags`
+### Bisect
 
-Why: immutable named references for release/signoff points.
+```bash
+arc bisect start -r <revset> [--find-good]
+arc bisect next
+arc bisect good
+arc bisect bad
+arc bisect status
+arc bisect reset
+```
 
-## Identity and Configuration (Stable)
+- Executes topological bisect over a revset-defined candidate range.
+- `--find-good` inverts the search objective.
 
-### Identity
+### Bench
 
-- `arc auth login --name <name> --email <email>`
-- `arc auth whoami`
-- `arc identity --name <name> --email <email>`
+```bash
+arc bench common-ancestors <left> <right> [--iterations N]
+arc bench is-ancestor <ancestor> <descendant> [--iterations N]
+arc bench resolve-prefix <prefix> [--iterations N]
+arc bench revset <expression> [--iterations N]
+```
 
-Why: configure signing identity and operator metadata.
+Use these for graph/revset performance diagnostics and regression tracking.
 
-### Config
+---
 
-- `arc config [--global] alias <name> <expansion>`
-- `arc config [--global] aliases`
-- `arc config [--global] get <key>`
-- `arc config [--global] set <key> <value>`
-- `arc config [--global] unset <key>`
-- `arc config [--global] list`
+## Identity and Auth
 
-Why: define policy, remotes, aliases, and behavior knobs.
+```bash
+arc auth login --name <name> --email <email>
+arc auth whoami
+arc identity --name <name> --email <email>
+```
 
-## AI Commands (Advanced)
+Use identity commands to configure signing metadata and operator attribution.
 
-### `arc ai resolve`
+---
 
-- Syntax: `arc ai resolve`
-- Why: resolve pending semantic conflict through configured AI provider path.
+## Configuration Surface
 
-### `arc ai approve`
+```bash
+arc config alias <name> <expansion>
+arc config aliases
+arc config get <key>
+arc config set <key> <value>
+arc config unset <key>
+arc config path
+arc config edit
+arc config list
+```
 
-- Syntax: `arc ai approve`
-- Why: approve and sign pending AI output (ghost node flow).
+See [Configuration](config.md) for schema, layering, defaults, and advanced keys.
 
-### `arc ai generate`
+---
 
-- Syntax: `arc ai generate --goal <text> [--file <path>]`
-- Why: generate targeted file changes with explicit operator goal.
-
-Safety note:
-Approval is explicit; generation is not final until approved.
-
-## Import, Sync, and Networking
-
-### Import and Push
-
-- `arc import git <git_path>`
-- `arc push <remote_url_or_alias> [view]`
-
-Why:
-Import from Git and push through interop boundaries when needed.
-
-### Native Sync
-
-- `arc sync <host:port>`
-- `arc fetch <remote_path> <view>`
-- `arc pull <remote_path> <view>`
-- `arc serve [--port <port>]`
-
-Why:
-Use Arc-native remote exchange and local/native server workflows.
+## Remotes and Sync
 
 ### Remote Aliases
 
-- `arc remote add <name> <url-or-path>`
-- `arc remote list`
-- `arc remote remove <name>`
+```bash
+arc remote add <name> <url-or-path>
+arc remote list
+arc remote remove <name>
+```
 
-## Workspace and Monorepo Commands
+### Interop and Native Sync
+
+```bash
+arc import git <git_path>
+arc push <remote_url_or_alias> [view]
+arc fetch <remote_path> <view>
+arc pull <remote_path> <view>
+arc sync <host:port>
+arc serve [--port <port>]
+```
+
+---
+
+## Monorepo and Workspace
 
 ### Sparse
 
-- `arc sparse set <path>...`
-- `arc sparse list`
-- `arc sparse reset`
-
-Why: bound working-set materialization for large trees.
+```bash
+arc sparse set <path>...
+arc sparse edit
+arc sparse list
+arc sparse reset
+```
 
 ### Mount
 
-- `arc mount add --path <path> --url <url-or-path> --target <view>`
-- `arc mount sync`
-
-Why: sub-repository composition workflow.
+```bash
+arc mount add --path <path> --url <url-or-path> --target <view>
+arc mount sync
+```
 
 ### Workspace
 
-- `arc workspace add <path> [--view <name>]`
-- `arc workspace list`
+```bash
+arc workspace add <path> [--view <name>]
+arc workspace list
+```
 
-Why: linked split-root workflows sharing repository data.
+---
 
-## Storage Maintenance
+## AI Commands
 
-### `arc gc`
+```bash
+arc ai resolve
+arc ai approve
+arc ai generate --goal <text> [--file <path>]
+```
 
-- Syntax: `arc gc [--dry-run]`
-- Why: reclaim unreachable/stable storage.
-- Flags:
-  - Safety: `--dry-run` previews deletions.
+- `resolve`: propose resolution for pending conflict state.
+- `approve`: explicitly accepts/signs pending AI result.
+- `generate`: drafts file edits from operator goal.
 
-### `arc compact` (Advanced)
+---
 
-- Syntax: `arc compact`
-- Why: compact causally-stable history into a base state.
+## Tags, Stash, and Maintenance
 
-## Internal
+### Tags
 
-- `arc daemon`
+```bash
+arc tag <name> <hash-or-ref>
+arc tags
+arc tag-set --rev <rev> [--allow-move] <name>...
+arc tag-delete <pattern>...
+```
 
-Status: Internal
-Purpose: JSON-RPC daemon entrypoint for editor/tooling integrations.
+### Stash
 
-## Compatibility Notice
+```bash
+arc stash push
+arc stash pop
+arc stash list
+```
 
-- `arc commit` is intentionally unsupported (use `arc snap`).
+### Maintenance
+
+```bash
+arc gc [--dry-run]
+arc compact
+```
+
+- `gc`: reclaim unreachable/stable storage.
+- `compact`: advanced history compaction.
+
+---
+
+## Internal and Tooling
+
+```bash
+arc daemon
+```
+
+Internal integration command for editor/tooling JSON-RPC workflows.
+
+---
+
+## Compatibility Notes
+
+- `arc commit` is intentionally unsupported; use `arc snap`.
+- Prefer operation commands for state recovery and change commands for content-level edits.

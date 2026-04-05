@@ -44,6 +44,7 @@
 
 # How-To Guides
 
+- [Time-Travel With Operation Log](howto/oplog-time-travel.md)
 - [Custom Hooks](howto/custom-hooks.md)
 - [CI Integration (GitHub Actions and GitLab CI)](howto/ci-integration.md)
 - [Troubleshoot Sync](howto/troubleshoot-sync.md)
