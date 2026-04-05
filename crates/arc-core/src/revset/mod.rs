@@ -1,12 +1,14 @@
-//! Revset parser module.
+//! Revset facade: parser and evaluation engine re-exports.
+
+/// PEG-based revset parser and AST conversion.
+pub mod parser {
+	pub use arc_revset::parser::*;
+}
 
 /// Lazy revset compiler and iterators.
-pub mod engine;
-/// PEG-based revset parser and AST conversion.
-pub mod parser;
+pub mod engine {
+	pub use arc_revset::engine::*;
+}
 
-pub use engine::{
-    ReferenceResolver, RevsetChangeIdIterator, RevsetEvaluator, RevsetIterator, compile,
-    compile_change_ids, compile_change_ids_with_refs,
-};
-pub use parser::{RevsetExpression, parse};
+pub use arc_revset::engine::*;
+pub use arc_revset::parser::*;

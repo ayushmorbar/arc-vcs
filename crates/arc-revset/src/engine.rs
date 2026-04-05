@@ -2,11 +2,12 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
+use arc_store_graph::ChangeGraph;
+use arc_store_types::newtypes::ChangeId;
 
-use crate::algebra::Blake3Hash;
-use crate::revset::RevsetExpression;
-use crate::store::graph::ChangeGraph;
-use crate::store::newtypes::ChangeId;
+use crate::parser::RevsetExpression;
 
 /// Iterator type produced by revset compilation.
 pub type RevsetIterator<'a> = Box<dyn Iterator<Item = Blake3Hash> + 'a>;
@@ -45,7 +46,11 @@ where
     R: ReferenceResolver,
 {
     /// Create a new evaluator bound to `graph` and a repository-specific symbol resolver.
-    pub fn new(graph: Arc<ChangeGraph>, resolve_symbol: &'g mut F, resolve_refs: &'g mut R) -> Self {
+    pub fn new(
+        graph: Arc<ChangeGraph>,
+        resolve_symbol: &'g mut F,
+        resolve_refs: &'g mut R,
+    ) -> Self {
         Self {
             graph,
             resolve_symbol,
@@ -76,7 +81,8 @@ pub fn compile<'a, F>(
 where
     F: FnMut(&str) -> Result<Option<Blake3Hash>>,
 {
-    let mut typed_resolver = |symbol: &str| resolve_symbol(symbol).map(|opt| opt.map(ChangeId::from));
+    let mut typed_resolver =
+        |symbol: &str| resolve_symbol(symbol).map(|opt| opt.map(ChangeId::from));
     let typed_iter = compile_change_ids(expr, graph, &mut typed_resolver)?;
     Ok(Box::new(typed_iter.map(Blake3Hash::from)))
 }
@@ -128,22 +134,14 @@ where
             bail!("string literals are only valid as function arguments")
         }
         RevsetExpression::Union(left, right) => {
-            let left_iter = compile_impl_change_ids(
-                left,
-                Arc::clone(&graph),
-                resolve_symbol,
-                resolve_refs,
-            )?;
+            let left_iter =
+                compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
             let right_iter = compile_impl_change_ids(right, graph, resolve_symbol, resolve_refs)?;
             Ok(Box::new(UnionIterator::new(left_iter, right_iter)))
         }
         RevsetExpression::Intersection(left, right) => {
-            let left_iter = compile_impl_change_ids(
-                left,
-                Arc::clone(&graph),
-                resolve_symbol,
-                resolve_refs,
-            )?;
+            let left_iter =
+                compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
             let right_iter = compile_impl_change_ids(right, graph, resolve_symbol, resolve_refs)?;
             let right_set: HashSet<ChangeId> = right_iter.collect();
             Ok(Box::new(
@@ -194,12 +192,8 @@ where
             let arg = args
                 .first()
                 .ok_or_else(|| anyhow!("ancestors() expects exactly one argument"))?;
-            let starts_iter = compile_impl_change_ids(
-                arg,
-                Arc::clone(&graph),
-                resolve_symbol,
-                resolve_refs,
-            )?;
+            let starts_iter =
+                compile_impl_change_ids(arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
             let starts = starts_iter.collect::<Vec<_>>();
             Ok(Box::new(AncestorsIterator::new(graph, starts)))
         }
@@ -234,7 +228,7 @@ fn parse_single_string_arg(name: &str, args: &[RevsetExpression]) -> Result<Stri
     }
 }
 
-fn change_touches_repo_path(change: &crate::store::change::Change, path: &str) -> bool {
+fn change_touches_repo_path(change: &Change, path: &str) -> bool {
     change.atoms.iter().any(|atom| {
         atom.paths().into_iter().any(|node_path| {
             if node_path.first().is_some_and(|segment| segment == "file") {
@@ -318,7 +312,8 @@ impl Iterator for AncestorsIterator {
             }
 
             if let Some(change) = self.graph.get(&Blake3Hash::from(current)) {
-                let mut deps: Vec<ChangeId> = change.deps.iter().copied().map(ChangeId::from).collect();
+                let mut deps: Vec<ChangeId> =
+                    change.deps.iter().copied().map(ChangeId::from).collect();
                 deps.sort();
                 for dep in deps {
                     if !self.seen.contains(&dep) {
@@ -350,10 +345,10 @@ fn parse_hex_hash(input: &str) -> Option<Blake3Hash> {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::algebra::Atom;
-    use crate::revset::parse;
-    use crate::store::author::test_keypair;
-    use crate::store::change::Change;
+    use arc_algebra_types::Atom;
+    use arc_store_types::author::test_keypair;
+
+    use crate::parser::parse;
 
     use super::*;
 
@@ -508,7 +503,11 @@ mod tests {
         let main_change = Change::new(
             HashSet::from([root]),
             vec![Atom::Insert {
-                at: vec!["file".to_string(), "src/main.rs".to_string(), "fn_main".to_string()],
+                at: vec![
+                    "file".to_string(),
+                    "src/main.rs".to_string(),
+                    "fn_main".to_string(),
+                ],
                 content_hash: main_hash,
             }],
             "touch main",
@@ -521,7 +520,11 @@ mod tests {
         let util_change = Change::new(
             HashSet::from([root]),
             vec![Atom::Insert {
-                at: vec!["file".to_string(), "src/util.rs".to_string(), "fn_util".to_string()],
+                at: vec![
+                    "file".to_string(),
+                    "src/util.rs".to_string(),
+                    "fn_util".to_string(),
+                ],
                 content_hash: util_hash,
             }],
             "touch util",

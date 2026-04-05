@@ -229,6 +229,7 @@ dependencies = [
  "arc-change",
  "arc-engine",
  "arc-git",
+ "arc-revset",
  "arc-store-cas",
  "arc-store-graph",
  "arc-store-types",
@@ -240,8 +241,6 @@ dependencies = [
  "directories",
  "ed25519-dalek",
  "ignore",
- "pest",
- "pest_derive",
  "rand_core 0.6.4",
  "reqwest 0.13.2",
  "serde",
@@ -336,6 +335,21 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
+]
+
+[[package]]
+name = "arc-revset"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra-types",
+ "arc-change",
+ "arc-store-graph",
+ "arc-store-types",
+ "blake3",
+ "pest",
+ "pest_derive",
+ "serde",
 ]
 
 [[package]]

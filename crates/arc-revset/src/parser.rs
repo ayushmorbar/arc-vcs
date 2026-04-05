@@ -7,7 +7,7 @@ mod generated {
     use pest_derive::Parser;
 
     #[derive(Parser)]
-    #[grammar = "revset/revset.pest"]
+    #[grammar = "revset.pest"]
     pub(super) struct RevsetParser;
 }
 
@@ -64,9 +64,9 @@ fn build_expression(pair: Pair<Rule>) -> Result<RevsetExpression> {
             build_expression(inner)
         }
         Rule::function_call => build_function(pair),
-        Rule::string_literal => Ok(RevsetExpression::StringLiteral(
-            unescape_string_literal(pair.as_str())?,
-        )),
+        Rule::string_literal => Ok(RevsetExpression::StringLiteral(unescape_string_literal(
+            pair.as_str(),
+        )?)),
         Rule::symbol => Ok(RevsetExpression::Symbol(pair.as_str().to_string())),
         _ => bail!("unexpected parse rule: {:?}", pair.as_rule()),
     }

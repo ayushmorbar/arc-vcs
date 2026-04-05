@@ -1,0 +1,19 @@
+[package]
+name = "arc-revset"
+version = "0.1.0-beta.6"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Revset parser and evaluation engine for arc Spacetime DAG queries"
+
+[dependencies]
+arc-algebra-types = { path = "../arc-algebra-types" }
+arc-change = { path = "../arc-change" }
+arc-store-graph = { path = "../arc-store-graph" }
+arc-store-types = { path = "../arc-store-types" }
+pest = "2.8.6"
+pest_derive = "2.8.6"
+serde = { version = "1.0.228", features = ["derive"] }
+anyhow = "1.0.102"
+
+[dev-dependencies]
+blake3 = "1.8.4"
