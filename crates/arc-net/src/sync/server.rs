@@ -3,19 +3,24 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
+use arc_store_cas::ObjectStore;
+use arc_store_types::newtypes::ChangeId;
 use arc_store_view::View;
-use bytes::BytesMut;
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tokio_util::codec::Framed;
+use tracing::instrument;
 
 use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
-use super::protocol::{HandshakeRequest, HandshakeResponse};
+use super::protocol::{
+    HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
+    negotiate_capabilities,
+};
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 256;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -24,6 +29,7 @@ const MAX_PAYLOAD_FRAMES: usize = 4096;
 const MAX_TOTAL_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 
 /// Start the native TCP sync server.
+#[instrument(skip_all)]
 pub async fn serve(port: u16, repo_path: PathBuf) -> Result<()> {
     let bind_addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&bind_addr)
@@ -72,25 +78,36 @@ async fn handle_connection(
         .context("failed to decode handshake request payload")?;
 
     let authorized = is_authorized_peer(peer_addr, request.auth_token.as_deref());
-    let required_hashes = if request.version == 1 && authorized {
-        compute_required_hashes(&repo_path, &request.view_heads)
-    } else {
-        Vec::new()
-    };
-    let response = HandshakeResponse {
-        status: if request.version != 1 {
-            1
-        } else if !authorized {
-            2
+    let (negotiated_capabilities, rejected_required_capabilities) =
+        negotiate_capabilities(&request, SERVER_CAPABILITIES);
+    let version_supported = request.min_version <= 1 && request.version >= 1;
+
+    let required_changes =
+        if version_supported && authorized && rejected_required_capabilities.is_empty() {
+            compute_required_hashes(&repo_path, &request.view_heads)
         } else {
-            0
-        },
-        required_hashes: required_hashes.clone(),
+            Vec::new()
+        };
+
+    let status = if !version_supported {
+        1
+    } else if !authorized {
+        2
+    } else if !rejected_required_capabilities.is_empty() {
+        3
+    } else {
+        0
     };
-    let payload = BytesMut::from(
-        bincode::serialize(&response)
-            .context("failed to encode handshake response payload")?
-            .as_slice(),
+
+    let response = HandshakeResponse {
+        status,
+        negotiated_version: 1,
+        negotiated_capabilities,
+        rejected_required_capabilities,
+        required_changes: required_changes.clone(),
+    };
+    let payload = Bytes::from(
+        bincode::serialize(&response).context("failed to encode handshake response payload")?,
     );
 
     framed
@@ -98,8 +115,11 @@ async fn handle_connection(
         .await
         .context("failed to send handshake response")?;
 
-    if response.status == 0 && !required_hashes.is_empty() {
-        ingest_payload_stream(&mut framed, &repo_path, &required_hashes).await?;
+    if response.status == 0 && !required_changes.is_empty() {
+        let allow_keepalive = response
+            .negotiated_capabilities
+            .contains(&SyncCapability::KeepAlive);
+        ingest_payload_stream(&mut framed, &repo_path, &required_changes, allow_keepalive).await?;
     }
 
     if response.status == 0 {
@@ -112,12 +132,13 @@ async fn handle_connection(
 
 fn compute_required_hashes(
     repo_path: &std::path::Path,
-    requested_heads: &std::collections::HashMap<String, Blake3Hash>,
-) -> Vec<Blake3Hash> {
+    requested_heads: &std::collections::HashMap<String, ChangeId>,
+) -> Vec<ChangeId> {
+    let store = ObjectStore::new(repo_path);
     let mut needed = Vec::new();
-    for hash in requested_heads.values() {
-        if !change_exists(repo_path, hash) {
-            needed.push(*hash);
+    for id in requested_heads.values() {
+        if store.read_change_bytes(*id).is_err() {
+            needed.push(*id);
         }
     }
     needed.sort();
@@ -128,8 +149,10 @@ fn compute_required_hashes(
 async fn ingest_payload_stream(
     framed: &mut Framed<TcpStream, ArcSyncCodec>,
     repo_path: &std::path::Path,
-    required_hashes: &[Blake3Hash],
+    required_changes: &[ChangeId],
+    allow_keepalive: bool,
 ) -> Result<()> {
+    let store = ObjectStore::new(repo_path);
     let mut saw_eof = false;
     let mut frame_count: usize = 0;
     let mut total_bytes: usize = 0;
@@ -138,6 +161,9 @@ async fn ingest_payload_stream(
         .context("timed out waiting for payload frame")?
     {
         let frame = frame_result.context("failed to decode payload frame")?;
+        if frame.message_type == MessageType::KeepAlive && allow_keepalive {
+            continue;
+        }
         if frame.message_type != MessageType::PayloadStream {
             bail!("expected payload-stream frame while ingesting");
         }
@@ -162,15 +188,18 @@ async fn ingest_payload_stream(
             bail!("received change failed cryptographic verification");
         }
 
-        write_change_raw(repo_path, &change.id, &frame.payload)?;
+        let id = ChangeId::from(change.id);
+        store
+            .write_change_bytes(id, frame.payload.as_ref())
+            .with_context(|| format!("failed to persist streamed change {}", id.to_hex()))?;
     }
 
     if !saw_eof {
         bail!("payload stream ended without EOF frame");
     }
 
-    for hash in required_hashes {
-        if !change_exists(repo_path, hash) {
+    for id in required_changes {
+        if store.read_change_bytes(*id).is_err() {
             bail!("required change missing after ingest");
         }
     }
@@ -180,32 +209,38 @@ async fn ingest_payload_stream(
 
 fn ensure_dependency_closure_present(
     repo_path: &std::path::Path,
-    heads: impl IntoIterator<Item = Blake3Hash>,
+    heads: impl IntoIterator<Item = ChangeId>,
 ) -> Result<()> {
-    let mut stack: Vec<Blake3Hash> = heads.into_iter().collect();
+    let store = ObjectStore::new(repo_path);
+    let mut stack: Vec<ChangeId> = heads.into_iter().collect();
     let mut seen = std::collections::HashSet::new();
-    while let Some(hash) = stack.pop() {
-        if !seen.insert(hash) {
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id) {
             continue;
         }
 
-        let raw = read_change_raw(repo_path, &hash)?;
+        let raw = store.read_change_bytes(id).with_context(|| {
+            format!(
+                "failed to read change while verifying dependency closure {}",
+                id.to_hex()
+            )
+        })?;
         let change: Change = bincode::deserialize(&raw)
             .context("failed to decode change while verifying dependency closure")?;
-        if change.id != hash {
+        if change.id != id.0 {
             bail!("dependency closure contains mismatched change id");
         }
         if !change.verify_signature() {
             bail!("dependency closure verification failed");
         }
-        stack.extend(change.deps.iter().copied());
+        stack.extend(change.deps.iter().copied().map(ChangeId::from));
     }
     Ok(())
 }
 
 fn persist_view_heads(
     repo_path: &std::path::Path,
-    view_heads: &std::collections::HashMap<String, Blake3Hash>,
+    view_heads: &std::collections::HashMap<String, ChangeId>,
 ) -> Result<()> {
     for (view_name, head) in view_heads {
         if !is_valid_view_name(view_name) {
@@ -213,53 +248,13 @@ fn persist_view_heads(
         }
 
         let view = match View::load(repo_path, view_name) {
-            Ok(existing) => View::new(existing.name, std::collections::HashSet::from([*head])),
-            Err(_) => View::new(view_name.clone(), std::collections::HashSet::from([*head])),
+            Ok(existing) => View::new(existing.name, std::collections::HashSet::from([head.0])),
+            Err(_) => View::new(view_name.clone(), std::collections::HashSet::from([head.0])),
         };
         view.save(repo_path)
             .map_err(|e| anyhow::anyhow!("failed to persist view '{view_name}': {e}"))?;
     }
     Ok(())
-}
-
-fn write_change_raw(repo_path: &std::path::Path, hash: &Blake3Hash, bytes: &[u8]) -> Result<()> {
-    let path = change_object_path(repo_path, hash);
-    if path.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create CAS directory {}", parent.display()))?;
-    }
-    std::fs::write(&path, bytes)
-        .with_context(|| format!("failed to write change object {}", path.display()))?;
-    Ok(())
-}
-
-fn read_change_raw(repo_path: &std::path::Path, hash: &Blake3Hash) -> Result<Vec<u8>> {
-    let path = change_object_path(repo_path, hash);
-    std::fs::read(&path).with_context(|| format!("failed to read change object {}", path.display()))
-}
-
-fn change_exists(repo_path: &std::path::Path, hash: &Blake3Hash) -> bool {
-    change_object_path(repo_path, hash).exists()
-}
-
-fn change_object_path(repo_path: &std::path::Path, hash: &Blake3Hash) -> PathBuf {
-    let hex = hash_hex(hash);
-    repo_path
-        .join(".arc")
-        .join("store")
-        .join(&hex[..2])
-        .join(&hex[2..])
-}
-
-fn hash_hex(hash: &Blake3Hash) -> String {
-    hash.iter().fold(String::with_capacity(64), |mut acc, b| {
-        use std::fmt::Write as _;
-        let _ = write!(acc, "{b:02x}");
-        acc
-    })
 }
 
 fn is_authorized_peer(peer_addr: SocketAddr, presented_token: Option<&str>) -> bool {
@@ -287,4 +282,3 @@ fn is_valid_view_name(name: &str) -> bool {
     name.chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
 }
-

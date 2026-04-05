@@ -1,6 +1,6 @@
 use std::io;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 /// Maximum accepted payload size for one sync frame (16 MiB).
@@ -16,6 +16,10 @@ pub enum MessageType {
     HaveWant = 0x02,
     /// Serialized object payload stream.
     PayloadStream = 0x03,
+    /// Idle heartbeat frame to keep long-running connections alive.
+    KeepAlive = 0x04,
+    /// Progress sideband frame carrying UTF-8 status text.
+    Progress = 0x05,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -26,6 +30,8 @@ impl TryFrom<u8> for MessageType {
             0x01 => Ok(Self::Handshake),
             0x02 => Ok(Self::HaveWant),
             0x03 => Ok(Self::PayloadStream),
+            0x04 => Ok(Self::KeepAlive),
+            0x05 => Ok(Self::Progress),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown message type: 0x{value:02x}"),
@@ -40,12 +46,12 @@ pub struct SyncFrame {
     /// Logical frame type.
     pub message_type: MessageType,
     /// Opaque binary payload.
-    pub payload: BytesMut,
+    pub payload: Bytes,
 }
 
 impl SyncFrame {
     /// Construct a frame from type and payload.
-    pub fn new(message_type: MessageType, payload: BytesMut) -> Self {
+    pub fn new(message_type: MessageType, payload: Bytes) -> Self {
         Self {
             message_type,
             payload,
@@ -92,7 +98,7 @@ impl Decoder for ArcSyncCodec {
         }
 
         src.advance(5);
-        let payload = src.split_to(length);
+        let payload = src.split_to(length).freeze();
 
         Ok(Some(SyncFrame {
             message_type,
@@ -129,7 +135,7 @@ impl Encoder<SyncFrame> for ArcSyncCodec {
 
 #[cfg(test)]
 mod tests {
-    use bytes::BytesMut;
+    use bytes::{Bytes, BytesMut};
     use futures_util::{SinkExt, StreamExt};
     use tokio_test::io::Builder;
     use tokio_util::codec::{Decoder, Framed};
@@ -138,7 +144,7 @@ mod tests {
 
     #[tokio::test]
     async fn framed_codec_roundtrip_with_header_prefix() {
-        let payload = BytesMut::from(&b"hello-sync"[..]);
+        let payload = Bytes::from_static(b"hello-sync");
 
         let mut expected = Vec::new();
         expected.push(MessageType::PayloadStream as u8);

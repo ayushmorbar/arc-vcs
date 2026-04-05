@@ -3294,7 +3294,7 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
 
 fn collect_local_view_heads(
     repo: &Repository,
-) -> anyhow::Result<std::collections::HashMap<String, Blake3Hash>> {
+) -> anyhow::Result<std::collections::HashMap<String, ChangeId>> {
     let mut heads = std::collections::HashMap::new();
     for view_name in repo.list_views()? {
         let view = View::load(&repo.shared_root, &view_name)
@@ -3302,7 +3302,7 @@ fn collect_local_view_heads(
         let Some(head) = view.heads.iter().min().copied() else {
             continue;
         };
-        heads.insert(view_name, head);
+        heads.insert(view_name, ChangeId::from(head));
     }
     Ok(heads)
 }

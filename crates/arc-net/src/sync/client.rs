@@ -1,33 +1,39 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
-use bytes::BytesMut;
+use arc_store_cas::ObjectStore;
+use arc_store_types::newtypes::ChangeId;
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::codec::Framed;
+use tracing::instrument;
 
 use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
-use super::protocol::{HandshakeRequest, HandshakeResponse};
+use super::protocol::{
+    HandshakeRequest, HandshakeResponse, SyncCapability, negotiate_capabilities,
+};
 
 const HANDSHAKE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Perform a native handshake against a remote arc sync endpoint.
+#[instrument(skip_all)]
 pub async fn sync_remote(
     addr: &str,
-    view_heads: HashMap<String, Blake3Hash>,
+    view_heads: HashMap<String, ChangeId>,
 ) -> Result<HandshakeResponse> {
     let repo_path = std::env::current_dir().context("failed to resolve current directory")?;
     sync_remote_from_repo(addr, view_heads, &repo_path).await
 }
 
+#[instrument(skip_all)]
 pub(crate) async fn sync_remote_from_repo(
     addr: &str,
-    view_heads: HashMap<String, Blake3Hash>,
+    view_heads: HashMap<String, ChangeId>,
     repo_path: &Path,
 ) -> Result<HandshakeResponse> {
     let socket = TcpStream::connect(addr)
@@ -37,13 +43,17 @@ pub(crate) async fn sync_remote_from_repo(
 
     let request = HandshakeRequest {
         version: 1,
+        min_version: 1,
         auth_token: std::env::var("ARC_SYNC_TOKEN").ok(),
         view_heads,
+        required_capabilities: vec![
+            SyncCapability::PayloadStreamV1,
+            SyncCapability::TypedChangeId,
+        ],
+        optional_capabilities: vec![SyncCapability::KeepAlive, SyncCapability::ProgressSideband],
     };
-    let payload = BytesMut::from(
-        bincode::serialize(&request)
-            .context("failed to encode handshake request payload")?
-            .as_slice(),
+    let payload = Bytes::from(
+        bincode::serialize(&request).context("failed to encode handshake request payload")?,
     );
     framed
         .send(SyncFrame::new(MessageType::Handshake, payload))
@@ -69,101 +79,100 @@ pub(crate) async fn sync_remote_from_repo(
         );
     }
 
-    if response.required_hashes.is_empty() {
+    if response.negotiated_version < request.min_version
+        || response.negotiated_version > request.version
+    {
+        bail!(
+            "server negotiated unsupported protocol version {}",
+            response.negotiated_version
+        );
+    }
+
+    let (_accepted, rejected) = negotiate_capabilities(&request, &response.negotiated_capabilities);
+    if !rejected.is_empty() || !response.rejected_required_capabilities.is_empty() {
+        bail!("native sync handshake rejected required capabilities");
+    }
+
+    if response.required_changes.is_empty() {
         return Ok(response);
     }
 
-    stream_required_changes(&mut framed, repo_path, &response.required_hashes).await?;
+    stream_required_changes(&mut framed, repo_path, &response.required_changes).await?;
     Ok(response)
 }
 
+#[instrument(skip_all)]
 async fn stream_required_changes(
     framed: &mut Framed<TcpStream, ArcSyncCodec>,
     repo_path: &Path,
-    required_hashes: &[Blake3Hash],
+    required_changes: &[ChangeId],
 ) -> Result<()> {
-    let hashes_to_stream = collect_required_closure(repo_path, required_hashes)?;
+    let ids_to_stream = collect_required_closure(repo_path, required_changes)?;
+    let store = ObjectStore::new(repo_path);
 
-    for hash in &hashes_to_stream {
-        let raw = read_change_raw(repo_path, hash)?;
+    for id in &ids_to_stream {
+        let raw = store
+            .read_change_bytes(*id)
+            .with_context(|| format!("failed to read local change {}", id.to_hex()))?;
 
         // Verify local object integrity before transmission.
         let change: Change = bincode::deserialize(&raw)
-            .with_context(|| format!("failed to decode local change {}", hash_hex(hash)))?;
-        if change.id != *hash {
-            bail!("local CAS object id mismatch for {}", hash_hex(hash));
+            .with_context(|| format!("failed to decode local change {}", id.to_hex()))?;
+        if change.id != id.0 {
+            bail!("local CAS object id mismatch for {}", id.to_hex());
         }
         if !change.verify_signature() {
             bail!(
                 "local CAS object failed signature verification for {}",
-                hash_hex(hash)
+                id.to_hex()
             );
         }
 
         framed
             .send(SyncFrame::new(
                 MessageType::PayloadStream,
-                BytesMut::from(raw.as_slice()),
+                Bytes::copy_from_slice(raw.as_ref()),
             ))
             .await
             .context("failed to send payload stream frame")?;
     }
 
     framed
-        .send(SyncFrame::new(MessageType::PayloadStream, BytesMut::new()))
+        .send(SyncFrame::new(MessageType::PayloadStream, Bytes::new()))
         .await
         .context("failed to send payload stream EOF frame")?;
 
     Ok(())
 }
 
+#[instrument(skip_all)]
 fn collect_required_closure(
     repo_path: &Path,
-    required_hashes: &[Blake3Hash],
-) -> Result<Vec<Blake3Hash>> {
+    required_changes: &[ChangeId],
+) -> Result<Vec<ChangeId>> {
+    let store = ObjectStore::new(repo_path);
     let mut ordered = Vec::new();
-    let mut stack: Vec<Blake3Hash> = required_hashes.to_vec();
+    let mut stack: Vec<ChangeId> = required_changes.to_vec();
     let mut seen = std::collections::HashSet::new();
 
-    while let Some(hash) = stack.pop() {
-        if !seen.insert(hash) {
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id) {
             continue;
         }
 
-        ordered.push(hash);
-        let raw = read_change_raw(repo_path, &hash)?;
+        ordered.push(id);
+        let raw = store
+            .read_change_bytes(id)
+            .with_context(|| format!("failed to read local change {}", id.to_hex()))?;
         let change: Change = bincode::deserialize(&raw)
-            .with_context(|| format!("failed to decode local change {}", hash_hex(&hash)))?;
-        if change.id != hash {
-            bail!("local CAS object id mismatch for {}", hash_hex(&hash));
+            .with_context(|| format!("failed to decode local change {}", id.to_hex()))?;
+        if change.id != id.0 {
+            bail!("local CAS object id mismatch for {}", id.to_hex());
         }
-        stack.extend(change.deps.iter().copied());
+        stack.extend(change.deps.iter().copied().map(ChangeId::from));
     }
 
     Ok(ordered)
-}
-
-fn read_change_raw(repo_path: &Path, hash: &Blake3Hash) -> Result<Vec<u8>> {
-    let path = change_object_path(repo_path, hash);
-    std::fs::read(&path)
-        .with_context(|| format!("failed to read local change object {}", path.display()))
-}
-
-fn change_object_path(repo_path: &Path, hash: &Blake3Hash) -> PathBuf {
-    let hex = hash_hex(hash);
-    repo_path
-        .join(".arc")
-        .join("store")
-        .join(&hex[..2])
-        .join(&hex[2..])
-}
-
-fn hash_hex(hash: &Blake3Hash) -> String {
-    hash.iter().fold(String::with_capacity(64), |mut acc, b| {
-        use std::fmt::Write as _;
-        let _ = write!(acc, "{b:02x}");
-        acc
-    })
 }
 
 #[cfg(test)]
@@ -176,6 +185,7 @@ mod tests {
     use arc_change::Change;
     use arc_store_cas::ObjectStore;
     use arc_store_types::author::test_keypair;
+    use arc_store_types::newtypes::ChangeId;
     use arc_store_view::View;
     use tokio::net::TcpListener;
     use tokio::time::sleep;
@@ -201,7 +211,7 @@ mod tests {
             .await
             .expect("client handshake should succeed");
         assert_eq!(response.status, 0);
-        assert!(response.required_hashes.is_empty());
+        assert!(response.required_changes.is_empty());
 
         server_handle.abort();
     }
@@ -248,13 +258,13 @@ mod tests {
         });
 
         let mut view_heads = HashMap::new();
-        view_heads.insert("main".to_string(), change.id);
+        view_heads.insert("main".to_string(), ChangeId::from(change.id));
 
         let response = sync_remote_from_repo(&addr.to_string(), view_heads, client_root.path())
             .await
             .expect("native sync should succeed");
         assert_eq!(response.status, 0);
-        assert_eq!(response.required_hashes, vec![change.id]);
+        assert_eq!(response.required_changes, vec![ChangeId::from(change.id)]);
 
         let server_store = ObjectStore::new(server_root.path());
         let mut loaded = None;
