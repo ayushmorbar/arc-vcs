@@ -26,10 +26,10 @@
 //! assert!(g.is_empty());
 //! ```
 
-/// In-memory change DAG traversal and topology algorithms.
-pub mod graph;
 /// Deterministic bisect state machine and persistence helpers.
 pub mod bisect;
+/// In-memory change DAG traversal and topology algorithms.
+pub mod graph;
 
-pub use graph::*;
 pub use bisect::*;
+pub use graph::*;

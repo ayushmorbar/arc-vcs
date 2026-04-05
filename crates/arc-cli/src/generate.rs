@@ -171,4 +171,3 @@ fn build_prompt(goal: &str, file_context: &str, prior_context: &str) -> String {
     prompt.push_str(&format!("\nGoal: {goal}\n"));
     prompt
 }
-

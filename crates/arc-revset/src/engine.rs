@@ -226,8 +226,10 @@ where
         }
         "range" => {
             let [from_arg, to_arg] = expect_two_args(name, args)?;
-            let from_heads = eval_as_head_set(from_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
-            let to_heads = eval_as_head_set(to_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let from_heads =
+                eval_as_head_set(from_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let to_heads =
+                eval_as_head_set(to_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
 
             let from_ancestors = graph.ancestors(&from_heads);
             let to_ancestors = graph.ancestors(&to_heads);
@@ -240,8 +242,10 @@ where
         }
         "symmetric" => {
             let [left_arg, right_arg] = expect_two_args(name, args)?;
-            let left_heads = eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
-            let right_heads = eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let left_heads =
+                eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let right_heads =
+                eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
 
             let left_ancestors = graph.ancestors(&left_heads);
             let right_ancestors = graph.ancestors(&right_heads);
@@ -255,8 +259,10 @@ where
         }
         "merge_base" => {
             let [left_arg, right_arg] = expect_two_args(name, args)?;
-            let left_heads = eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
-            let right_heads = eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let left_heads =
+                eval_as_head_set(left_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
+            let right_heads =
+                eval_as_head_set(right_arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
 
             let selected = graph
                 .merge_base_deterministic(&left_heads, &right_heads)
@@ -269,7 +275,10 @@ where
     }
 }
 
-fn expect_two_args<'a>(name: &str, args: &'a [RevsetExpression]) -> Result<[&'a RevsetExpression; 2]> {
+fn expect_two_args<'a>(
+    name: &str,
+    args: &'a [RevsetExpression],
+) -> Result<[&'a RevsetExpression; 2]> {
     match args {
         [left, right] => Ok([left, right]),
         _ => bail!("{name}() expects exactly two arguments"),
@@ -705,7 +714,12 @@ mod tests {
             .expect("compile should succeed")
             .collect();
 
-        let expected = HashSet::from([ChangeId::from(b), ChangeId::from(c), ChangeId::from(d), ChangeId::from(e)]);
+        let expected = HashSet::from([
+            ChangeId::from(b),
+            ChangeId::from(c),
+            ChangeId::from(d),
+            ChangeId::from(e),
+        ]);
         assert_eq!(result, expected);
     }
 
@@ -731,7 +745,11 @@ mod tests {
             .expect("compile should succeed")
             .collect();
 
-        assert_eq!(result.len(), 1, "merge_base must return a single deterministic id");
+        assert_eq!(
+            result.len(),
+            1,
+            "merge_base must return a single deterministic id"
+        );
         let expected = ChangeId::from(a.min(b));
         assert_eq!(result[0], expected);
     }

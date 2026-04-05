@@ -33,4 +33,3 @@ pub trait LanguagePlugin {
     fn unparse(&self, state: &HashMap<NodePath, Vec<u8>>, filepath: &str)
     -> Result<String, String>;
 }
-

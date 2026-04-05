@@ -15,8 +15,8 @@ use std::io::Write;
 use serde::Serialize;
 
 use crate::repo::{Repository, load_merged_config};
-use arc_store_types::author::Author;
 use arc_change::Change;
+use arc_store_types::author::Author;
 
 // ── wire-format types ────────────────────────────────────────────────────────
 
@@ -135,4 +135,3 @@ fn hex(b: &[u8; 32]) -> String {
         s
     })
 }
-

@@ -138,7 +138,7 @@ fn read_mise_required_tasks(path: &Path) -> anyhow::Result<Vec<String>> {
     let tasks = parsed
         .get("tasks")
         .and_then(toml::Value::as_table)
-        .ok_or_else(|| anyhow::anyhow!("mise.toml must define [tasks]") )?;
+        .ok_or_else(|| anyhow::anyhow!("mise.toml must define [tasks]"))?;
 
     let required = ["check:test", "check:clippy", "check:format"];
     let mut present = Vec::new();
@@ -173,8 +173,11 @@ mod tests {
             "[profile.default]\nslow-timeout = { period = \"10s\" }\n\n[profile.ci]\nslow-timeout = { period = \"10s\", terminate-after = 4 }\n",
         )
         .expect("write nextest");
-        fs::write(config_dir.join("codespell-additional-dict"), "co-locate->colocate\n")
-            .expect("write dict");
+        fs::write(
+            config_dir.join("codespell-additional-dict"),
+            "co-locate->colocate\n",
+        )
+        .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
             "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
@@ -182,10 +185,8 @@ mod tests {
         .expect("write mise");
 
         let frontier = vec![
-            ChangeId::from_hex(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .expect("valid change id"),
+            ChangeId::from_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+                .expect("valid change id"),
         ];
         let snapshots = vec![
             SnapshotId::from_hex(
@@ -214,15 +215,19 @@ mod tests {
             "[profile.default]\nslow-timeout = { period = \"10s\" }\n",
         )
         .expect("write nextest");
-        fs::write(config_dir.join("codespell-additional-dict"), "invalid-line\n")
-            .expect("write dict");
+        fs::write(
+            config_dir.join("codespell-additional-dict"),
+            "invalid-line\n",
+        )
+        .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
             "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
         )
         .expect("write mise");
 
-        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new()).expect_err("audit should fail");
+        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
         assert!(
             err.to_string().contains("invalid codespell rule"),
             "unexpected error: {err}"
@@ -243,4 +248,3 @@ mod tests {
         assert_eq!(report.present_required_tasks.len(), 3);
     }
 }
-

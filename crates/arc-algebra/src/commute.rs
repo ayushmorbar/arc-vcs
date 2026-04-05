@@ -383,10 +383,7 @@ mod tests {
         let result = commute_pair(
             &a,
             &b,
-            &(
-                author::test_keypair().0,
-                author::test_keypair().1,
-            ),
+            &(author::test_keypair().0, author::test_keypair().1),
         );
         assert!(
             result.is_none(),

@@ -130,4 +130,3 @@ impl Drop for CwdGuard {
         let _ = std::env::set_current_dir(&self.previous);
     }
 }
-

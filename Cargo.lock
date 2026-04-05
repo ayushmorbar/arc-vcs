@@ -311,7 +311,9 @@ name = "arc-git"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
+ "bytes",
  "flate2",
+ "memmap2",
  "tempfile",
 ]
 

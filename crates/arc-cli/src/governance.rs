@@ -295,4 +295,3 @@ mod tests {
         assert!(report.pinned_action_references > 0);
     }
 }
-

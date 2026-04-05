@@ -29,9 +29,14 @@
 //! ```
 
 use anyhow::{Context, Result, bail};
+use bytes::Bytes;
+use memmap2::{Mmap, MmapOptions};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::{AtomicU8, Ordering};
 
 // -- types --------------------------------------------------------------------
 
@@ -48,9 +53,13 @@ enum ObjKind {
 }
 
 /// Decoded Git object: kind + raw payload (header already stripped).
+///
+/// This type is intentionally crate-private so raw Git storage bytes are
+/// translated into `GitCommit`/`GitTree` domain structures before crossing
+/// the arc-git boundary.
 struct RawObject {
     kind: ObjKind,
-    data: Vec<u8>,
+    data: Bytes,
 }
 
 /// Parsed metadata extracted from a single Git commit object.
@@ -222,13 +231,96 @@ fn read_loose_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     let kind = parse_obj_kind(header.split(' ').next().unwrap_or(""))?;
     Ok(RawObject {
         kind,
-        data: buf[nul + 1..].to_vec(),
+        data: Bytes::copy_from_slice(&buf[nul + 1..]),
     })
 }
 
 // -- pack files ---------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy)]
+enum PackLookupBackend {
+    /// Fast path: memory-map `.idx` and `.pack` files and decode index tables directly.
+    ///
+    /// This keeps legacy Git ingress zero-copy at the filesystem boundary and minimizes
+    /// heap pressure when scanning large repositories.
+    MmapChunkIndex,
+    /// Compatibility path: pre-existing heap-backed index/pack scanning.
+    LegacyIndexScan,
+}
+
+const TEST_BACKEND_AUTO: u8 = 0;
+const TEST_BACKEND_MMAP_ONLY: u8 = 1;
+const TEST_BACKEND_LEGACY_ONLY: u8 = 2;
+const TEST_BACKEND_FORCE_MMAP_FAIL: u8 = 3;
+
+#[cfg(test)]
+static TEST_BACKEND_OVERRIDE: AtomicU8 = AtomicU8::new(TEST_BACKEND_AUTO);
+
+#[cfg(test)]
+fn set_test_backend_override(mode: u8) -> u8 {
+    TEST_BACKEND_OVERRIDE.swap(mode, Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn get_test_backend_override() -> u8 {
+    TEST_BACKEND_OVERRIDE.load(Ordering::Relaxed)
+}
+
+/// Read an object from pack storage using a tiered backend strategy.
+///
+/// Why memory mapping for legacy ingress:
+/// Git pack/index files are immutable snapshots. Mapping them read-only lets us
+/// parse fan-out and offset tables directly from kernel-backed pages without first
+/// copying the whole file into process-owned heap buffers. This improves startup
+/// latency and peak memory while preserving deterministic parsing behavior.
 fn read_packed_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
+    #[cfg(test)]
+    let mode = get_test_backend_override();
+    #[cfg(not(test))]
+    let mode = TEST_BACKEND_AUTO;
+
+    let backends: &[PackLookupBackend] = match mode {
+        TEST_BACKEND_MMAP_ONLY => &[PackLookupBackend::MmapChunkIndex],
+        TEST_BACKEND_LEGACY_ONLY => &[PackLookupBackend::LegacyIndexScan],
+        _ => &[
+            PackLookupBackend::MmapChunkIndex,
+            PackLookupBackend::LegacyIndexScan,
+        ],
+    };
+
+    let mut errors = Vec::new();
+
+    for backend in backends {
+        if mode == TEST_BACKEND_FORCE_MMAP_FAIL
+            && matches!(backend, PackLookupBackend::MmapChunkIndex)
+        {
+            errors.push("mmap backend failed: forced test failure".to_string());
+            continue;
+        }
+
+        let attempt = match backend {
+            PackLookupBackend::MmapChunkIndex => read_packed_object_mmap(git_dir, oid),
+            PackLookupBackend::LegacyIndexScan => read_packed_object_legacy(git_dir, oid),
+        };
+        match attempt {
+            Ok(obj) => return Ok(obj),
+            Err(err) => {
+                let label = match backend {
+                    PackLookupBackend::MmapChunkIndex => "mmap backend",
+                    PackLookupBackend::LegacyIndexScan => "legacy backend",
+                };
+                errors.push(format!("{label} failed: {err:#}"));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        bail!("no pack backend available");
+    }
+    bail!("all pack backends failed:\n{}", errors.join("\n"))
+}
+
+fn read_packed_object_mmap(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     let pack_dir = git_dir.join("objects").join("pack");
     if !pack_dir.is_dir() {
         bail!("no pack directory");
@@ -244,23 +336,51 @@ fn read_packed_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
         if !pack_path.exists() {
             continue;
         }
-        if let Ok(obj) = lookup_in_pack(&idx_path, &pack_path, oid, git_dir) {
+
+        let idx = mmap_read_only(&idx_path)?;
+        let pack = mmap_read_only(&pack_path)?;
+        if let Ok(obj) = lookup_in_pack(&idx, &pack, oid, git_dir) {
             return Ok(obj);
         }
     }
     bail!("object not in any pack");
 }
 
-/// Look up `oid` in a **v2** pack index, then extract from the `.pack`.
-fn lookup_in_pack(
-    idx_path: &Path,
-    pack_path: &Path,
-    oid: &GitOid,
-    git_dir: &Path,
-) -> Result<RawObject> {
-    let idx = std::fs::read(idx_path)?;
-    let pack = std::fs::read(pack_path)?;
+fn read_packed_object_legacy(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
+    let pack_dir = git_dir.join("objects").join("pack");
+    if !pack_dir.is_dir() {
+        bail!("no pack directory");
+    }
+    for entry in std::fs::read_dir(&pack_dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if !name.to_string_lossy().ends_with(".idx") {
+            continue;
+        }
+        let idx_path = entry.path();
+        let pack_path = idx_path.with_extension("pack");
+        if !pack_path.exists() {
+            continue;
+        }
+        let idx = std::fs::read(&idx_path)?;
+        let pack = std::fs::read(&pack_path)?;
+        if let Ok(obj) = lookup_in_pack(&idx, &pack, oid, git_dir) {
+            return Ok(obj);
+        }
+    }
+    bail!("object not in any pack");
+}
 
+fn mmap_read_only(path: &Path) -> Result<Mmap> {
+    let file = File::open(path).with_context(|| format!("failed to open '{}'", path.display()))?;
+    // SAFETY: pack and index files are immutable snapshots created atomically by git.
+    let map = unsafe { MmapOptions::new().map_copy_read_only(&file) }
+        .with_context(|| format!("failed to mmap '{}'", path.display()))?;
+    Ok(map)
+}
+
+/// Look up `oid` in a **v2** pack index, then extract from the `.pack`.
+fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Result<RawObject> {
     // -- v2 index header ------------------------------------------------
     //  0..4   magic  0xff 't' 'O' 'c'
     //  4..8   version (2)
@@ -268,25 +388,45 @@ fn lookup_in_pack(
     if idx.len() < 1032 || &idx[..4] != b"\xfftOc" {
         bail!("unsupported pack index format");
     }
-    let ver = u32::from_be_bytes(idx[4..8].try_into()?);
+    let ver = read_u32_be_at(idx, 4, "pack index version")?;
     if ver != 2 {
         bail!("pack index v{ver} not supported (only v2)");
     }
 
-    let fanout = |i: usize| -> u32 {
+    let fanout = |i: usize| -> Result<u32> {
         let off = 8 + i * 4;
-        u32::from_be_bytes(idx[off..off + 4].try_into().unwrap())
+        read_u32_be_at(idx, off, "pack index fanout")
     };
-    let total = fanout(255) as usize;
+    let total = fanout(255)? as usize;
 
     let fb = oid[0] as usize;
-    let lo = if fb == 0 { 0 } else { fanout(fb - 1) as usize };
-    let hi = fanout(fb) as usize;
+    let lo = if fb == 0 { 0 } else { fanout(fb - 1)? as usize };
+    let hi = fanout(fb)? as usize;
+    if lo > hi || hi > total {
+        bail!("invalid fanout range [{lo}, {hi}) for total {total}");
+    }
 
-    let oid_table = 1032; // 8 + 256*4
-    let crc_table = oid_table + total * 20;
-    let off_table = crc_table + total * 4;
-    let big_table = off_table + total * 4;
+    let oid_table: usize = 1032; // 8 + 256*4
+    let crc_table = oid_table
+        .checked_add(
+            total
+                .checked_mul(20)
+                .context("pack idx oid table overflow")?,
+        )
+        .context("pack idx crc table overflow")?;
+    let off_table = crc_table
+        .checked_add(total.checked_mul(4).context("pack idx crc span overflow")?)
+        .context("pack idx offset table overflow")?;
+    let big_table = off_table
+        .checked_add(
+            total
+                .checked_mul(4)
+                .context("pack idx offset span overflow")?,
+        )
+        .context("pack idx big-offset table overflow")?;
+    if big_table > idx.len() {
+        bail!("pack idx tables exceed file length");
+    }
 
     // Binary search in the sorted OID table [lo, hi).
     let idx_pos = {
@@ -295,7 +435,9 @@ fn lookup_in_pack(
         while l < r {
             let m = l + (r - l) / 2;
             let start = oid_table + m * 20;
-            let entry = &idx[start..start + 20];
+            let entry = idx
+                .get(start..start + 20)
+                .context("pack idx oid table entry out of bounds")?;
             match entry.cmp(oid.as_slice()) {
                 std::cmp::Ordering::Equal => {
                     found = Some(m);
@@ -309,17 +451,40 @@ fn lookup_in_pack(
     };
 
     // Read 4-byte offset (MSB set -> index into the 8-byte large table).
-    let raw_off =
-        u32::from_be_bytes(idx[off_table + idx_pos * 4..off_table + idx_pos * 4 + 4].try_into()?);
+    let raw_off = read_u32_be_at(idx, off_table + idx_pos * 4, "pack idx 32-bit offset")?;
     let pack_offset = if raw_off & 0x8000_0000 != 0 {
         let big_idx = (raw_off & 0x7FFF_FFFF) as usize;
-        u64::from_be_bytes(idx[big_table + big_idx * 8..big_table + big_idx * 8 + 8].try_into()?)
-            as usize
+        let big_off = big_table
+            .checked_add(
+                big_idx
+                    .checked_mul(8)
+                    .context("pack idx big-offset index overflow")?,
+            )
+            .context("pack idx big-offset pointer overflow")?;
+        read_u64_be_at(idx, big_off, "pack idx 64-bit offset")? as usize
     } else {
         raw_off as usize
     };
 
-    read_pack_entry(&pack, pack_offset, git_dir)
+    read_pack_entry(pack, pack_offset, git_dir)
+}
+
+fn read_u32_be_at(buf: &[u8], offset: usize, what: &str) -> Result<u32> {
+    let bytes = buf
+        .get(offset..offset + 4)
+        .with_context(|| format!("truncated {what} at offset {offset}"))?;
+    let mut arr = [0u8; 4];
+    arr.copy_from_slice(bytes);
+    Ok(u32::from_be_bytes(arr))
+}
+
+fn read_u64_be_at(buf: &[u8], offset: usize, what: &str) -> Result<u64> {
+    let bytes = buf
+        .get(offset..offset + 8)
+        .with_context(|| format!("truncated {what} at offset {offset}"))?;
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(bytes);
+    Ok(u64::from_be_bytes(arr))
 }
 
 /// Decode one object entry from a `.pack` file at `offset`.
@@ -331,7 +496,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
             let data = zlib_decompress(&pack[data_pos..])?;
             Ok(RawObject {
                 kind: type_to_kind(obj_type)?,
-                data,
+                data: Bytes::from(data),
             })
         }
         // OFS_DELTA - base referenced by negative offset within this pack.
@@ -345,7 +510,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
             let data = apply_delta(&base.data, &delta)?;
             Ok(RawObject {
                 kind: base.kind,
-                data,
+                data: Bytes::from(data),
             })
         }
         // REF_DELTA - base referenced by 20-byte OID (may be in any source).
@@ -358,7 +523,7 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
             let data = apply_delta(&base.data, &delta)?;
             Ok(RawObject {
                 kind: base.kind,
-                data,
+                data: Bytes::from(data),
             })
         }
         _ => bail!("unknown pack object type {obj_type}"),
@@ -702,7 +867,7 @@ pub fn read_blob(git_dir: &Path, oid: &GitOid) -> Result<Vec<u8>> {
     if obj.kind != ObjKind::Blob {
         bail!("object {} is not a blob", oid_hex(oid));
     }
-    Ok(obj.data)
+    Ok(obj.data.to_vec())
 }
 
 /// Recursively extract all blob entries from a Git tree into a flat map.
@@ -737,7 +902,7 @@ pub fn extract_tree_to_memory(
             // Regular file (100644 / 100755) or symlink (120000).
             let blob_obj = read_object(git_dir, &oid)?;
             if blob_obj.kind == ObjKind::Blob {
-                out.insert(path, blob_obj.data);
+                out.insert(path, blob_obj.data.to_vec());
             }
         }
         // mode "160000" (gitlink/submodule) - skip.
@@ -865,6 +1030,12 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::process::Command;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn backend_override_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn git(args: &[&str], dir: &Path) {
         let status = Command::new("git")
@@ -877,6 +1048,68 @@ mod tests {
             .status()
             .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
         assert!(status.success(), "git {args:?} failed with {status}");
+    }
+
+    fn git_output(args: &[&str], dir: &Path) -> String {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+        assert!(
+            out.status.success(),
+            "git {args:?} failed with {}",
+            out.status
+        );
+        String::from_utf8(out.stdout)
+            .unwrap_or_else(|e| panic!("git {args:?} produced non-utf8 output: {e}"))
+    }
+
+    struct BackendOverrideGuard {
+        previous: u8,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl BackendOverrideGuard {
+        fn set(mode: u8) -> Self {
+            let lock = backend_override_lock()
+                .lock()
+                .expect("backend override mutex should not be poisoned");
+            let previous = set_test_backend_override(mode);
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for BackendOverrideGuard {
+        fn drop(&mut self) {
+            let _ = set_test_backend_override(self.previous);
+        }
+    }
+
+    fn create_packed_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        git(&["init"], path);
+        git(&["config", "user.email", "test@test.com"], path);
+        git(&["config", "user.name", "test"], path);
+        git(&["config", "core.autocrlf", "false"], path);
+
+        for i in 0..8 {
+            std::fs::write(path.join(format!("f{i}.txt")), format!("line-{i}\n")).unwrap();
+            git(&["add", "."], path);
+            git(&["commit", "-m", &format!("commit-{i}")], path);
+        }
+
+        std::fs::write(path.join("binary.bin"), vec![0x00, 0xff, 0x10, 0x80, 0x01]).unwrap();
+        git(&["add", "."], path);
+        git(&["commit", "-m", "binary"], path);
+
+        git(&["gc", "--aggressive", "--prune=now"], path);
+        dir
     }
 
     /// `analyze_git_repo` must return the correct commit count and metadata.
@@ -976,5 +1209,102 @@ mod tests {
         let analysis = analyze_git_repo(path).unwrap();
         let tip_hex = oid_hex(heads.values().next().unwrap());
         assert_eq!(tip_hex, analysis.head_hex, "branch tip OID must equal HEAD");
+    }
+
+    /// Packed repositories should be ingested through the mmap-first index path
+    /// while preserving commit ordering and metadata parity.
+    #[test]
+    fn test_analyze_git_repo_with_packed_objects() {
+        let dir = create_packed_repo();
+        let path = dir.path();
+
+        let git_dir = resolve_git_dir(path).unwrap();
+        let pack_dir = git_dir.join("objects").join("pack");
+        let has_idx = std::fs::read_dir(&pack_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().ends_with(".idx"));
+        assert!(
+            has_idx,
+            "git gc should produce at least one pack index file"
+        );
+
+        let head_hex = git_output(&["rev-parse", "HEAD"], path).trim().to_string();
+        let analysis = analyze_git_repo(path).unwrap();
+
+        assert_eq!(
+            analysis.head_hex, head_hex,
+            "head OID must match git rev-parse"
+        );
+        assert_eq!(
+            analysis.commit_count, 9,
+            "all reachable commits must be returned"
+        );
+        assert_eq!(
+            analysis.commits.first().unwrap().message,
+            "commit-0",
+            "oldest-first ordering must be preserved after packing"
+        );
+        assert_eq!(
+            analysis.commits.last().unwrap().message,
+            "binary",
+            "latest commit must remain at the end"
+        );
+
+        let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+        let tree = analysis.commits.last().unwrap().tree;
+        extract_tree_to_memory(&git_dir, &tree, "", &mut files).unwrap();
+        assert_eq!(
+            files.get("binary.bin").unwrap(),
+            &vec![0x00, 0xff, 0x10, 0x80, 0x01],
+            "binary payload must round-trip exactly through packed object decode"
+        );
+    }
+
+    #[test]
+    fn test_mmap_only_backend_on_packed_repo() {
+        let _guard = BackendOverrideGuard::set(TEST_BACKEND_MMAP_ONLY);
+        let dir = create_packed_repo();
+        let analysis = analyze_git_repo(dir.path()).unwrap();
+        assert_eq!(analysis.commit_count, 9);
+        assert_eq!(analysis.commits.last().unwrap().message, "binary");
+    }
+
+    #[test]
+    fn test_forced_mmap_failure_falls_back_to_legacy() {
+        let _guard = BackendOverrideGuard::set(TEST_BACKEND_FORCE_MMAP_FAIL);
+        let dir = create_packed_repo();
+        let analysis = analyze_git_repo(dir.path()).unwrap();
+        assert_eq!(analysis.commit_count, 9);
+        assert_eq!(analysis.commits.last().unwrap().message, "binary");
+    }
+
+    #[test]
+    fn test_mmap_and_legacy_backends_are_parity_equivalent() {
+        let dir = create_packed_repo();
+
+        let mmap_analysis = {
+            let _guard = BackendOverrideGuard::set(TEST_BACKEND_MMAP_ONLY);
+            analyze_git_repo(dir.path()).unwrap()
+        };
+
+        let legacy_analysis = {
+            let _guard = BackendOverrideGuard::set(TEST_BACKEND_LEGACY_ONLY);
+            analyze_git_repo(dir.path()).unwrap()
+        };
+
+        assert_eq!(mmap_analysis.head_hex, legacy_analysis.head_hex);
+        assert_eq!(mmap_analysis.commit_count, legacy_analysis.commit_count);
+        let mmap_messages: Vec<&str> = mmap_analysis
+            .commits
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        let legacy_messages: Vec<&str> = legacy_analysis
+            .commits
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        assert_eq!(mmap_messages, legacy_messages);
     }
 }

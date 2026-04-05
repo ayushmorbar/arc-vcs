@@ -33,11 +33,11 @@ use arc_algebra_types::Blake3Hash;
 /// bytes and existence checks, while patch-theory operations remain free of any
 /// filesystem/CAS implementation dependency.
 pub trait BlobStore {
-	/// Read raw blob bytes by BLAKE3 hash.
-	fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, String>;
+    /// Read raw blob bytes by BLAKE3 hash.
+    fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, String>;
 
-	/// Return whether a blob hash exists.
-	fn contains_blob(&self, hash: &Blake3Hash) -> bool;
+    /// Return whether a blob hash exists.
+    fn contains_blob(&self, hash: &Blake3Hash) -> bool;
 }
 
 pub mod apply;

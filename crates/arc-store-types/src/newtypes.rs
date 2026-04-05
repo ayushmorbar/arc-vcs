@@ -167,7 +167,10 @@ fn nybble(c: u8) -> anyhow::Result<u8> {
         b'0'..=b'9' => Ok(c - b'0'),
         b'a'..=b'f' => Ok(c - b'a' + 10),
         b'A'..=b'F' => Ok(c - b'A' + 10),
-        _ => anyhow::bail!("invalid hex character '{}': expected [0-9a-fA-F]", c as char),
+        _ => anyhow::bail!(
+            "invalid hex character '{}': expected [0-9a-fA-F]",
+            c as char
+        ),
     }
 }
 

@@ -14,11 +14,11 @@ pub use arc_store_graph::bisect;
 pub use arc_store_graph::bisect::*;
 pub use arc_store_graph::graph;
 pub use arc_store_graph::graph::*;
+pub use arc_store_view::StoreError;
 pub use arc_store_view::oplog::*;
 pub use arc_store_view::synthesis::*;
 pub use arc_store_view::tempfile::*;
 pub use arc_store_view::view::*;
-pub use arc_store_view::StoreError;
 pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 

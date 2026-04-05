@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use arc_algebra_types::Atom;
-use arc_store_types::author::Author;
 use arc_change::Change;
+use arc_store_types::author::Author;
 use arc_store_types::newtypes::ChangeId;
 use owo_colors::OwoColorize;
 
@@ -360,7 +360,10 @@ impl GraphRenderer {
         if badges_text.is_empty() {
             format!("{} {} | {}", short_id, author, change.intent)
         } else {
-            format!("{} {} {} | {}", short_id, badges_text, author, change.intent)
+            format!(
+                "{} {} {} | {}",
+                short_id, badges_text, author, change.intent
+            )
         }
     }
 
@@ -413,8 +416,8 @@ mod tests {
     use std::collections::HashSet;
 
     use arc_algebra_types::Atom;
-    use arc_store_types::author::test_keypair;
     use arc_change::Change;
+    use arc_store_types::author::test_keypair;
     use arc_store_types::newtypes::ChangeId;
 
     use super::{GraphDecorations, GraphRenderer, LogTemplate};
@@ -492,12 +495,12 @@ mod tests {
         decorations
             .tags
             .insert(ChangeId::from(head.id), vec!["v1.0.0".to_string()]);
-        decorations.remotes.insert(
-            ChangeId::from(head.id),
-            vec!["origin/main".to_string()],
-        );
+        decorations
+            .remotes
+            .insert(ChangeId::from(head.id), vec!["origin/main".to_string()]);
 
-        let lines = GraphRenderer::monochrome().render_with_decorations(&[head, root], &decorations);
+        let lines =
+            GraphRenderer::monochrome().render_with_decorations(&[head, root], &decorations);
         assert!(lines.iter().any(|line| line.contains("[v1.0.0]")));
         assert!(lines.iter().any(|line| line.contains("[origin/main]")));
     }
@@ -524,4 +527,3 @@ mod tests {
         assert!(err.contains("unsupported template field"));
     }
 }
-

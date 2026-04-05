@@ -254,4 +254,3 @@ mod tests {
         dir.path().join(file)
     }
 }
-

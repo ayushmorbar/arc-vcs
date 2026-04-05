@@ -2,6 +2,8 @@ use anyhow::Context as _;
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+use arc_algebra::apply::MaterializedState;
+use arc_algebra_types::Blake3Hash;
 use arc_cli::governance::audit_github_governance;
 use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::interop::git::import_repo;
@@ -12,13 +14,6 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
 use arc_cli::workspace_policy::audit_workspace_policy;
-use arc_algebra_types::Blake3Hash;
-use arc_algebra::apply::MaterializedState;
-use arc_store_types::author::{Author, load_identity, save_identity};
-use arc_store_types::newtypes::{ChangeId, SnapshotId};
-use arc_store_view::oplog::OperationAgent;
-use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
-use arc_store_view::View;
 use arc_git_bridge::http::{discover_refs, push_packfile};
 use arc_git_bridge::object::GitIdentity;
 use arc_git_bridge::pack::encode_packfile;
@@ -27,6 +22,11 @@ use arc_git_bridge::translator::{
 };
 use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use arc_net::ai::build_provider;
+use arc_store_types::author::{Author, load_identity, save_identity};
+use arc_store_types::newtypes::{ChangeId, SnapshotId};
+use arc_store_view::View;
+use arc_store_view::oplog::OperationAgent;
+use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
 
@@ -1087,9 +1087,8 @@ fn main() -> anyhow::Result<()> {
                     Ok(pair) => pair,
                     Err(_) => {
                         // No identity yet: read git user.name/email as defaults.
-                        let (git_name, git_email) =
-                            arc_git::read_git_user_config(target_path)
-                                .unwrap_or_else(|| ("arc user".into(), "".into()));
+                        let (git_name, git_email) = arc_git::read_git_user_config(target_path)
+                            .unwrap_or_else(|| ("arc user".into(), "".into()));
                         eprintln!(
                             "No arc cryptographic identity found.\n\
                              Generating Ed25519 keypair for {git_name} <{git_email}>\n\
@@ -1430,7 +1429,8 @@ fn main() -> anyhow::Result<()> {
                                 )
                             })?;
 
-                            let provider = build_provider(provider_name, &model, endpoint, api_key)?;
+                            let provider =
+                                build_provider(provider_name, &model, endpoint, api_key)?;
                             eprintln!(
                                 "[arc] Using AI provider '{}' with model '{}'.",
                                 provider_name, model
@@ -1439,7 +1439,9 @@ fn main() -> anyhow::Result<()> {
                             let rt = tokio::runtime::Builder::new_current_thread()
                                 .enable_all()
                                 .build()?;
-                            rt.block_on(repo.resolve_conflict_with_provider(provider.as_ref(), &model))?;
+                            rt.block_on(
+                                repo.resolve_conflict_with_provider(provider.as_ref(), &model),
+                            )?;
 
                             println!(
                                 "[arc] Resolution staged as Ghost Node. \
@@ -3004,7 +3006,10 @@ fn find_command_token_index(
     None
 }
 
-fn expand_command_aliases(config: &ArcConfig, mut raw_args: Vec<String>) -> anyhow::Result<Vec<String>> {
+fn expand_command_aliases(
+    config: &ArcConfig,
+    mut raw_args: Vec<String>,
+) -> anyhow::Result<Vec<String>> {
     let mut seen_aliases: Vec<String> = Vec::new();
     let command_names: std::collections::HashSet<String> = Cli::command()
         .get_subcommands()
@@ -3523,9 +3528,10 @@ mod tests {
         let err =
             expand_command_aliases(&config, raw_args).expect_err("expected empty alias error");
 
-        assert!(err
-            .to_string()
-            .contains("alias 'st' has an empty expansion"));
+        assert!(
+            err.to_string()
+                .contains("alias 'st' has an empty expansion")
+        );
     }
 
     #[test]
@@ -3536,9 +3542,10 @@ mod tests {
         let err = expand_command_aliases(&config, raw_args)
             .expect_err("expected invalid alias definition error");
 
-        assert!(err
-            .to_string()
-            .contains("alias 'st' has invalid shell words"));
+        assert!(
+            err.to_string()
+                .contains("alias 'st' has invalid shell words")
+        );
     }
 
     #[test]
@@ -3551,4 +3558,3 @@ mod tests {
         assert_eq!(expanded, test_raw_args(&["arc", "--", "st"]));
     }
 }
-

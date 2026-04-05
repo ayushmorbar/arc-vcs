@@ -1,0 +1,175 @@
+   Compiling arc-store-types v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-store-types)
+   Compiling arc-git v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-git)
+   Compiling arc-change v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-change)
+   Compiling arc-store-cas v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-store-cas)
+   Compiling arc-store-graph v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-store-graph)
+   Compiling arc-network v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-network)
+   Compiling arc-algebra v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-algebra)
+   Compiling arc-lang v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-lang)
+   Compiling arc-store-view v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-store-view)
+   Compiling arc-revset v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-revset)
+   Compiling arc-engine v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-engine)
+   Compiling arc-net v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-net)
+   Compiling arc-core v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-core)
+   Compiling arc-git-bridge v0.1.0 (D:\Builds\arc-vcs\crates\arc-git-bridge)
+   Compiling arc-cli v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-cli)
+   Compiling arc-daemon v0.1.0-beta.6 (D:\Builds\arc-vcs\crates\arc-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.57s
+     Running unittests src\lib.rs (target\debug\deps\arc_ai-639272f28aff441d.exe)
+
+running 1 test
+test vector_store::tests::test_vector_store_upsert_and_search ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src\lib.rs (target\debug\deps\arc_algebra-13542fd17c0e9b91.exe)
+
+running 25 tests
+test commute::tests::test_no_commute_delete_insert_same_path ... ok
+test commute::tests::test_commutes_same_top_level_different_subtrees ... ok
+test commute::tests::test_no_commute_explicit_dependency ... ok
+test commute::tests::test_commutes_disjoint ... ok
+test commute::tests::test_commute_pair_ghost_conflict_fails ... ok
+test commute::tests::test_commute_pair_explicit_dep_fails ... ok
+test commute::tests::test_no_commute_overlapping_paths ... ok
+test sparse::tests::sparse_boundary_matches_segment_not_prefix_collision ... ok
+test sparse::tests::sparse_matches_atom_when_any_path_is_in_scope ... ok
+test sparse::tests::sparse_matches_semantic_node_path ... ok
+test inverse::tests::test_invert_missing_blob_returns_cas_missing ... ok
+test commute::tests::test_commute_pair_move_rewrites_paths ... ok
+test commute::tests::test_commute_pair_disjoint_succeeds ... ok
+test apply::tests::test_apply_directory_atom ... ok
+test apply::tests::test_apply_blob_atom ... ok
+test inverse::tests::test_invert_insert_delete_roundtrip ... ok
+test inverse::tests::test_invert_delete_produces_insert ... ok
+test apply::tests::test_apply_move_atom_returns_error ... ok
+test apply::tests::test_apply_delete_nonexistent_path_errors ... ok
+test inverse::tests::test_invert_change_depends_on_original ... ok
+test inverse::tests::test_invert_insert_produces_delete ... ok
+test apply::tests::test_agentignore_security ... ok
+test apply::tests::test_apply_change_scoped_skips_out_of_scope_insert ... ok
+test apply::tests::test_blame_state_population ... ok
+test apply::tests::test_apply_change ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src\lib.rs (target\debug\deps\arc_algebra_types-e24a14b675de0b52.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\arc_change-f136254637241a4a.exe)
+
+running 15 tests
+test change::tests::test_compute_id_stable_under_conflict_side_order ... ok
+test content_hash::tests::hash_set_is_deterministic_across_insertion_order ... ok
+test content_hash::tests::enum_variant_ordinals_separate_same_payload ... ok
+test change::tests::test_compute_id_stable_under_dependency_insertion_order ... ok
+test content_hash::tests::enum_unit_variant_hashes_uniquely ... ok
+test content_hash::tests::option_hash_is_tagged ... ok
+test content_hash::tests::derive_struct_hash_is_deterministic ... ok
+test change::tests::test_change_deps_are_preserved ... ok
+test change::tests::test_rewritten_or_resigned_re_signs_when_payload_changes ... ok
+test change::tests::test_rewritten_or_resigned_reuses_signature_when_payload_identical ... ok
+test change::tests::test_transient_author_verifies ... ok
+test change::tests::test_change_serialization_roundtrip ... ok
+test change::tests::test_cryptographic_provenance ... ok
+test change::tests::test_new_canonical_sets_collapsed_from_and_verifies ... ok
+test change::tests::test_collapsed_from_excluded_from_id ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\lib.rs (target\debug\deps\arc_cli-bd38692ca3f8bf71.exe)
+
+running 67 tests
+test graph_render::tests::rejects_unknown_template_field ... ok
+test repo::tests::interactive_selector_can_accept_ast_atoms ... ok
+test repo::tests::interactive_selector_keeps_non_ast_atoms ... ok
+test graph_render::tests::supports_custom_row_template ... ok
+test graph_render::tests::renders_ref_decorations ... ok
+test graph_render::tests::renders_merge_connectors ... ok
+test graph_render::tests::annotates_ai_and_conflict_rows ... ok
+test governance::tests::governance_audit_current_workspace ... ok
+test governance::tests::governance_audit_accepts_valid_configuration ... ok
+test governance::tests::governance_audit_rejects_unpinned_action_reference ... ok
+test repo::tests::test_implicit_ignore_skips_env_and_node_modules ... ok
+test repo::tests::test_implicit_ignore_still_allows_delete_of_tracked_legacy_asset ... ok
+test repo::tests::test_local_gc_removes_orphans ... ok
+Initialized empty Git repository in C:/Users/Lenovo/AppData/Local/Temp/.tmpRY7feW/.git/
+test repo::tests::test_gc ... ok
+test repo::tests::test_amend ... ok
+test repo::tests::test_blame ... ok
+test repo::tests::test_pending_ai_roundtrip ... ok
+test repo::tests::test_bookmark_operations ... ok
+test repo::tests::test_abandon_head_moves_frontier_to_parent ... ok
+test repo::tests::test_remote_config ... ok
+test repo::tests::test_bisect_roundtrip_start_mark_next ... ok
+test repo::tests::test_op_restore_missing_id_errors ... ok
+test repo::tests::test_log_revset_touched_filters_history ... ok
+test repo::tests::test_dag_compaction ... FAILED
+test repo::tests::test_repo_init ... ok
+test repo::tests::test_log_is_multi_head_safe_by_default ... ok
+test repo::tests::test_cherry_pick ... ok
+test repo::tests::test_op_restore_and_revert_roundtrip ... ok
+test repo::tests::test_merge_tool_conflict_resolution_stages_pending ... ok
+test repo::tests::test_ai_conflict_resolution_with_provider ... ok
+test repo::tests::test_ai_conflict_resolution ... ok
+test repo::tests::test_sparse_checkout ... ok
+[master (root-commit) 3c0e6a8] add a
+ 1 file changed, 1 insertion(+)
+ create mode 100644 main.rs
+test repo::tests::test_semantic_revert ... ok
+test repo::tests::test_merge_tool_resolution_accepts_unchanged_output ... ok
+test semantic_diff::tests::test_group_and_render_semantic_empty ... ok
+test semantic_diff::tests::test_infer_node_kind_fallback ... ok
+test semantic_diff::tests::test_infer_node_kind_recognises_prefixes ... ok
+test semantic_diff::tests::test_is_import_line_accepts_blank ... ok
+test semantic_diff::tests::test_is_pure_import_change_allows_blank_lines ... ok
+test semantic_diff::tests::test_is_pure_import_change_collapses ... ok
+test semantic_diff::tests::test_is_pure_import_change_rejects_logic ... ok
+test semantic_diff::tests::test_sesame_align_injects_newlines ... ok
+test repo::tests::test_sparse_to_full_restores_tracked_files ... ok
+test repo::tests::test_repo_snap ... ok
+test repo::tests::test_revset_log_wiring_hydrates_view_symbols ... ok
+warning: in the working copy of 'main.rs', LF will be replaced by CRLF the next time Git touches it
+test repo::tests::test_workspace_forget_rename_and_root ... ok
+test tooling::tests::tooling_audit_current_workspace ... ok
+test tooling::tests::audit_workspace_tooling_accepts_valid_config ... ok
+test workspace_policy::tests::workspace_policy_audit_current_workspace ... ok
+test tooling::tests::audit_workspace_tooling_rejects_bad_codespell_line ... ok
+test workspace_policy::tests::workspace_policy_audit_accepts_valid_configuration ... ok
+test repo::tests::test_merge_tool_resolution_rejects_nonzero_exit ... ok
+test workspace_policy::tests::workspace_policy_audit_rejects_commented_gitattributes_directive ... ok
+test repo::tests::test_tag_operations ... ok
+test workspace_policy::tests::workspace_policy_audit_rejects_commented_editorconfig_directives ... ok
+test repo::tests::test_workspace_add ... ok
+test workspace_policy::tests::workspace_policy_audit_rejects_missing_pattern ... ok
+test repo::tests::test_undo ... ok
+test repo::tests::test_stash ... ok
+test repo::tests::test_universal_asset ... ok
+test repo::tests::test_repo_conflict ... ok
+test repo::tests::test_rewrite_transaction_undo_restores_heads ... ok
+test repo::tests::test_repo_branch_and_merge ... ok
+test sync::tests::test_push_local ... ok
+[master 7a9a9c7] add b
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+test repo::tests::test_undo_then_redo_roundtrip ... ok
+test sync::tests::test_network_pull ... ok
+test interop::git::tests::test_git_import ... ok
+
+failures:
+
+---- repo::tests::test_dag_compaction stdout ----
+
+thread 'repo::tests::test_dag_compaction' (28124) panicked at crates\arc-cli\src\repo.rs:8180:9:
+materialised state must contain 'fn c'; got: "fn a() {}\nfn b() {}"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    repo::tests::test_dag_compaction
+
+test result: FAILED. 66 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.86s
+
+error: test failed, to rerun pass `-p arc-cli --lib`

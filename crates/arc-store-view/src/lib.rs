@@ -12,10 +12,10 @@
 
 #![warn(missing_docs)]
 
-/// Append-only transaction log with optimistic head publication.
-pub mod oplog;
 /// Lock-file primitives for crash-consistent mutable pointer publication.
 pub mod lock;
+/// Append-only transaction log with optimistic head publication.
+pub mod oplog;
 /// Content-addressed synthesis snapshot capture and storage.
 pub mod synthesis;
 /// Process-scoped tempfile registry for signal-time cleanup.
@@ -23,8 +23,8 @@ pub mod tempfile;
 /// Crash-consistent persistence of mutable `View` pointers.
 pub mod view;
 
-pub use oplog::*;
 pub use lock::*;
+pub use oplog::*;
 pub use synthesis::*;
 pub use tempfile::*;
 pub use view::*;

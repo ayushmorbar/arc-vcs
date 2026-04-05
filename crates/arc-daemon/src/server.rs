@@ -1,11 +1,11 @@
 use anyhow::Context as _;
-use arc_cli::repo::Repository;
 use arc_algebra_types::{Atom, Blake3Hash};
+use arc_cli::repo::Repository;
 use arc_store_types::author::Author;
 use arc_store_types::author::load_identity;
 use arc_store_types::newtypes::ChangeId;
-use arc_store_view::oplog::OpLog;
 use arc_store_view::View;
+use arc_store_view::oplog::OpLog;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::json;
@@ -459,4 +459,3 @@ mod tests {
         }
     }
 }
-

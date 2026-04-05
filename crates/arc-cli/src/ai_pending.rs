@@ -137,4 +137,3 @@ pub fn clear_pending_ai(repo_root: &Path) {
 pub fn has_pending_ai(repo_root: &Path) -> bool {
     pending_path(repo_root).exists()
 }
-

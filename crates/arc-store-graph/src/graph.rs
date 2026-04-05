@@ -254,7 +254,9 @@ impl ChangeGraph {
         heads_a: &HashSet<Blake3Hash>,
         heads_b: &HashSet<Blake3Hash>,
     ) -> HashSet<Blake3Hash> {
-        self.merge_bases_ordered(heads_a, heads_b).into_iter().collect()
+        self.merge_bases_ordered(heads_a, heads_b)
+            .into_iter()
+            .collect()
     }
 
     /// Find the **Lowest Common Ancestors** between two sets of heads in
@@ -304,7 +306,9 @@ impl ChangeGraph {
         heads_a: &HashSet<Blake3Hash>,
         heads_b: &HashSet<Blake3Hash>,
     ) -> Option<Blake3Hash> {
-        self.merge_bases_ordered(heads_a, heads_b).into_iter().next()
+        self.merge_bases_ordered(heads_a, heads_b)
+            .into_iter()
+            .next()
     }
 }
 
@@ -469,7 +473,10 @@ mod tests {
         g.add_change(y);
 
         let picked = g.merge_base_deterministic(&HashSet::from([xid]), &HashSet::from([yid]));
-        assert!(picked.is_none(), "disjoint graphs must have no deterministic base");
+        assert!(
+            picked.is_none(),
+            "disjoint graphs must have no deterministic base"
+        );
     }
 
     #[test]

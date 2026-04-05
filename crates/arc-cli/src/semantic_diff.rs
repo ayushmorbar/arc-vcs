@@ -590,4 +590,3 @@ mod tests {
         group_and_render_semantic(&[]).expect("empty atoms must not error");
     }
 }
-
