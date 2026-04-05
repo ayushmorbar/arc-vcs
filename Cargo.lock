@@ -182,9 +182,11 @@ dependencies = [
  "arc-lang",
  "arc-net",
  "arc-network",
+ "arc-policy",
  "arc-revset",
  "arc-store-cas",
  "arc-store-graph",
+ "arc-store-policy",
  "arc-store-types",
  "arc-store-view",
  "arc-swap",
@@ -386,6 +388,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-policy"
+version = "0.1.0-beta.6"
+
+[[package]]
 name = "arc-revset"
 version = "0.1.0-beta.6"
 dependencies = [
@@ -433,6 +439,19 @@ dependencies = [
  "serde",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "arc-store-policy"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-policy",
+ "directories",
+ "ignore",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]

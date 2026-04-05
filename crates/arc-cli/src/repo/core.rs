@@ -36,6 +36,7 @@ use arc_store_types::refs::{
 use arc_store_types::tag::Tag;
 use arc_store_view::View;
 use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
+use arc_store_policy::ArcIgnoreMatcher;
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
@@ -5139,7 +5140,7 @@ pub(super) fn sparse_matcher_for_root(root: &Path) -> SparseMatcher {
     SparseMatcher::from_patterns(&load_sparse_patterns(root))
 }
 
-fn validate_sparse_patterns(patterns: &[String], arcignore: &Gitignore) -> anyhow::Result<()> {
+fn validate_sparse_patterns(patterns: &[String], arcignore: &ArcIgnoreMatcher) -> anyhow::Result<()> {
     for pattern in patterns {
         let normalized = pattern.trim().trim_matches('/');
         if normalized.is_empty() {
@@ -5374,18 +5375,13 @@ fn load_agentignore(root: &Path) -> Gitignore {
     builder.build().unwrap_or(Gitignore::empty())
 }
 
-pub(super) fn load_arcignore(root: &Path) -> Gitignore {
-    let path = root.join(".arcignore");
-    let mut builder = GitignoreBuilder::new(root);
-    if path.exists() {
-        builder.add(&path);
-    }
-    builder.build().unwrap_or(Gitignore::empty())
+pub(super) fn load_arcignore(root: &Path) -> ArcIgnoreMatcher {
+    ArcIgnoreMatcher::load(root).unwrap_or_else(|_| ArcIgnoreMatcher::empty())
 }
 
 pub(super) fn collect_empty_dirs(
     root: &Path,
-    arcignore: &Gitignore,
+    arcignore: &ArcIgnoreMatcher,
 ) -> anyhow::Result<Vec<String>> {
     let mut result = Vec::new();
     collect_empty_dirs_recursive(root, root, arcignore, &mut result)?;
@@ -5396,7 +5392,7 @@ pub(super) fn collect_empty_dirs(
 fn collect_empty_dirs_recursive(
     base: &Path,
     dir: &Path,
-    arcignore: &Gitignore,
+    arcignore: &ArcIgnoreMatcher,
     result: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let entries: Vec<_> = match fs::read_dir(dir) {
@@ -5442,7 +5438,7 @@ fn collect_empty_dirs_recursive(
 }
 
 /// Recursively collect `*.rs` file paths relative to `root`.
-pub(super) fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_rs_files(root: &Path, arcignore: &ArcIgnoreMatcher) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_rs_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -5455,7 +5451,7 @@ pub(super) fn collect_rs_files(root: &Path, arcignore: &Gitignore) -> anyhow::Re
 /// extension. Implicit ignore policy is applied later in
 /// [`Repository::compute_working_directory_delta`] so previously tracked files
 /// can still be diffed and deleted safely.
-pub(super) fn collect_all_files(root: &Path, arcignore: &Gitignore) -> anyhow::Result<Vec<String>> {
+pub(super) fn collect_all_files(root: &Path, arcignore: &ArcIgnoreMatcher) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
     collect_all_recursive(root, root, &mut files, arcignore)?;
     files.sort();
@@ -5466,7 +5462,7 @@ fn collect_all_recursive(
     base: &Path,
     dir: &Path,
     files: &mut Vec<String>,
-    arcignore: &Gitignore,
+    arcignore: &ArcIgnoreMatcher,
 ) -> anyhow::Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -5509,7 +5505,7 @@ fn collect_rs_recursive(
     base: &Path,
     dir: &Path,
     files: &mut Vec<String>,
-    arcignore: &Gitignore,
+    arcignore: &ArcIgnoreMatcher,
 ) -> anyhow::Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,

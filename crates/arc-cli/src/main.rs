@@ -25,6 +25,7 @@ use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use arc_net::ai::build_provider;
 use arc_store_types::author::{Author, load_identity, save_identity};
 use arc_store_types::newtypes::{ChangeId, SnapshotId};
+use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
 use arc_store_view::View;
 use arc_store_view::oplog::OperationAgent;
 use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
@@ -474,6 +475,11 @@ enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Inspect policy resolution and provenance.
+    Policy {
+        #[command(subcommand)]
+        action: PolicyAction,
+    },
     /// Capture and inspect architecture synthesis snapshots.
     Synthesis {
         #[command(subcommand)]
@@ -864,6 +870,18 @@ enum ConfigAction {
     Edit,
     /// Print all configuration values (global + local merged).
     List,
+}
+
+#[derive(Subcommand)]
+enum PolicyAction {
+    /// Explain whether a path is ignored and why.
+    Explain {
+        /// Path relative to workspace root to inspect.
+        path: String,
+        /// Resolve as config key instead of ignore path.
+        #[arg(long, default_value_t = false)]
+        config: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2892,6 +2910,78 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         },
+        Command::Policy { action } => match action {
+            PolicyAction::Explain { path, config } => {
+                let repo = Repository::open(".")?;
+                if config {
+                    let trace = explain_config_key(&repo.work_root, &path)?;
+                    let heading = format!("Policy explain (config): {}", trace.key);
+                    println!("{}", heading.bold());
+                    match trace.winner {
+                        Some(arc_policy::PolicyValue::Present(value)) => {
+                            println!("{} {}", "Result:".bold(), value.green().bold());
+                        }
+                        Some(arc_policy::PolicyValue::Cleared) => {
+                            println!("{} {}", "Result:".bold(), "CLEARED".yellow().bold());
+                        }
+                        _ => {
+                            println!("{} {}", "Result:".bold(), "UNSET".dimmed());
+                        }
+                    }
+                    for entry in trace.entries {
+                        let value = match entry.value {
+                            arc_policy::PolicyValue::Present(v) => v,
+                            arc_policy::PolicyValue::Cleared => "<cleared>".to_string(),
+                            arc_policy::PolicyValue::Unset => "<unset>".to_string(),
+                        };
+                        let line = format!(
+                            "{} = {}  [{} depth={} trust={:?}]",
+                            entry.key,
+                            value,
+                            entry.source.origin,
+                            entry.source.depth,
+                            entry.source.trust
+                        );
+                        match entry.outcome {
+                            arc_policy::TraceOutcome::Winning => println!("{}", line.green().bold()),
+                            _ => println!("{}", line.dimmed()),
+                        }
+                    }
+                } else {
+                    let matcher = ArcIgnoreMatcher::load(&repo.work_root)?;
+                    let trace = matcher.explain_path(&path);
+                    let heading = format!("Policy explain (ignore): {}", trace.query_path);
+                    println!("{}", heading.bold());
+                    let decision = match trace.decision {
+                        PathPolicyDecision::Ignored => "IGNORED".green().bold().to_string(),
+                        PathPolicyDecision::Included => "INCLUDED".yellow().bold().to_string(),
+                        PathPolicyDecision::Unset => "UNSET".dimmed().to_string(),
+                    };
+                    println!("{} {}", "Result:".bold(), decision);
+                    for entry in trace.entries {
+                        let polarity = match entry.value {
+                            arc_policy::PolicyValue::Present(true) => "ignore",
+                            arc_policy::PolicyValue::Present(false) => "allow",
+                            arc_policy::PolicyValue::Cleared => "cleared",
+                            arc_policy::PolicyValue::Unset => "unset",
+                        };
+                        let line = format!(
+                            "{} ({})  [{}:{} depth={} trust={:?}]",
+                            entry.pattern,
+                            polarity,
+                            entry.source.origin,
+                            entry.line,
+                            entry.source.depth,
+                            entry.source.trust
+                        );
+                        match entry.outcome {
+                            arc_policy::TraceOutcome::Winning => println!("{}", line.green().bold()),
+                            _ => println!("{}", line.dimmed()),
+                        }
+                    }
+                }
+            }
+        },
         Command::Synthesis { action } => match action {
             SynthesisAction::Capture { source, files } => {
                 capture_synthesis_snapshot(&source, &files)?;
@@ -3624,5 +3714,21 @@ mod tests {
         let expanded = expand_command_aliases(&config, raw_args).expect("alias expansion failed");
 
         assert_eq!(expanded, test_raw_args(&["arc", "--", "st"]));
+    }
+
+    #[test]
+    fn parses_policy_explain_command() {
+        let parsed = Cli::try_parse_from(["arc", "policy", "explain", "src/main.rs"])
+            .expect("policy explain should parse");
+
+        match parsed.command {
+            Command::Policy { action } => match action {
+                PolicyAction::Explain { path, config } => {
+                    assert_eq!(path, "src/main.rs");
+                    assert!(!config);
+                }
+            },
+            _ => panic!("unexpected command parsed"),
+        }
     }
 }

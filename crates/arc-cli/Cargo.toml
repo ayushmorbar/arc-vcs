@@ -21,7 +21,9 @@ arc-change = { path = "../arc-change" }
 arc-engine = { path = "../arc-engine" }
 arc-git = { path = "../arc-git" }
 arc-network = { path = "../arc-network" }
+arc-policy = { path = "../arc-policy" }
 arc-revset = { path = "../arc-revset" }
+arc-store-policy = { path = "../arc-store-policy" }
 arc-store-cas = { path = "../arc-store-cas" }
 arc-store-graph = { path = "../arc-store-graph" }
 arc-store-types = { path = "../arc-store-types" }
