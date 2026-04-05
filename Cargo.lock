@@ -197,6 +197,7 @@ dependencies = [
  "arc-algebra-types",
  "arc-content-hash-derive",
  "arc-git",
+ "arc-store-cas",
  "arc-store-types",
  "arc-swap",
  "bincode",
@@ -205,7 +206,6 @@ dependencies = [
  "directories",
  "ed25519-dalek",
  "ignore",
- "memmap2",
  "pest",
  "pest_derive",
  "rand_core 0.6.4",
@@ -283,6 +283,21 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
+]
+
+[[package]]
+name = "arc-store-cas"
+version = "0.1.0-beta.6"
+dependencies = [
+ "anyhow",
+ "arc-algebra-types",
+ "arc-store-types",
+ "bincode",
+ "blake3",
+ "memmap2",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

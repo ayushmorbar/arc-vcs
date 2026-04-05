@@ -10,13 +10,13 @@ arc-content-hash-derive = { path = "../arc-content-hash-derive" }
 arc-ai = { path = "../arc-ai" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-git = { path = "../arc-git" }
+arc-store-cas = { path = "../arc-store-cas" }
 arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
 arc-swap = "1.9.0"
 dashmap = "6.1.0"
 serde = { version = "1.0.228", features = ["derive"] }
 bincode = "1.3.2"
-memmap2 = "0.9.10"
 thiserror = "2.0.18"
 anyhow = "1.0.102"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }

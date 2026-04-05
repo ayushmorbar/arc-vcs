@@ -17,6 +17,7 @@ pub mod synthesis;
 /// Signal-safe temporary-file registry.
 pub mod tempfile;
 
+pub use arc_store_cas::cas::*;
 pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 /// Append-only spacetime operation log for O(1) undo.
