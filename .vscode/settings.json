@@ -1,3 +1,82 @@
 {
-    "dependi.rust.lockFileEnabled": false
+  // ── Rust Analyzer: Formatter ───────────────────────────────────────────────
+  "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
+  "rust-analyzer.rustfmt.rangeFormatting.enable": true,  // nightly only — format selected range
+
+  // ── Rust Analyzer: Linting ─────────────────────────────────────────────────
+  "rust-analyzer.check.command": "clippy",               // use clippy instead of cargo check
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-W", "clippy::all",
+    "-W", "clippy::pedantic",
+    "-W", "clippy::nursery"
+  ],
+  "rust-analyzer.diagnostics.styleLints.enable": true,   // extra style-level lints
+  "rust-analyzer.diagnostics.experimental.enable": false, // too noisy for daily use
+
+  // ── Rust Analyzer: Imports (mirrors your rustfmt.toml) ─────────────────────
+  "rust-analyzer.imports.granularity.group": "crate",    // matches imports_granularity = "Crate"
+  "rust-analyzer.imports.granularity.enforce": true,     // enforce across all files consistently
+  "rust-analyzer.imports.group.enable": true,            // std → external → crate grouping
+  "rust-analyzer.imports.merge.glob": false,             // avoid `use std::fmt::*` style
+
+  // ── Rust Analyzer: Inlay Hints ─────────────────────────────────────────────
+  "rust-analyzer.inlayHints.typeHints.enable": true,
+  "rust-analyzer.inlayHints.parameterHints.enable": true,
+  "rust-analyzer.inlayHints.chainingHints.enable": true,
+  "rust-analyzer.inlayHints.closureReturnTypeHints.enable": "with_block",
+  "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "skip_trivial",
+  "rust-analyzer.inlayHints.lifetimeElisionHints.useParameterNames": true,
+  "rust-analyzer.inlayHints.bindingModeHints.enable": true,
+  "rust-analyzer.inlayHints.discriminantHints.enable": "fieldless",
+  "rust-analyzer.inlayHints.closureCaptureHints.enable": true,
+  "rust-analyzer.inlayHints.maxLength": 40,              // slightly wider than default 25
+
+  // ── Rust Analyzer: Completion ──────────────────────────────────────────────
+  "rust-analyzer.completion.autoimport.enable": true,
+  "rust-analyzer.completion.autoAwait.enable": true,
+  "rust-analyzer.completion.autoIter.enable": true,
+  "rust-analyzer.completion.fullFunctionSignatures.enable": true,
+  "rust-analyzer.completion.postfix.enable": true,
+
+  // ── Rust Analyzer: Proc Macros & Build Scripts ─────────────────────────────
+  "rust-analyzer.procMacro.enable": true,
+  "rust-analyzer.procMacro.attributes.enable": true,
+  "rust-analyzer.cargo.buildScripts.enable": true,
+
+  // ── Rust Analyzer: Hover ───────────────────────────────────────────────────
+  "rust-analyzer.hover.actions.references.enable": true,
+  "rust-analyzer.hover.memoryLayout.enable": true,
+  "rust-analyzer.hover.memoryLayout.niches": true,       // show niche optimizations on hover
+
+  // ── Rust Analyzer: Assist ──────────────────────────────────────────────────
+  "rust-analyzer.assist.emitMustUse": true,
+  "rust-analyzer.assist.preferSelf": true,
+
+  // ── Rust Analyzer: Cargo target dir (prevents lock contention) ────────────
+  "rust-analyzer.cargo.targetDir": true,
+
+  // ── Dependi (formerly Crates) ──────────────────────────────────────────────
+  "dependi.rust.enabled": true,
+  "dependi.rust.lockFileEnabled": false,                 // your existing choice — fine for libs
+  "dependi.rust.unstableFilter": "Exclude",             // hide alpha/beta/rc versions by default
+  "dependi.vulnerability.enabled": true,                // show CVEs inline in Cargo.toml
+  "dependi.vulnerability.ghsa.enabled": true,           // include GitHub Security Advisories
+
+  // ── Editor: Rust-specific overrides ───────────────────────────────────────
+  "[rust]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.rulers": [100],                             // matches max_width = 100
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  },
+
+  // ── Files ──────────────────────────────────────────────────────────────────
+  "files.watcherExclude": {
+    "**/target/**": true                                // stop VS Code watching build artifacts
+  },
+  "files.exclude": {
+    "**/target": false                                  // keep visible, just not watched
+  }
 }

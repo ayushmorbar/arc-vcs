@@ -1,7 +1,36 @@
-edition = "2024"
-max_width = 100
-wrap_comments = true
-format_strings = true
-error_on_line_overflow = true
-group_imports = "StdExternalCrate"
-imports_granularity = "Item"
+# ── Rust Edition & Style ─────────────────────────────────────────────────────
+edition       = "2024"        # Parser edition (stable) — mirrors your Cargo.toml
+style_edition = "2024"        # Formatting style rules per RFC 3338 (stable since 1.85)
+
+# ── Unstable Feature Gate ─────────────────────────────────────────────────────
+# Required to activate every option marked (unstable) below.
+# Run: cargo +nightly fmt
+unstable_features = true
+
+# ── Line Width ────────────────────────────────────────────────────────────────
+max_width              = 100   # Official new default (was 80); widely accepted
+use_small_heuristics   = "Max" # Scales sub-widths (fn_call, chain, etc.) to max_width
+error_on_line_overflow = true  # (unstable) Hard CI error on overflow — strict but clean
+
+# ── Imports ───────────────────────────────────────────────────────────────────
+# Both your configs agree on StdExternalCrate — keep it.
+group_imports        = "StdExternalCrate" # (unstable) std → 3rd-party → crate
+imports_granularity  = "Crate"            # (unstable) merge all same-crate imports into one `use`
+imports_layout       = "HorizontalVertical" # (unstable) one-line if fits, vertical if not
+
+# ── Comments ──────────────────────────────────────────────────────────────────
+wrap_comments         = true  # (unstable) wrap long comments at max_width
+comment_width         = 100   # (unstable) match comment wrap width to max_width
+format_code_in_doc_comments = true  # (unstable) reformat ```rust blocks in /// docs
+
+# ── Strings ───────────────────────────────────────────────────────────────────
+format_strings = true  # (unstable) break long string literals with \ continuation
+
+# ── Macros ────────────────────────────────────────────────────────────────────
+format_macro_matchers = true  # (unstable) normalize $a:ident spacing in macro_rules!
+format_macro_bodies   = true  # (unstable) format bodies of declarative macros
+
+# ── Misc Quality-of-Life ──────────────────────────────────────────────────────
+use_field_init_shorthand = true  # (unstable) `Foo { x }` instead of `Foo { x: x }`
+hex_literal_case         = "Upper"  # (unstable) 0xDEADBEEF not 0xdeadbeef
+normalize_comments       = true     # (unstable) `//` → `// ` consistent spacing
