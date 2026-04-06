@@ -1,5 +1,9 @@
 use anyhow::Context as _;
+use arc_cli::progress::{PipelineStage, Progress};
+use arc_core::ops::{OperationStage, SloTimer};
 use clap::{CommandFactory, Parser, Subcommand};
+use clap::builder::styling::{AnsiColor, Effects, Styles};
+use inquire::Text;
 use std::collections::{BTreeSet, HashSet};
 use std::io::IsTerminal;
 
@@ -107,8 +111,26 @@ fn load_identity_with_ephemeral_fallback(
     }
 }
 
+fn cli_styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Yellow.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Magenta.on_default())
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
+        .valid(AnsiColor::Green.on_default() | Effects::BOLD)
+        .invalid(AnsiColor::Red.on_default() | Effects::BOLD)
+}
+
 #[derive(Parser)]
-#[command(name = "arc", version, about = "Atomic Replayable Changes")]
+#[command(
+    name = "arc",
+    version,
+    about = "Atomic Replayable Changes",
+    styles = cli_styles(),
+    subcommand_help_heading = "CORE COMMANDS",
+    after_help = "ADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -119,9 +141,19 @@ enum Command {
     /// Initialize a new arc repository.
     Init {
         /// Directory to initialize (defaults to current directory).
+        #[arg(help_heading = "CORE COMMANDS")]
         path: Option<String>,
+        /// Repository name used for interactive initialization.
+        #[arg(long, help_heading = "CORE COMMANDS")]
+        repo_name: Option<String>,
+        /// Default branch/view name (defaults to `main`).
+        #[arg(long, help_heading = "CORE COMMANDS")]
+        default_branch: Option<String>,
+        /// Optional origin remote URL to configure during init.
+        #[arg(long, help_heading = "ADVANCED")]
+        remote_url: Option<String>,
         /// Skip auto-detection of an existing Git repository.
-        #[arg(long)]
+        #[arg(long, help_heading = "ADVANCED")]
         no_git: bool,
     },
     /// Snapshot the working directory into a semantic change.
@@ -1112,9 +1144,65 @@ fn run_cli() -> anyhow::Result<()> {
 
     arc_cli::devtools::run_wrapper::run_with_telemetry("arc", &interrupts, || {
         match cli.command {
-            Command::Init { path, no_git } => {
+            Command::Init {
+                path,
+                repo_name,
+                default_branch,
+                remote_url,
+                no_git,
+            } => {
+            let mut prompted_repo_name = repo_name;
+            let mut prompted_default_branch = default_branch;
+            let mut prompted_remote_url = remote_url;
+
+            if prompted_repo_name.is_none()
+                && prompted_default_branch.is_none()
+                && prompted_remote_url.is_none()
+                && path.is_none()
+                && std::io::stdin().is_terminal()
+            {
+                let default_repo_name = std::env::current_dir()
+                    .ok()
+                    .and_then(|dir| dir.file_name().map(|name| name.to_string_lossy().to_string()))
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| "arc-repo".to_string());
+
+                prompted_repo_name = Some(
+                    Text::new("Repository name")
+                        .with_default(&default_repo_name)
+                        .prompt()
+                        .context("interactive prompt failed for repository name")?,
+                );
+                prompted_default_branch = Some(
+                    Text::new("Default branch")
+                        .with_default("main")
+                        .prompt()
+                        .context("interactive prompt failed for default branch")?,
+                );
+
+                let remote = Text::new("Remote URL (optional)")
+                    .with_placeholder("https://example.com/org/repo.git")
+                    .prompt()
+                    .context("interactive prompt failed for remote URL")?;
+                if !remote.trim().is_empty() {
+                    prompted_remote_url = Some(remote.trim().to_string());
+                }
+            }
+
             let target = path.unwrap_or_else(|| ".".to_string());
             let target_path = std::path::Path::new(&target);
+            let display_repo_name = prompted_repo_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| {
+                    target_path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .filter(|name| !name.trim().is_empty())
+                        .unwrap_or_else(|| "arc-repo".to_string())
+                });
 
             // --- Git auto-detection (Phase D) ---
             let do_import = if !no_git {
@@ -1142,7 +1230,26 @@ fn run_cli() -> anyhow::Result<()> {
             };
 
             let mut repo = Repository::init(&target)?;
-            println!("Initialized empty arc repository in {target}/.arc");
+
+            if let Some(branch) = prompted_default_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|branch| !branch.is_empty() && *branch != "main")
+            {
+                repo.create_view(branch)?;
+                repo.switch_view(branch)?;
+            }
+
+            if let Some(url) = prompted_remote_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+            {
+                repo.add_remote("origin", url)?;
+            }
+            println!(
+                "Initialized empty arc repository '{display_repo_name}' in {target}/.arc"
+            );
 
             if do_import {
                 // --- Trust Anchor identity flow ---
@@ -1724,17 +1831,67 @@ fn run_cli() -> anyhow::Result<()> {
             rt.block_on(arc_net::sync::server::serve(port, repo.shared_root.clone()))?;
         }
         Command::Sync { address } => {
-            let repo = Repository::open(".")?;
-            let heads = collect_local_view_heads(&repo)?;
-            let token = resolve_sync_token()?;
-            let rt = tokio::runtime::Runtime::new()?;
-            let response = rt.block_on(arc_net::sync::client::sync_remote_with_token(
-                &address, heads, token,
-            ))?;
-            println!(
-                "[arc] Native sync handshake successful. Server status: {}",
-                response.status
-            );
+            let pipeline = Progress::sync_pipeline();
+            let timer = SloTimer::from_env("arc.sync");
+
+            pipeline.start_stage(PipelineStage::Discover);
+            let repo = match timer.stage(OperationStage::Discover, || Repository::open(".")) {
+                Ok(repo) => {
+                    pipeline.finish_stage(PipelineStage::Discover);
+                    repo
+                }
+                Err(err) => {
+                    pipeline.fail_stage(PipelineStage::Discover, "Discovering graph delta failed");
+                    return Err(err);
+                }
+            };
+
+            pipeline.start_stage(PipelineStage::Negotiate);
+            let (heads, token) = match timer.stage(OperationStage::Negotiate, || {
+                let heads = collect_local_view_heads(&repo)?;
+                let token = resolve_sync_token()?;
+                Ok::<_, anyhow::Error>((heads, token))
+            }) {
+                Ok(parts) => {
+                    pipeline.finish_stage(PipelineStage::Negotiate);
+                    parts
+                }
+                Err(err) => {
+                    pipeline.fail_stage(PipelineStage::Negotiate, "Negotiating with remote failed");
+                    return Err(err);
+                }
+            };
+
+            pipeline.start_stage(PipelineStage::Transfer);
+            let response = match timer.stage(OperationStage::Transfer, || {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(arc_net::sync::client::sync_remote_with_token(
+                    &address, heads, token,
+                ))
+            }) {
+                Ok(response) => {
+                    pipeline.finish_stage(PipelineStage::Transfer);
+                    response
+                }
+                Err(err) => {
+                    pipeline.fail_stage(PipelineStage::Transfer, "Transferring blobs failed");
+                    return Err(err);
+                }
+            };
+
+            pipeline.start_stage(PipelineStage::Materialize);
+            let status = timer.stage(OperationStage::Materialize, || response.status.clone());
+            pipeline.finish_stage(PipelineStage::Materialize);
+
+            pipeline.start_stage(PipelineStage::Finalize);
+            timer.stage(OperationStage::Finalize, || {
+                println!(
+                    "[arc] Native sync handshake successful. Server status: {}",
+                    status
+                );
+            });
+            pipeline.finish_stage(PipelineStage::Finalize);
+            timer.finish();
         }
         Command::Remote { action } => match action {
             RemoteAction::Add { name, url } => {
