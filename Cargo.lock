@@ -454,6 +454,7 @@ dependencies = [
  "arc-change",
  "arc-store-types",
  "bincode",
+ "bitflags 2.11.0",
  "blake3",
  "dashmap",
  "serde",

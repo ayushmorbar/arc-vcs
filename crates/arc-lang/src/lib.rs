@@ -18,3 +18,5 @@ pub mod event_stream;
 
 /// Borrowed/owned dual byte-value wrappers.
 pub mod value;
+
+pub use value::{UnescapeError, unescape_lazy};

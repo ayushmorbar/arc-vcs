@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+pub mod conflict;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PolicyValue<T> {
     Present(T),

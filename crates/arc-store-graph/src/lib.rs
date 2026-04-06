@@ -30,6 +30,9 @@
 pub mod bisect;
 /// In-memory change DAG traversal and topology algorithms.
 pub mod graph;
+/// Compact bitflag-based node traversal metadata.
+pub mod traversal_state;
 
 pub use bisect::*;
 pub use graph::*;
+pub use traversal_state::*;

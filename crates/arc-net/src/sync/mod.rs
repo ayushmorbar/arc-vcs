@@ -15,6 +15,8 @@ pub mod endpoint;
 pub mod protocol;
 /// Native TCP sync server.
 pub mod server;
+/// Adaptive round-window sizing for batch-oriented sync flows.
+pub mod window;
 
 /// 4-byte stream prelude identifying the native arc sync protocol.
 pub const MAGIC_BYTES: &[u8; 4] = b"ARC\x01";
