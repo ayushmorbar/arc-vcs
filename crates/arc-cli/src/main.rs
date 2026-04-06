@@ -128,8 +128,8 @@ fn cli_styles() -> Styles {
     version,
     about = "Atomic Replayable Changes",
     styles = cli_styles(),
-    subcommand_help_heading = "CORE COMMANDS",
-    after_help = "ADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
+    subcommand_help_heading = "COMMANDS",
+    after_help = "DAILY USE\n  arc init\n  arc snap\n  arc sync\n\nADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -141,13 +141,13 @@ enum Command {
     /// Initialize a new arc repository.
     Init {
         /// Directory to initialize (defaults to current directory).
-        #[arg(help_heading = "CORE COMMANDS")]
+        #[arg(help_heading = "DAILY USE")]
         path: Option<String>,
         /// Repository name used for interactive initialization.
-        #[arg(long, help_heading = "CORE COMMANDS")]
+        #[arg(long, help_heading = "DAILY USE")]
         repo_name: Option<String>,
         /// Default branch/view name (defaults to `main`).
-        #[arg(long, help_heading = "CORE COMMANDS")]
+        #[arg(long, help_heading = "DAILY USE")]
         default_branch: Option<String>,
         /// Optional origin remote URL to configure during init.
         #[arg(long, help_heading = "ADVANCED")]
@@ -158,8 +158,8 @@ enum Command {
     },
     /// Snapshot the working directory into a semantic change.
     Snap {
-        /// Description of the change.  Required unless `--auto-msg` is given.
-        #[arg(short, long, required_unless_present = "auto_msg")]
+        /// Description of the change. If omitted, arc creates an auto snapshot message.
+        #[arg(short, long)]
         message: Option<String>,
         /// Analyze the pending AST atoms and generate the commit message automatically
         /// using any OpenAI-schema LLM (set ARC_AI_KEY, and optionally ARC_AI_URL /
@@ -1339,10 +1339,10 @@ fn run_cli() -> anyhow::Result<()> {
                         trimmed
                     }
                 }
+            } else if let Some(message) = message {
+                message
             } else {
-                // --message is enforced by clap (required_unless_present = "auto_msg")
-                // so unwrap_or is a pure safety net here.
-                message.unwrap_or_else(|| "WIP".to_owned())
+                "auto: snapshot safe working-directory changes".to_owned()
             };
 
             if let Some(id) = repo.snap(&final_message, interactive)? {
@@ -1880,7 +1880,7 @@ fn run_cli() -> anyhow::Result<()> {
             };
 
             pipeline.start_stage(PipelineStage::Materialize);
-            let status = timer.stage(OperationStage::Materialize, || response.status.clone());
+            let status = timer.stage(OperationStage::Materialize, || response.status);
             pipeline.finish_stage(PipelineStage::Materialize);
 
             pipeline.start_stage(PipelineStage::Finalize);
@@ -4038,5 +4038,34 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("cannot persist checkpoint"));
         assert!(lines[1].contains("caused by: disk write failed"));
+    }
+
+    #[test]
+    fn parses_snap_without_message() {
+        let parsed = Cli::try_parse_from(["arc", "snap"]).expect("snap should parse");
+
+        match parsed.command {
+            Command::Snap {
+                message,
+                auto_msg,
+                interactive,
+            } => {
+                assert!(message.is_none());
+                assert!(!auto_msg);
+                assert!(!interactive);
+            }
+            _ => panic!("unexpected command parsed"),
+        }
+    }
+
+    #[test]
+    fn help_shows_daily_use_group() {
+        let mut cmd = Cli::command();
+        let help = cmd.render_help().to_string();
+
+        assert!(help.contains("DAILY USE"));
+        assert!(help.contains("init"));
+        assert!(help.contains("snap"));
+        assert!(help.contains("sync"));
     }
 }

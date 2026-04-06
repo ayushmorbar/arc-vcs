@@ -1,19 +1,19 @@
 ---
-title: "ADR-002: Gitoxide Report Extraction and Replication Policy"
+title: "ADR-005: Gitoxide Report Extraction and Replication Policy"
 description: "Decision record for how external engineering reports are translated into enforceable architecture, CI, and governance actions in arc."
 status: Implemented and Archived
 date: 2026-04-07
 scope: v0.1 external-signal extraction ledger
-note: "Historical ADR preserved as the source rationale for replication and governance policy." 
+note: "Historical ADR preserved as the source rationale for replication and governance policy."
 ---
 
-# ADR 002 - External Report Extraction to Internal Policy
+# ADR 005 - External Report Extraction to Internal Policy
 
-| Field | Value |
-|---|---|
-| Status | Implemented and Archived |
-| Date | 2026-04-07 |
-| Deciders | arc core architecture and governance maintainers |
+| Field        | Value                                                          |
+| ------------ | -------------------------------------------------------------- |
+| Status       | Implemented and Archived                                       |
+| Date         | 2026-04-07                                                     |
+| Deciders     | arc core architecture and governance maintainers               |
 | Source Input | Gitoxide monthly and annual reports, component graph artifacts |
 
 ## Context
@@ -50,7 +50,7 @@ The report extraction led to these durable arc patterns:
 
 The extraction policy outcomes are reflected in active repository controls:
 
-1. Architecture metadata and ownership tiers in docs/architecture/component-graph.json.
+1. Architecture metadata and ownership tiers in docs/src/architecture/component-graph.json.
 2. CI layering enforcement in scripts/ci/enforce-layering.sh.
 3. API drift gate in scripts/ci/check-api-drift.sh with baselines in docs/architecture/api-baselines/.
 4. Architecture drift summary in scripts/ci/detect-arch-drift.sh.
@@ -88,8 +88,8 @@ The following items were identified by this ADR and are now tracked in active pl
 
 ## References
 
-1. docs/architecture/decisions/001-gitoxide-architecture-study.md
-2. docs/architecture/component-graph.json
+1. docs/src/architecture/decisions/004-gitoxide-architecture-study.md
+2. docs/src/architecture/component-graph.json
 3. .github/workflows/ci.yml
 4. scripts/ci/enforce-layering.sh
 5. scripts/ci/check-api-drift.sh

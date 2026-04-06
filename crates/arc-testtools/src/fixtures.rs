@@ -117,8 +117,8 @@ impl FixtureOrchestrator {
     {
         let _guard = fixture_lock().lock().expect("fixture lock poisoned");
         let (cache_path, created_by_this_call) = self.ensure_cached(source, options)?;
-        if created_by_this_call {
-            if let Err(error) = post(&cache_path) {
+        if created_by_this_call
+            && let Err(error) = post(&cache_path) {
                 if let Err(remove_error) = std::fs::remove_dir_all(&cache_path) {
                     return Err(anyhow::anyhow!(
                         "post-processing failed for fixture cache {} and cache invalidation failed: {}",
@@ -134,7 +134,6 @@ impl FixtureOrchestrator {
                     )
                 });
             }
-        }
         match options.mode {
             FixtureMode::Cached => Ok(cache_path),
             FixtureMode::WritableCopy => {

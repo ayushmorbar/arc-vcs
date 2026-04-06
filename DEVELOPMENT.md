@@ -6,15 +6,15 @@ A practical guide to building, testing, profiling, and releasing the arc codebas
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Rust | ≥ 1.85 (edition 2024) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `clippy` | bundled | `rustup component add clippy` |
-| `rustfmt` | bundled | `rustup component add rustfmt` |
-| `just` | any recent | `cargo install just` |
-| `mdbook` | ≥ 0.4 | `cargo install mdbook` |
-| `cargo-deny` | any recent | `cargo install cargo-deny` (recommended) |
-| `cargo-audit` | any recent | `cargo install cargo-audit` (recommended) |
+| Tool          | Version               | Install                                                           |
+| ------------- | --------------------- | ----------------------------------------------------------------- |
+| Rust          | ≥ 1.85 (edition 2024) | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| `clippy`      | bundled               | `rustup component add clippy`                                     |
+| `rustfmt`     | bundled               | `rustup component add rustfmt`                                    |
+| `just`        | any recent            | `cargo install just`                                              |
+| `mdbook`      | ≥ 0.4                 | `cargo install mdbook`                                            |
+| `cargo-deny`  | any recent            | `cargo install cargo-deny` (recommended)                          |
+| `cargo-audit` | any recent            | `cargo install cargo-audit` (recommended)                         |
 
 All core development tasks work with plain `cargo`. `just` and `mdbook` are optional but strongly recommended.
 
@@ -109,8 +109,8 @@ arc-vcs/
 │       ├── getting-started/   tutorial, everyday, git-migration, glossary
 │       ├── reference/         cli-reference, config, ignore, ai-intents
 │       ├── design/            patch_theory, crdt_sync, ast_diffing
-│       ├── howto/             custom-hooks
-│       └── architecture/ADRs/ 001, 002, 003
+│       ├── how-to/            custom-hooks
+│       └── architecture/decisions/ 001, 002, 003, 004, 005
 ├── crates/
 │   ├── arc-core/           # algebra + CAS + graph + author identities
 │   ├── arc-lang/           # tree-sitter language plugins

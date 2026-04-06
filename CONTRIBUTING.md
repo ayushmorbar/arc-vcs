@@ -104,7 +104,7 @@ Before changing a public API, check [STABILITY.md](STABILITY.md):
 
 ## Architecture Decision Records (ADRs)
 
-Any change that alters a fundamental design decision — storage format, diff algorithm, sync protocol — **requires an ADR** filed under `docs/src/architecture/ADRs/`. Use the existing ADRs as templates and reference the ADR number in your PR description.
+Any change that alters a fundamental design decision — storage format, diff algorithm, sync protocol — **requires an ADR** filed under `docs/src/architecture/decisions/`. Use the existing ADRs as templates and reference the ADR number in your PR description.
 
 ---
 
@@ -125,13 +125,13 @@ Any change that alters a fundamental design decision — storage format, diff al
 - `main` should stay green and warning-free.
 - If you introduce a break and know the cause, prioritize immediate repair.
 - If the cause is unclear, open a synchronization PR instead of parallel
-	speculative fixes.
+  speculative fixes.
 
 ### PR Class Expectations
 
 - Minor/local changes: short-lived PRs are preferred.
 - Architectural or cross-slice changes: open design discussion (issue/ADR)
-	before merge.
+  before merge.
 - Changes impacting consumers must include migration guidance.
 
 ### Boundary Discipline

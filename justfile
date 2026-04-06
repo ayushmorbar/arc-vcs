@@ -123,7 +123,7 @@ verify-security: audit
 
 # Print architecture graph drift summary against previous commit (or provided ref)
 arch-drift BASE='HEAD~1':
-    bash scripts/ci/detect-arch-drift.sh docs/architecture/component-graph.json {{ BASE }}
+    bash scripts/ci/detect-arch-drift.sh docs/src/architecture/component-graph.json {{ BASE }}
 
 # Fuzzing smoke check for arc-lang parser target
 fuzz-check:

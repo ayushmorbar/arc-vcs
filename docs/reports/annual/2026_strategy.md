@@ -139,7 +139,7 @@ Maintainer health goal:
 
 Risk governance note:
 
-1. These risks should stay synchronized with docs/architecture/RISK_REGISTER.md IDs and scoring.
+1. These risks should stay synchronized with docs/src/architecture/RISK_REGISTER.md IDs and scoring.
 
 ## 11. Next-Year Bets
 

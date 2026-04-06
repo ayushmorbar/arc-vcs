@@ -49,4 +49,5 @@ DAGs do not have one canonical linear midpoint. Arc chooses midpoint after topol
 ## See Also
 
 - [Bisect and Bench Reference](../reference/bisect-and-bench.md)
-- [Isolate Regressions with Bisect and Bench](../howto/isolate-regressions-with-bisect-and-bench.md)
+- [Isolate Regressions with Bisect and Bench](../how-to/isolate-regressions-with-bisect-and-bench.md)
+

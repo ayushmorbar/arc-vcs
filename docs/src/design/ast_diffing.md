@@ -105,4 +105,4 @@ AST diffing is currently **Rust-only**. Files in other languages are stored as `
 2. Implementing `LanguagePlugin` for the new grammar.
 3. Registering it in the plugin dispatch table.
 
-See [SHORTCOMINGS.md](../../SHORTCOMINGS.md#1-rust-only-ast-diffing) and [ADR 002](../architecture/ADRs/002-ast-over-text.md) for context.
+See [SHORTCOMINGS.md](../../SHORTCOMINGS.md#1-rust-only-ast-diffing) and [ADR 002](../architecture/decisions/002-ast-over-text.md) for context.

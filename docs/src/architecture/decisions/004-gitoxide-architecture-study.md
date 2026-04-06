@@ -1,5 +1,5 @@
 ---
-title: "ADR-001: Gitoxide Architecture Study to Arc Architecture Policy"
+title: "ADR-004: Gitoxide Architecture Study to Arc Architecture Policy"
 description: "Decision record that converted the Gitoxide study into enforceable architecture, CI, and DX policy in arc."
 status: Implemented and Archived
 date: 2026-04-07
@@ -7,7 +7,7 @@ scope: v0.1 architecture hardening
 note: "Historical ADR preserved to explain why specific architecture and CI guardrails exist."
 ---
 
-# ADR 001 - Gitoxide Study to Enforceable Arc Policy
+# ADR 004 - Gitoxide Study to Enforceable Arc Policy
 
 | Field        | Value                                                                       |
 | ------------ | --------------------------------------------------------------------------- |
@@ -42,7 +42,7 @@ arc adopts five architecture governance decisions from this study:
 
 The decisions above are implemented in the repository as of 2026-04-07.
 
-1. Component graph and policy are defined in docs/architecture/component-graph.json.
+1. Component graph and policy are defined in docs/src/architecture/component-graph.json.
 2. CI enforces architecture layering via scripts/ci/enforce-layering.sh.
 3. CI enforces API baselines via scripts/ci/check-api-drift.sh and docs/architecture/api-baselines/.
 4. CI detects architecture drift via scripts/ci/detect-arch-drift.sh.
@@ -72,7 +72,7 @@ Trade-offs:
 
 To keep this ADR effective for contributors:
 
-1. Update docs/architecture/component-graph.json in the same PR as any crate-boundary change.
+1. Update docs/src/architecture/component-graph.json in the same PR as any crate-boundary change.
 2. If a crate class or stability tier changes, include rationale and migration impact in the PR description.
 3. Keep operation spans aligned with discover/negotiate/transfer/materialize/finalize for new heavy paths.
 4. Prefer failing fast with clear script output instead of silent policy drift.
@@ -87,8 +87,8 @@ Implemented policy is strong, but two high-value follow-ups remain:
 
 ## References
 
-1. docs/architecture/decisions/002-gitoxide-report-extraction.md
-2. docs/architecture/component-graph.json
+1. docs/src/architecture/decisions/005-gitoxide-report-extraction.md
+2. docs/src/architecture/component-graph.json
 3. .github/workflows/ci.yml
 4. scripts/ci/check-api-drift.sh
 5. scripts/ci/enforce-layering.sh

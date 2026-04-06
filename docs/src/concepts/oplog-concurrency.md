@@ -56,5 +56,6 @@ If an operation replay cannot complete safely, arc keeps the repository out of p
 
 ## See Also
 
-- [Time-Travel With Operation Log](../howto/oplog-time-travel.md)
+- [Time-Travel With Operation Log](../how-to/oplog-time-travel.md)
 - [Conflict Algebra in Arc](conflict-algebra.md)
+

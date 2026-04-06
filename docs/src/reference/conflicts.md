@@ -76,4 +76,5 @@ merge_args = ["$left", "$base", "$right", "-o", "$output", "--auto-merge"]
 ## See Also
 
 - [Conflict Algebra](../concepts/conflict-algebra.md)
-- [Resolve Conflicts with AI or Merge Tool](../howto/resolve-conflicts-with-ai-or-merge-tool.md)
+- [Resolve Conflicts with AI or Merge Tool](../how-to/resolve-conflicts-with-ai-or-merge-tool.md)
+

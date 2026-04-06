@@ -48,4 +48,5 @@ This keeps automation deterministic and safe.
 ## See Also
 
 - [Revsets](../reference/revsets.md)
-- [Revset-Driven Investigation](../howto/revset-driven-investigation.md)
+- [Revset-Driven Investigation](../how-to/revset-driven-investigation.md)
+

@@ -72,4 +72,5 @@ Mounts are represented as `Atom::Mount` and materialized as mount tokens that `m
 ## See Also
 
 - [Workspace and Sparse Boundaries](../concepts/workspace-boundaries.md)
-- [Safe Linked Workspaces](../howto/safe-linked-workspaces.md)
+- [Safe Linked Workspaces](../how-to/safe-linked-workspaces.md)
+

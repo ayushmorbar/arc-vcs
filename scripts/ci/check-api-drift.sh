@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-GRAPH_FILE="${GRAPH_FILE:-docs/architecture/component-graph.json}"
+GRAPH_FILE="${GRAPH_FILE:-docs/src/architecture/component-graph.json}"
 BASELINE_DIR="${BASELINE_DIR:-docs/architecture/api-baselines}"
 
 if ! command -v cargo >/dev/null 2>&1; then

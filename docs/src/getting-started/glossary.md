@@ -62,4 +62,4 @@ A named set of `Blake3Hash` heads in the `ChangeGraph`. A View is **not** a poin
 The directory where arc writes materialised source files. Equivalent to Git's working tree. In a single-root repository, `work_root` and `shared_root` are the same. In a split-root workspace, they differ.
 
 **ADR (Architecture Decision Record)**
-A short document capturing a significant architectural decision: the context, the decision made, and the consequences. arc's ADRs live in `docs/src/architecture/ADRs/`. See the [Governance](../../../GOVERNANCE.md) document for the ADR process.
+A short document capturing a significant architectural decision: the context, the decision made, and the consequences. arc's ADRs live in `docs/src/architecture/decisions/`. See the [Governance](../../../GOVERNANCE.md) document for the ADR process.

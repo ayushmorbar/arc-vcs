@@ -50,4 +50,5 @@ This prevents accidental operations across unrelated repositories.
 ## See Also
 
 - [Workspaces, Sparse, and Mounts](../reference/workspaces-sparse-mounts.md)
-- [Safe Linked Workspaces](../howto/safe-linked-workspaces.md)
+- [Safe Linked Workspaces](../how-to/safe-linked-workspaces.md)
+

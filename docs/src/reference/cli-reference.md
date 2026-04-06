@@ -110,7 +110,7 @@ arc undo
 
 Fast rollback for the latest view-mutating operation.
 
-See also: [Time-Travel With Operation Log](../howto/oplog-time-travel.md).
+See also: [Time-Travel With Operation Log](../how-to/oplog-time-travel.md).
 
 ---
 
@@ -340,3 +340,4 @@ Internal integration command for editor/tooling JSON-RPC workflows.
 
 - `arc commit` is intentionally unsupported; use `arc snap`.
 - Prefer operation commands for state recovery and change commands for content-level edits.
+

@@ -57,4 +57,5 @@ Merge tools are optional resolution producers, not authority over history finali
 ## See Also
 
 - [Conflict Resolution Protocol](../reference/conflicts.md)
-- [Resolve Conflicts with AI or Merge Tool](../howto/resolve-conflicts-with-ai-or-merge-tool.md)
+- [Resolve Conflicts with AI or Merge Tool](../how-to/resolve-conflicts-with-ai-or-merge-tool.md)
+

@@ -1,24 +1,31 @@
 # Acknowledgements
 
-Arc v0.1 was built as an original CRDT spacetime DAG implementation, but it was shaped by the standards set by exceptional open-source VCS projects and by foundational research across patch theory, distributed systems, semantic merging, and AI-assisted software engineering.
+Arc v0.1 was built as an original CRDT spacetime DAG implementation, but it was shaped by the standards set by exceptional open-source version-control systems projects and by foundational research across patch theory, distributed systems, semantic merging, and AI-assisted software engineering.
 
-## Project Credits
+## Core Project Credits
 
 ### gitoxide (gix)
 
-We acknowledge the gitoxide project for architectural inspiration across three areas that materially improved Arc’s v0.1 direction:
+arc acknowledges gitoxide for engineering inspiration in:
 
-- the five-stage operation taxonomy (`discover`, `negotiate`, `transfer`, `materialize`, `finalize`),
-- strict wasm boundary discipline between pure computation and platform I/O,
-- rigorous CI, release, and reporting governance as engineering policy.
+- stage-oriented operation modeling (`discover`, `negotiate`, `transfer`, `materialize`, `finalize`),
+- clear boundaries between pure computation and platform I/O,
+- disciplined CI and release governance practices.
 
 ### jujutsu (jj)
 
-We acknowledge Martin von Zweigbergk and the jujutsu contributors for first-class conflict UX, history operations, working-copy-as-a-commit workflows, and user-facing ergonomics that informed Arc’s interactive and operational design choices.
+arc acknowledges jujutsu for influential ideas in:
+
+- conflict UX and history workflows,
+- working-copy-centered operations,
+- day-to-day ergonomics for developers navigating complex repositories.
 
 ### sapling
+arc acknowledges Sapling for practical lessons in:
 
-We acknowledge sapling for practical snapshotting and workspace workflow ideas that informed Arc’s repository ergonomics and materialization strategy.
+- snapshot-oriented workflows,
+- large-repository usability,
+- workspace materialization ergonomics.
 
 ## Literature & Research Influences
 
@@ -57,4 +64,4 @@ We acknowledge sapling for practical snapshotting and workspace workflow ideas t
 
 ## Statement of Originality
 
-Arc’s CRDT spacetime DAG, identity model, replay semantics, and `Author::AI` integration model are original Arc implementations. The projects and research above served as technical foundations and quality benchmarks for architecture, correctness, maintainability, and open-source engineering rigor.its practical snapshotting and workspace workflow ideas that informed Arc's repository ergonomics and materialization strategy.
+arc's CRDT spacetime DAG model, replay semantics, identity model, and `Author::AI` integration are original arc implementations. The projects above informed quality standards and workflow design, not direct code transplantation.

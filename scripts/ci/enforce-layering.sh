@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-GRAPH_FILE="${1:-docs/architecture/component-graph.json}"
+GRAPH_FILE="${1:-docs/src/architecture/component-graph.json}"
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo is required" >&2

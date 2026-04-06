@@ -90,4 +90,5 @@ arc log -r 'ancestors(@) & touched("src/main.rs")'
 ## See Also
 
 - [Dynamic Revsets](../concepts/dynamic-revsets.md)
-- [Revset-Driven Investigation](../howto/revset-driven-investigation.md)
+- [Revset-Driven Investigation](../how-to/revset-driven-investigation.md)
+

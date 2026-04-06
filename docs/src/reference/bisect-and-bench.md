@@ -79,4 +79,5 @@ Bench output fields to watch:
 ## See Also
 
 - [Topological Bisect](../concepts/topological-bisect.md)
-- [Isolate Regressions with Bisect and Bench](../howto/isolate-regressions-with-bisect-and-bench.md)
+- [Isolate Regressions with Bisect and Bench](../how-to/isolate-regressions-with-bisect-and-bench.md)
+

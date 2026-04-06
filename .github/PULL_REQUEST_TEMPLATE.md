@@ -9,7 +9,7 @@
 - [ ] If this changes a public API: [STABILITY.md](STABILITY.md) tier for the affected API is declared in this PR description
 - [ ] `tracing::info!` / `tracing::debug!` spans added where new operations warrant observability
 - [ ] Documentation in `docs/` updated (if user-visible behaviour changed)
-- [ ] ADR created in `docs/src/architecture/ADRs/` if this introduces or changes an architectural decision
+- [ ] ADR created in `docs/src/architecture/decisions/` if this introduces or changes an architectural decision
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
 
 ## STABILITY Tier

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-GRAPH_PATH="${1:-docs/architecture/component-graph.json}"
+GRAPH_PATH="${1:-docs/src/architecture/component-graph.json}"
 BASE_REF="${2:-HEAD~1}"
 
 if ! command -v git >/dev/null 2>&1; then

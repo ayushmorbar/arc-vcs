@@ -1,6 +1,6 @@
 # API Stability Map
 
-Generated from docs/architecture/component-graph.json.
+Generated from docs/src/architecture/component-graph.json.
 Generated on: 2026-04-06
 
 | Crate | Owner | Stability |

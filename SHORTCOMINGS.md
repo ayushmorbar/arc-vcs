@@ -12,7 +12,7 @@ arc is a mathematically rigorous system. We believe strongly in being honest abo
 
 **Impact:** Non-Rust files are tracked at the `Atom::Blob` level (whole-file replacement). You lose semantic conflict detection for those files; they are still content-addressed and signed correctly.
 
-**Roadmap:** Additional tree-sitter grammars can be added in `arc-lang` with minimal effort once the plugin interface is stabilised (currently Tier 3). Contributions welcome — see [ADR 002](docs/src/architecture/ADRs/002-ast-over-text.md).
+**Roadmap:** Additional tree-sitter grammars can be added in `arc-lang` with minimal effort once the plugin interface is stabilised (currently Tier 3). Contributions welcome — see [ADR 002](docs/src/architecture/decisions/002-ast-over-text.md).
 
 ---
 

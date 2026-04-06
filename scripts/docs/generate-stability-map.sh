@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-GRAPH_PATH="${1:-docs/architecture/component-graph.json}"
+GRAPH_PATH="${1:-docs/src/architecture/component-graph.json}"
 OUT_PATH="${2:-docs/architecture/API_STABILITY.md}"
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -44,7 +44,7 @@ for node in sorted(nodes, key=lambda x: x.get("id", "")):
 lines = [
     "# API Stability Map",
     "",
-    "Generated from docs/architecture/component-graph.json.",
+    "Generated from docs/src/architecture/component-graph.json.",
     f"Generated on: {dt.date.today().isoformat()}",
     "",
     "| Crate | Owner | Stability |",
