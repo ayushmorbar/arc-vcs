@@ -251,6 +251,7 @@ dependencies = [
  "arc-revset",
  "arc-store-cas",
  "arc-store-graph",
+ "arc-store-policy",
  "arc-store-types",
  "arc-store-view",
  "arc-swap",

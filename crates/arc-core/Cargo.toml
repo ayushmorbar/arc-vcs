@@ -5,18 +5,30 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "arc algebraic foundation: atoms, CAS, change graph, cryptographic identity"
 
+[features]
+default = ["native"]
+native = [
+	"dep:arc-ai",
+	"dep:arc-network",
+	"dep:arc-store-policy",
+	"dep:directories",
+	"dep:serde_json",
+]
+wasm = []
+
 [dependencies]
-arc-ai = { path = "../arc-ai" }
+arc-ai = { path = "../arc-ai", optional = true }
 arc-algebra = { path = "../arc-algebra" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-engine = { path = "../arc-engine" }
 arc-git = { path = "../arc-git" }
-arc-network = { path = "../arc-network" }
+arc-network = { path = "../arc-network", optional = true }
 arc-revset = { path = "../arc-revset" }
 arc-error = { path = "../arc-error" }
 arc-store-cas = { path = "../arc-store-cas" }
 arc-store-graph = { path = "../arc-store-graph" }
+arc-store-policy = { path = "../arc-store-policy", optional = true }
 arc-store-view = { path = "../arc-store-view" }
 arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
@@ -28,8 +40,8 @@ thiserror = "2.0.18"
 anyhow = "1.0.102"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
-serde_json = "1.0.149"
-directories = "6.0.0"
+serde_json = { version = "1.0.149", optional = true }
+directories = { version = "6.0.0", optional = true }
 ignore = "0.4.25"
 
 [dev-dependencies]
