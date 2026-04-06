@@ -1083,44 +1083,20 @@ fn resolve_sync_token() -> anyhow::Result<Option<String>> {
     }
 }
 
-fn install_tempfile_cleanup_handlers() -> anyhow::Result<()> {
-    ctrlc::set_handler(|| {
-        arc_store_view::tempfile::cleanup_signal_safe();
-    })
-    .context("failed to install Ctrl+C cleanup handler")?;
-
-    #[cfg(unix)]
-    {
-        use signal_hook::consts::signal::SIGTERM;
-        use signal_hook::iterator::Signals;
-
-        let mut signals = Signals::new([SIGTERM])
-            .context("failed to register SIGTERM cleanup handler")?;
-        std::thread::Builder::new()
-            .name("arc-sigterm-cleanup".to_string())
-            .spawn(move || {
-                for _ in signals.forever() {
-                    arc_store_view::tempfile::cleanup_signal_safe();
-                    std::process::exit(143);
-                }
-            })
-            .context("failed to spawn SIGTERM cleanup thread")?;
-    }
-
-    Ok(())
-}
-
 fn run_cli() -> anyhow::Result<()> {
     // Initialise the tempfile registry eagerly so no allocations happen inside
     // shutdown cleanup hooks later.
     arc_store_view::tempfile::init();
 
+    let interrupts = arc_cli::devtools::interrupt::InterruptState::new();
+
     // Install cleanup hooks that run in normal thread context on shutdown.
-    install_tempfile_cleanup_handlers()?;
+    arc_cli::devtools::interrupt::install_cleanup_handlers(interrupts.clone())?;
 
     init_tracing("arc_cli");
     // --- Recursive alias interception with cycle detection ---------------
-    let mut raw_args: Vec<String> = std::env::args().collect();
+    let mut raw_args: Vec<String> =
+        arc_cli::devtools::multicall::normalize_invocation_args(std::env::args().collect());
     if let Ok(config) = load_merged_config(std::path::Path::new(".")) {
         raw_args = expand_command_aliases(&config, raw_args)?;
     }
@@ -1134,8 +1110,9 @@ fn run_cli() -> anyhow::Result<()> {
         println!("{greet}");
     }
 
-    match cli.command {
-        Command::Init { path, no_git } => {
+    arc_cli::devtools::run_wrapper::run_with_telemetry("arc", &interrupts, || {
+        match cli.command {
+            Command::Init { path, no_git } => {
             let target = path.unwrap_or_else(|| ".".to_string());
             let target_path = std::path::Path::new(&target);
 
@@ -3103,12 +3080,12 @@ fn run_cli() -> anyhow::Result<()> {
             arc_cli::bugreport::generate(&repo, &out_path, include_raw_intent)?;
             println!("Bug report written to: {out_path}");
         }
-        Command::Daemon => {
-            run_daemon_subprocess()?;
+            Command::Daemon => {
+                run_daemon_subprocess()?;
+            }
         }
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 fn main() {

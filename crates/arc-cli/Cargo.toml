@@ -70,3 +70,6 @@ signal-hook = "0.4.4"
 
 [dev-dependencies]
 async-trait = "0.1.89"
+arc-testtools = { path = "../arc-testtools" }
+assert_cmd = "2.2.0"
+predicates = "3.1.4"

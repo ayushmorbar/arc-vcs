@@ -20,6 +20,8 @@ pub mod ai_pending;
 pub mod bugreport;
 /// Interactive onboarding commands.
 pub mod commands;
+/// Internal runtime diagnostics and command orchestration helpers.
+pub mod devtools;
 /// `arc generate` — agentic code generation with semantic context.
 pub mod generate;
 /// GitHub governance and CI policy auditing utilities.
