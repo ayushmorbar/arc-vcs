@@ -1,52 +1,86 @@
-# arc justfile — project task runner
+#!/usr/bin/env -S just --justfile
+# ^ Allows running as `./justfile <recipe>` directly (chmod +x justfile)
 # Install `just` with: cargo install just
 # Run `just` or `just --list` to see available recipes.
 
+# Self-reference: safe nested recipe calls even with non-PATH just installs
+j := quote(just_executable())
+
+set shell := ["bash", "-cu"]
+
 # Show all available recipes
 default:
-    @just --list
+    @{{ j }} --list
 
-# ── Testing ──────────────────────────────────────────────────────────────────
+# ── Aliases ───────────────────────────────────────────────────────────────────
+alias t  := test
+alias c  := check
+alias l  := lint
+alias nt := nextest
 
-# Run all workspace tests
+# ── Testing ───────────────────────────────────────────────────────────────────
+
+# Run all workspace tests (nextest: faster, better output)
 test:
-    cargo test --workspace
+    cargo nextest run --workspace --no-fail-fast
 
-# Verify local tooling + GitHub governance + root workspace policy checks
+# Run tests with optional custom flags, e.g. `just nextest -p arc-cli`
+nextest *FLAGS='--workspace':
+    cargo nextest run {{ FLAGS }} --no-fail-fast
+
+# Run doctests separately (nextest does NOT run doctests)
+doc-tests:
+    cargo test --workspace --doc --no-fail-fast
+
+# Verify local tooling + governance + workspace policy (regex OR filter via nextest)
+[private]
 verify:
-    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace workspace_policy::tests::workspace_policy_audit_current_workspace
+    cargo nextest run -p arc-cli --no-fail-fast \
+        -E 'test(tooling_audit_current_workspace) | test(governance_audit_current_workspace) | test(workspace_policy_audit_current_workspace)'
 
-# Run tests matching a filter string
+# Run tests matching a filter string, e.g. `just test-filter my_fn`
 test-filter FILTER:
-    cargo test --workspace {{FILTER}}
+    cargo nextest run --workspace --no-fail-fast -E "test({{ FILTER }})"
 
-# ── Linting & Formatting ─────────────────────────────────────────────────────
+# Run nextest, showing only final summary (good for large workspaces)
+summarize EXPRESSION='all()':
+    cargo nextest run --workspace --run-ignored all --no-fail-fast \
+        --status-level none --final-status-level none -E {{ quote(EXPRESSION) }}
 
-# Run clippy with zero-warning policy (same as CI)
-lint:
-    cargo clippy --all-targets -- -D warnings
+# ── Linting & Formatting ──────────────────────────────────────────────────────
 
-# Apply rustfmt to all files
+# Run clippy with zero-warning policy; pass extra args e.g. `just lint -W clippy::pedantic`
+lint *clippy-args:
+    cargo clippy --all-targets --all-features -- -D warnings {{ clippy-args }}
+
+# Apply nightly rustfmt, then verify it doesn't break stable rustfmt
+# Also lints the justfile itself via --fmt --unstable
 fmt:
-    cargo fmt --all
+    cargo +nightly fmt --all
+    cargo +stable fmt --all -- --check
+    {{ j }} --fmt --unstable
 
-# Check formatting without modifying files (used in CI)
+# Check formatting only (used in CI)
 fmt-check:
-    cargo fmt --all -- --check
+    cargo +nightly fmt --all -- --check
 
 # ── Documentation ─────────────────────────────────────────────────────────────
+
+# Build docs, treating all rustdoc warnings as errors
+doc $RUSTDOCFLAGS='-D warnings':
+    cargo doc --workspace --no-deps
+
+# Serve documentation with live reload
+docs-serve:
+    mdbook serve --open docs
 
 # Build the mdBook documentation (output: docs/book/)
 docs:
     mdbook build docs
 
-# Serve documentation with live reload; opens http://localhost:3000 automatically
-docs-serve:
-    mdbook serve --open docs
-
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-# Debug build (fast compile)
+# Debug build
 build:
     cargo build --workspace
 
@@ -60,15 +94,15 @@ clean:
 
 # ── Security ──────────────────────────────────────────────────────────────────
 
-# Audit dependencies for known CVEs (requires: cargo install cargo-audit)
+# Audit deps: CVEs + license compliance + banned crates (requires: cargo install cargo-deny)
 audit:
+    cargo deny --workspace --all-features check advisories bans licenses sources
+
+# Fallback: quick CVE-only audit (requires: cargo install cargo-audit)
+audit-quick:
     cargo audit
 
 # ── Full CI gate ──────────────────────────────────────────────────────────────
 
-# Run the complete local CI check: test + lint + format (mirrors CI pipeline)
-ci:
-    cargo test --workspace
-    cargo clippy --all-targets -- -D warnings
-    cargo fmt --all -- --check
-    cargo test -p arc-cli tooling::tests::tooling_audit_current_workspace governance::tests::governance_audit_current_workspace workspace_policy::tests::workspace_policy_audit_current_workspace
+# Complete local CI check — mirrors CI pipeline exactly
+ci: test doc-tests lint fmt-check doc verify

@@ -1,11 +1,46 @@
+# https://editorconfig.org
 root = true
 
+# ── Global Defaults ───────────────────────────────────────────────────────────
 [*]
-end_of_line = lf
-insert_final_newline = true
+charset                  = utf-8
+end_of_line              = lf
+insert_final_newline     = true
 trim_trailing_whitespace = true
+indent_style             = space
+indent_size              = 4
 
+# ── Rust ──────────────────────────────────────────────────────────────────────
 [*.rs]
-indent_style = space
-indent_size = 4
-trim_trailing_whitespace = false
+indent_style             = space
+indent_size              = 4
+max_line_length          = 100   # mirrors max_width = 100 in rustfmt.toml
+# trim_trailing_whitespace inherited as true — rustfmt handles it correctly
+
+# ── TOML (Cargo.toml, rustfmt.toml, etc.) ─────────────────────────────────────
+[*.toml]
+indent_style             = space
+indent_size              = 4
+
+# ── Markdown ──────────────────────────────────────────────────────────────────
+[*.{md,markdown}]
+trim_trailing_whitespace = false  # trailing double-space = intentional line break in Markdown
+max_line_length          = off    # prose wraps naturally; don't enforce code-style limits
+
+# ── YAML / JSON ───────────────────────────────────────────────────────────────
+[*.{yml,yaml}]
+indent_style             = space
+indent_size              = 2
+
+[*.json]
+indent_style             = space
+indent_size              = 2
+
+# ── Shell Scripts ─────────────────────────────────────────────────────────────
+[*.sh]
+indent_style             = space
+indent_size              = 2
+
+# ── Makefiles ─────────────────────────────────────────────────────────────────
+[Makefile]
+indent_style             = tab    # make REQUIRES real tabs — never spaces
