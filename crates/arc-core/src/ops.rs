@@ -1,5 +1,12 @@
 //! Shared operation-stage taxonomy for tracing and reporting.
 
+use std::time::{Duration, Instant};
+
+use tracing::{info, info_span, warn};
+
+/// Default sync-cycle SLO threshold in milliseconds.
+pub const DEFAULT_SYNC_SLO_MS: u64 = 500;
+
 /// Canonical lifecycle stages for heavy operations in Arc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperationStage {
@@ -31,6 +38,68 @@ impl OperationStage {
 impl core::fmt::Display for OperationStage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// End-to-end latency timer for CRDT synchronization cycles.
+pub struct SloTimer {
+    operation: String,
+    threshold: Duration,
+    started_at: Instant,
+}
+
+impl SloTimer {
+    /// Build a new SLO timer for one named sync operation.
+    pub fn new(operation: impl Into<String>, threshold: Duration) -> Self {
+        Self {
+            operation: operation.into(),
+            threshold,
+            started_at: Instant::now(),
+        }
+    }
+
+    /// Build a timer from `ARC_SYNC_SLO_MS` environment override.
+    pub fn from_env(operation: impl Into<String>) -> Self {
+        let threshold_ms = std::env::var("ARC_SYNC_SLO_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_SYNC_SLO_MS);
+        Self::new(operation, Duration::from_millis(threshold_ms))
+    }
+
+    /// Execute `run` inside a stage-tagged span.
+    pub fn stage<T>(&self, stage: OperationStage, run: impl FnOnce() -> T) -> T {
+        let span = info_span!(
+            "arc_core.sync_cycle.stage",
+            operation = %self.operation,
+            stage = %stage
+        );
+        span.in_scope(run)
+    }
+
+    /// Emit SLO status and return total elapsed duration.
+    pub fn finish(self) -> Duration {
+        let elapsed = self.started_at.elapsed();
+        let elapsed_ms = elapsed.as_millis() as u64;
+        let threshold_ms = self.threshold.as_millis() as u64;
+
+        if elapsed > self.threshold {
+            warn!(
+                operation = %self.operation,
+                elapsed_ms,
+                threshold_ms,
+                "CRDT sync cycle exceeded latency SLO"
+            );
+        } else {
+            info!(
+                operation = %self.operation,
+                elapsed_ms,
+                threshold_ms,
+                "CRDT sync cycle finished within latency SLO"
+            );
+        }
+
+        elapsed
     }
 }
 

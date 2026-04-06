@@ -56,6 +56,9 @@ jobs:
       - name: Enforce architecture layering
         run: bash scripts/ci/enforce-layering.sh
 
+      - name: Detect architecture drift
+        run: bash scripts/ci/detect-arch-drift.sh
+
       - name: Lint latest monthly report
         run: bash scripts/ci/lint-reports.sh
 

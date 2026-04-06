@@ -90,6 +90,10 @@ verify-docs: docs doc
 stability-map:
     bash scripts/docs/generate-stability-map.sh
 
+# Generate an auto-hydrated monthly report from KPI + benchmark signals
+report-hydrate:
+    bash scripts/metrics/generate-monthly-report.sh
+
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 # Debug build
@@ -116,6 +120,10 @@ audit-quick:
 
 # Security verification lane
 verify-security: audit
+
+# Print architecture graph drift summary against previous commit (or provided ref)
+arch-drift BASE='HEAD~1':
+    bash scripts/ci/detect-arch-drift.sh docs/architecture/component-graph.json {{ BASE }}
 
 # Fuzzing smoke check for arc-lang parser target
 fuzz-check:

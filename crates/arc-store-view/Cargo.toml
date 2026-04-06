@@ -9,6 +9,7 @@ description = "Crash-consistent persistence for arc mutable views and operation 
 workspace = true
 
 [dependencies]
+arc-fs-ops = { path = "../arc-fs-ops" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-store-types = { path = "../arc-store-types" }

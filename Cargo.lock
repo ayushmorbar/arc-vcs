@@ -351,6 +351,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-fs-ops"
+version = "0.1.0-beta.6"
+dependencies = [
+ "dashmap",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "arc-git"
 version = "0.1.0-beta.6"
 dependencies = [
@@ -524,6 +533,7 @@ dependencies = [
  "anyhow",
  "arc-algebra-types",
  "arc-change",
+ "arc-fs-ops",
  "arc-store-graph",
  "arc-store-types",
  "bincode",

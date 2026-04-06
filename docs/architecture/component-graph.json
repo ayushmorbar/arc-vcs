@@ -62,6 +62,12 @@
       "stabilityTier": 2
     },
     {
+      "id": "arc-fs-ops",
+      "class": "foundation",
+      "owner": "platform-runtime",
+      "stabilityTier": 2
+    },
+    {
       "id": "arc-algebra",
       "class": "plumbing",
       "owner": "core-architecture",

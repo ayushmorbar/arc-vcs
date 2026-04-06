@@ -8,6 +8,7 @@ use arc_store_cas::cas::ObjectStore;
 use arc_swap::ArcSwap;
 use thiserror::Error;
 
+use crate::ops::{OperationStage, SloTimer};
 use crate::store::StoreError;
 
 /// Public result type for repository facade operations.
@@ -235,6 +236,51 @@ impl SharedRepository {
 
     fn store(&self) -> Arc<ObjectStore> {
         Arc::clone(&self.inner.store)
+    }
+
+    /// Run a full CRDT sync cycle under stage-tagged tracing and an end-to-end latency SLO.
+    ///
+    /// The closure should execute the full synchronization exchange. This wrapper
+    /// emits stage spans for discover/negotiate/transfer/materialize/finalize and
+    /// logs a warning when total cycle latency exceeds `slo_threshold`.
+    pub fn with_sync_cycle_slo<T>(
+        &self,
+        operation: &str,
+        slo_threshold: std::time::Duration,
+        run: impl FnOnce() -> ArcResult<T>,
+    ) -> ArcResult<T> {
+        let timer = SloTimer::new(operation, slo_threshold);
+
+        timer.stage(OperationStage::Discover, || ());
+        timer.stage(OperationStage::Negotiate, || ());
+
+        let result = timer.stage(OperationStage::Transfer, run);
+
+        timer.stage(OperationStage::Materialize, || ());
+        timer.stage(OperationStage::Finalize, || ());
+        timer.finish();
+
+        result
+    }
+
+    /// Run a full CRDT sync cycle using the configured default SLO threshold.
+    pub fn with_sync_cycle<T>(
+        &self,
+        operation: &str,
+        run: impl FnOnce() -> ArcResult<T>,
+    ) -> ArcResult<T> {
+        let timer = SloTimer::from_env(operation);
+
+        timer.stage(OperationStage::Discover, || ());
+        timer.stage(OperationStage::Negotiate, || ());
+
+        let result = timer.stage(OperationStage::Transfer, run);
+
+        timer.stage(OperationStage::Materialize, || ());
+        timer.stage(OperationStage::Finalize, || ());
+        timer.finish();
+
+        result
     }
 }
 
