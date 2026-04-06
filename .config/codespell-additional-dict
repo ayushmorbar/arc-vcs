@@ -1,5 +1,26 @@
+# Compound-word technical terms that codespell flags as misspellings.
+# Format: misspelling->correction (tells codespell these ARE the correct forms)
+
+# Arc / VCS domain terms
 ast-aware->astaware
 zero-copy->zerocopy
 co-locate->colocate
 co-located->colocated
 co-location->colocation
+
+# Rust ecosystem terms
+# (codespell flags the hyphenated forms as if they should be two words)
+auto-deref->autoderef
+re-export->reexport
+re-exports->reexports
+re-exported->reexported
+re-borrow->reborrow
+re-borrows->reborrows
+
+# Git internals
+pack-file->packfile
+pack-files->packfiles
+object-id->objectid
+ref-log->reflog
+work-tree->worktree
+work-trees->worktrees

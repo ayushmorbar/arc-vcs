@@ -1,0 +1,78 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+# Minimum mise version — ensures [tasks] TOML syntax and `depends` work correctly.
+min_version = "2024.11.0"
+
+# ── Pinned versions (single source of truth) ──────────────────────────────────
+# Update here, and every tool in justfile/devcontainer/CI stays in sync.
+[vars]
+rust_version           = "1.89"
+cargo_nextest_version  = "0.9.131"   # bumped: flaky-result support
+cargo_deny_version     = "0.16"
+just_version           = "1.40"
+uv_version             = "0.8.13"
+
+[settings]
+windows_default_inline_shell_args = "pwsh -Command"
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+[tools]
+rust                   = "{{vars.rust_version}}"
+"cargo:cargo-nextest"  = "{{vars.cargo_nextest_version}}"
+"cargo:cargo-deny"     = "{{vars.cargo_deny_version}}"
+just                   = "{{vars.just_version}}"
+uv                     = "{{vars.uv_version}}"
+
+# ── Environment ───────────────────────────────────────────────────────────────
+[env]
+# Surface full backtraces in test output — especially useful for VCS ops
+RUST_BACKTRACE = "1"
+# Separate rust-analyzer target dir from your own builds (mirrors .vscode/settings.json)
+CARGO_TARGET_DIR = "target"
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+
+[tasks."check:test"]
+description = "Run workspace tests via nextest"
+run         = "cargo nextest run --workspace --no-fail-fast"
+# Skip re-running if no Rust sources have changed since last run
+sources     = ["src/**/*.rs", "tests/**/*.rs", "Cargo.toml", "Cargo.lock"]
+
+[tasks."check:test-filter"]
+description = "Run tests matching a filter (usage: mise run check:test-filter -- my_fn)"
+run         = "cargo nextest run --workspace --no-fail-fast -E 'test(${MISE_TASK_ARG_0})'"
+
+[tasks."check:clippy"]
+description = "Run clippy with warnings denied"
+run         = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+sources     = ["src/**/*.rs", "Cargo.toml"]
+
+[tasks."check:format"]
+description = "Check formatting (nightly — matches rustfmt.toml unstable_features)"
+# Must use +nightly: stable silently ignores all unstable options in rustfmt.toml
+run         = "cargo +nightly fmt --all -- --check"
+sources     = ["src/**/*.rs", "**/*.toml"]
+
+[tasks."check:doc"]
+description = "Build docs, treating rustdoc warnings as errors"
+env         = { RUSTDOCFLAGS = "-D warnings" }
+run         = "cargo doc --workspace --no-deps"
+sources     = ["src/**/*.rs"]
+
+[tasks."check:audit"]
+description = "Audit deps: CVEs + license compliance + banned crates"
+run         = "cargo deny --workspace --all-features check advisories bans licenses sources"
+
+[tasks."check:codespell"]
+description = "Check spelling in all tracked files"
+run         = "uv run codespell --config .codespellrc $(git ls-files)"
+
+[tasks."check:ci"]
+description = "Run all CI checks (mirrors justfile `ci` recipe)"
+depends     = [
+    "check:format",
+    "check:clippy",
+    "check:test",
+    "check:doc",
+    "check:audit",
+    "check:codespell",
+]

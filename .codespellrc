@@ -1,0 +1,14 @@
+[codespell]
+# Use both the built-in dictionaries and the project-specific one
+builtin = clear,rare
+dictionary = .config/codespell-additional-dict
+
+# Skip binary/generated/vendored paths — codespell on Cargo.lock is pure noise
+skip = target,*.lock,*.svg,*.png,*.jpg,*.gif,*.ico,*.bin,*.pack,*.idx
+
+# Level 2: suppress "no issues found" messages; only print actual errors
+quiet-level = 2
+
+# Don't suggest corrections for these — they appear in identifiers
+# and codespell would flag them as English misspellings
+ignore-words-list = ser,oid,odb,ofs,tre,mis,uint,bufs,pars

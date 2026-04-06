@@ -1,6 +1,45 @@
-[profile.default]
-slow-timeout = { period = "12s" }
+# Minimum nextest version required — ensures all profile features are available.
+# flaky-result (0.9.131), profile.inherits (0.9.115), fail-fast.terminate (0.9.111)
+nextest-version = { required = "0.9.131" }
 
+# ── Default Profile (local dev) ───────────────────────────────────────────────
+[profile.default]
+# 30s is the right floor for a VCS tool — pack parsing, index ops, and
+# object-db walks can legitimately take 10–25s. 12s causes constant noise.
+slow-timeout     = { period = "30s", grace-period = "5s" }
+failure-output   = "immediate"
+success-output   = "never"
+status-level     = "pass"
+final-status-level = "flaky"   # surface flaky tests even if they eventually pass
+
+# ── CI Profile ────────────────────────────────────────────────────────────────
 [profile.ci]
-slow-timeout = { period = "12s", terminate-after = 12 }
-fail-fast = false
+inherits       = "default"     # explicit, required since 0.9.115
+fail-fast      = false         # run all tests so CI surfaces every failure at once
+# Terminate after 5 warnings (5×12s = 60s hard kill) — keeps CI from hanging
+# on a deadlocked test. grace-period gives the process 5s to flush before SIGKILL.
+slow-timeout   = { period = "12s", terminate-after = 5, grace-period = "5s" }
+# In CI: retry up to 2× with exponential backoff — surfaces flaky tests without
+# blocking the pipeline on a single transient failure.
+retries        = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s", jitter = true }
+# Treat flaky tests as failures in CI — don't silently paper over them.
+flaky-result   = "fail"
+# Show failures immediately AND repeat them at the end of the run (best for long CI logs).
+failure-output = "immediate-final"
+status-level   = "slow"        # also print slow tests so you can track regressions
+final-status-level = "flaky"
+
+# JUnit XML for GitHub Actions / CI test reporters
+[profile.ci.junit]
+path                  = "junit.xml"   # written to target/nextest/ci/junit.xml
+report-name           = "arc-tests"
+store-failure-output  = true
+store-success-output  = false
+flaky-fail-status     = "failure"     # flaky failures show as <failure> in XML
+
+# ── With-XML Profile (standalone JUnit generation, mirrors gix) ───────────────
+[profile.with-xml]
+inherits = "ci"
+
+[profile.with-xml.junit]
+path = "junit.xml"

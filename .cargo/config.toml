@@ -1,0 +1,21 @@
+# Base Cargo configuration — applies to all contributors and environments.
+# CI-specific overrides live in .cargo/config-ci.toml.
+# Activated in CI via: cargo --config .cargo/config-ci.toml <cmd>
+
+# ── Linker: mold (Linux) — fastest available ──────────────────────────────────
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))']
+linker    = "clang"
+rustflags = ["-Clink-arg=-fuse-ld=mold"]
+
+# ── Build: split debuginfo for fast incremental links (dev only) ──────────────
+[profile.dev]
+split-debuginfo = "unpacked"   # keeps .dwo separate → faster incremental links
+
+[profile.dev.build-override]
+opt-level    = 3   # proc macros always at full speed
+codegen-units = 1
+
+# ── Aliases: match your justfile shortcuts ────────────────────────────────────
+[alias]
+nt  = "nextest run"
+nta = "nextest run --workspace"

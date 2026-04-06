@@ -1,16 +1,116 @@
 {
-  "name": "Rust",
+  "name": "arc — Rust VCS",
   "build": {
     "dockerfile": "Dockerfile",
-    "args": { "VARIANT": "1" }
+    "args": {
+      // bookworm = Debian 12 LTS, pinned OS, arm64 + x86-64 supported
+      "VARIANT": "bookworm"
+    }
   },
+
+  // ── Cargo Registry Cache ────────────────────────────────────────────────────
+  // Persists ~/.cargo/registry across container rebuilds — avoids re-downloading
+  // all crates every time the Dockerfile changes. Shared across all devcontainers
+  // on the same host that use this volume name.
+  "mounts": [
+    {
+      "source": "devcontainer-arc-cargo-cache",
+      "target": "/usr/local/cargo/registry",
+      "type": "volume"
+    },
+    {
+      "source": "devcontainer-arc-cargo-git",
+      "target": "/usr/local/cargo/git",
+      "type": "volume"
+    }
+  ],
+
+  // ── Environment ─────────────────────────────────────────────────────────────
+  "remoteEnv": {
+    // Separate rust-analyzer's check target from your own cargo builds —
+    // prevents lock contention (mirrors rust-analyzer.cargo.targetDir = true)
+    "CARGO_TARGET_DIR": "/workspaces/arc/target",
+    // Faster incremental linking inside the container via mold
+    "RUSTFLAGS": "-C link-arg=-fuse-ld=mold"
+  },
+
+  // ── Post-Create: Install all dev tools once ─────────────────────────────────
+  // Runs once after the container is first created.
+  // All installs use --locked for reproducibility.
+  // Parallel installs via & ... wait to cut setup time.
+  "postCreateCommand": {
+    "toolchain-nightly": "rustup toolchain install nightly --component rustfmt,clippy,rust-src --allow-downgrade",
+    "cargo-tools": "cargo install --locked cargo-nextest cargo-deny cargo-audit just mdbook && cargo install --locked cargo-edit cargo-machete"
+  },
+
+  // ── VS Code ─────────────────────────────────────────────────────────────────
   "customizations": {
     "vscode": {
       "extensions": [
-        "EditorConfig.EditorConfig",
-        "rust-lang.rust-analyzer"
-      ]
+        // ── Core Rust ──────────────────────────────────────────────────────────
+        "rust-lang.rust-analyzer",       // language server
+        "vadimcn.vscode-lldb",           // native Rust debugger (CodeLLDB)
+
+        // ── File Format Support ────────────────────────────────────────────────
+        "tamasfe.even-better-toml",      // Cargo.toml / rustfmt.toml syntax + schema
+        "EditorConfig.EditorConfig",     // .editorconfig enforcement
+
+        // ── Dependency Management ──────────────────────────────────────────────
+        "fill-labs.dependi",             // inline version hints + CVE alerts in Cargo.toml
+
+        // ── Diagnostics & Code Quality ─────────────────────────────────────────
+        "usernamehw.errorlens",          // inline error/warning display (no hover needed)
+        "streetsidesoftware.code-spell-checker", // catches typos in identifiers + comments
+
+        // ── Git ────────────────────────────────────────────────────────────────
+        "eamodio.gitlens",               // blame, history, PR context inline
+        "mhutchie.git-graph",            // visual branch / commit graph
+
+        // ── CI & Config ────────────────────────────────────────────────────────
+        "github.vscode-github-actions",  // inline lint for .github/workflows/*.yml
+        "ms-azuretools.vscode-docker"    // Dockerfile syntax + container management
+      ],
+
+      "settings": {
+        // ── Formatter ─────────────────────────────────────────────────────────
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer",
+          "editor.formatOnSave": true,
+          "editor.rulers": [100],
+          "editor.tabSize": 4
+        },
+
+        // ── rust-analyzer ──────────────────────────────────────────────────────
+        "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
+        "rust-analyzer.rustfmt.rangeFormatting.enable": true,
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.check.extraArgs": ["--", "-W", "clippy::all"],
+        "rust-analyzer.imports.granularity.group": "crate",
+        "rust-analyzer.imports.granularity.enforce": true,
+        "rust-analyzer.imports.group.enable": true,
+        "rust-analyzer.cargo.targetDir": true,
+        "rust-analyzer.procMacro.enable": true,
+        "rust-analyzer.cargo.buildScripts.enable": true,
+        "rust-analyzer.diagnostics.styleLints.enable": true,
+        "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "skip_trivial",
+        "rust-analyzer.inlayHints.closureReturnTypeHints.enable": "with_block",
+        "rust-analyzer.hover.memoryLayout.enable": true,
+        "rust-analyzer.hover.memoryLayout.niches": true,
+        "rust-analyzer.assist.emitMustUse": true,
+
+        // ── dependi ─────────────────────────────────────────────────────────────
+        "dependi.rust.enabled": true,
+        "dependi.rust.lockFileEnabled": false,
+        "dependi.rust.unstableFilter": "Exclude",
+        "dependi.vulnerability.enabled": true,
+        "dependi.vulnerability.ghsa.enabled": true,
+
+        // ── Editor ──────────────────────────────────────────────────────────────
+        "files.watcherExclude": { "**/target/**": true },
+        "errorLens.enabledDiagnosticLevels": ["error", "warning"]
+      }
     }
   },
+
   "remoteUser": "vscode"
 }

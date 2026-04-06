@@ -1,15 +1,84 @@
-# CI-specific Cargo configuration for arc's Rust components. This file is used in CI environments to optimize build times and ensure consistent build settings across different platforms.
+# CI-specific Cargo configuration for arc.
+#
+# HOW THIS FILE IS ACTIVATED IN CI:
+#   Option A (recommended): In your GitHub Actions workflow, add to env:
+#     CARGO_INCREMENTAL: "0"
+#     CARGO_PROFILE_TEST_DEBUG: "0"
+#   And apply this file via: cargo --config .cargo/config-ci.toml <cmd>
+#
+#   Option B: In .cargo/config.toml, add at the top:
+#     include = [{ path = "config-ci.toml", optional = true }]
+#   Then in CI setup step: ln -s config-ci.toml .cargo/config-ci.toml
+#
+# This file intentionally has NO settings that belong in the base config.toml.
+# Linker settings (mold) live in .cargo/config.toml — they apply everywhere.
+
+# ── CI Build Profile Overrides ────────────────────────────────────────────────
 
 [profile.dev]
-debug = "none"
-incremental = false
+debug        = "none"       # no DWARF → smaller artifacts, faster links
+incremental  = false        # deterministic builds; CI has no warm cache to reuse
+codegen-units = 256         # maximum parallelism → faster CI compile (default for dev)
+split-debuginfo = "off"     # don't produce .dwo/.dsym files at all in CI
 
-# Apply mold to all GNU/Linux targets (instead of duplicating per arch)
+# build-override: compile proc-macros (serde_derive, thiserror, etc.) at full
+# speed even in debug profile — biggest single win in a derive-heavy VCS project
+[profile.dev.build-override]
+opt-level    = 3
+codegen-units = 1           # proc macros are small; single unit = best output
+
+# nextest uses [profile.test], NOT [profile.dev] — must mirror the settings
+[profile.test]
+debug        = "none"
+incremental  = false
+codegen-units = 256
+split-debuginfo = "off"
+
+[profile.test.build-override]
+opt-level    = 3
+codegen-units = 1
+
+# ── Linkers: per-platform CI runner OS ───────────────────────────────────────
+
+# Linux GNU (x86-64 and aarch64 GitHub-hosted runners + self-hosted)
+# Uses the `cfg()` form to avoid duplicating per-arch — one rule covers all GNU targets
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))']
-linker = "clang"
+linker    = "clang"
 rustflags = ["-Clink-arg=-fuse-ld=mold"]
 
+# macOS (Apple Silicon M-series and Intel GitHub-hosted runners)
+# lld is available via LLVM in the GitHub Actions macOS image without extra install
+[target.'cfg(target_os = "macos")']
+rustflags = ["-Clink-arg=-fuse-ld=lld"]
+
+# Windows MSVC (windows-latest GitHub runner)
+# rust-lld.exe: ships with the Rust toolchain, no separate install needed
+# +crt-static: statically links vcruntime → produces a self-contained .exe
 [target.x86_64-pc-windows-msvc]
-linker = "rust-lld.exe"
-# Produce standalone .exe without vcruntime dependency
+linker    = "rust-lld.exe"
 rustflags = ["-Ctarget-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+linker    = "rust-lld.exe"
+rustflags = ["-Ctarget-feature=+crt-static"]
+
+# ── Network: resilience for flaky CI runners ─────────────────────────────────
+[net]
+retry              = 5      # retry transient download failures (default: 3)
+git-fetch-with-cli = true   # use system git for auth (handles credential helpers in CI)
+
+[http]
+timeout            = 60     # longer timeout for slow CI network (default: 30s)
+multiplexing       = true   # HTTP/2 for parallel crate fetching
+
+# ── Registry: sparse protocol (faster index fetches) ─────────────────────────
+# Sparse protocol is now stable default since 1.68, but explicit is correct
+# for any toolchain pinned below that version.
+[registries.crates-io]
+protocol = "sparse"
+
+# ── Term: clean CI log output ─────────────────────────────────────────────────
+[term]
+color              = "always"   # GitHub Actions renders ANSI colors correctly
+progress.when      = "never"    # progress bars corrupt CI log viewers
+quiet              = false      # keep error output visible
