@@ -1,0 +1,20 @@
+[files]
+extend-exclude = [
+    "**/CHANGELOG.md",
+    "*.response",
+    "target/**",
+    "research/**",
+]
+ignore-hidden = false
+
+[default]
+extend-ignore-re = [
+    "[0-9A-Za-z+=]{44,}",
+]
+extend-ignore-identifiers-re = [
+    "[0-9a-f]{7,}",
+    "rela_[a-z_]+",
+]
+
+[default.extend-identifiers]
+ein = "ein"
