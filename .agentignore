@@ -1,0 +1,4 @@
+# Sensitive control surfaces require explicit human approval
+.arc/config.json
+justfile
+.github/**

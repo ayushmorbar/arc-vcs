@@ -1,0 +1,15 @@
+# Cross-compilation and cross-test environment isolation for arc.
+# Use with: CROSS_CONFIG=Cross.toml cross test --target <triple>
+
+[build.env]
+passthrough = [
+  "CI",
+  "GITHUB_ACTIONS",
+  "RUST_BACKTRACE",
+  "RUST_LIB_BACKTRACE",
+  "ARC_LOG",
+  "ARC_TEST_EXPECT_REDUCED_TRUST",
+  "ARC_TEST_IGNORE_ARCHIVES",
+  "ARC_TEST_NETWORK",
+  "NO_PRELOAD_CXX",
+]

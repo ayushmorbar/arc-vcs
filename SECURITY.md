@@ -1,5 +1,11 @@
 # Security Policy
 
+Additional operational security documentation is available in:
+
+- `docs/security/threat_model.md`
+- `docs/security/incident_response_playbook.md`
+- `docs/security/coordinated_disclosure.md`
+
 ---
 
 ## Supported Versions
@@ -16,10 +22,10 @@
 arc's security model is built on three pillars:
 
 ### 1. BLAKE3 Content-Addressed Storage
-Every `Atom`, `Change`, and `Tag` is identified solely by its BLAKE3 hash. Tampering with any stored object changes its hash, making it unreferenceable from the graph — equivalent to **SLSA L4 build provenance** for every version control operation.
+Every `Atom`, `Change`, and `Tag` is identified solely by its BLAKE3 hash. Tampering with any stored object changes its hash, making corruption detectable by content-address validation and graph traversal checks.
 
 ### 2. Ed25519 Per-Change Signatures
-Every `Change` carries an Ed25519 signature from the author's keypair (stored in the OS config directory via the `directories` crate). Signature verification runs on every graph load. A change whose signature does not match its author's public key is rejected before it can affect the working directory.
+Every `Change` carries an Ed25519 signature from the author's keypair (stored in the OS config directory via the `directories` crate). Signature verification is enforced on explicit verification workflows and ingestion paths that opt into provenance checks. A change whose signature does not match its author's public key is rejected in those verification paths.
 
 ### 3. Hook Sandbox (`.agentignore`)
 The hook engine executes binaries configured in `.arc/config.json`. To mitigate supply-chain attacks:
