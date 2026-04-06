@@ -37,7 +37,7 @@ jobs:
         run: mdbook build docs
 
       - name: Upload Pages artefact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: docs/book
 
@@ -52,4 +52,4 @@ jobs:
     steps:
       - name: Deploy Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
