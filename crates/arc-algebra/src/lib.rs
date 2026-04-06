@@ -42,5 +42,6 @@ pub trait BlobStore {
 
 pub mod apply;
 pub mod commute;
+pub mod ewah;
 pub mod inverse;
 pub mod sparse;

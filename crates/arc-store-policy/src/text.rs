@@ -9,51 +9,77 @@ pub(crate) fn normalize_slashes(input: &str) -> Cow<'_, str> {
     }
 }
 
-/// A two-buffer helper for transform pipelines.
-#[derive(Debug, Default)]
-pub(crate) struct Buffers {
-    src: Vec<u8>,
-    dest: Vec<u8>,
+/// One logical line in an input stream.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LineView<'a> {
+    /// Raw line bytes as read, including the trailing newline if present.
+    pub raw: &'a [u8],
+    /// Line bytes without trailing newline and optional carriage return.
+    pub content: &'a [u8],
+    /// 1-based line number.
+    pub line_no: usize,
 }
 
-impl Buffers {
-    pub(crate) fn clear(&mut self) {
-        self.src.clear();
-        self.dest.clear();
+/// Iterate byte lines while preserving the original bytes.
+pub(crate) fn iter_lines(input: &[u8]) -> LineIter<'_> {
+    LineIter {
+        input,
+        pos: 0,
+        line_no: 1,
     }
+}
 
-    pub(crate) fn use_foreign_src<'a, 'src>(
-        &'a mut self,
-        src: &'src [u8],
-    ) -> WithForeignSource<'src, 'a> {
-        self.clear();
-        WithForeignSource {
-            ro_src: Some(src),
-            src: &mut self.src,
-            dest: &mut self.dest,
+/// Losslessly rewrite a byte stream line-by-line.
+pub(crate) fn rewrite_lossless(
+    input: &[u8],
+    mut rewrite: impl FnMut(LineView<'_>, &mut Vec<u8>),
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    for line in iter_lines(input) {
+        rewrite(line, &mut out);
+    }
+    out
+}
+
+pub(crate) struct LineIter<'a> {
+    input: &'a [u8],
+    pos: usize,
+    line_no: usize,
+}
+
+impl<'a> Iterator for LineIter<'a> {
+    type Item = LineView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.input.len() {
+            return None;
         }
-    }
 
-}
-
-pub(crate) struct WithForeignSource<'src, 'bufs> {
-    ro_src: Option<&'src [u8]>,
-    src: &'bufs mut Vec<u8>,
-    dest: &'bufs mut Vec<u8>,
-}
-
-impl WithForeignSource<'_, '_> {
-    pub(crate) fn src_and_dest(&mut self) -> (&[u8], &mut Vec<u8>) {
-        match self.ro_src {
-            Some(src) => (src, self.dest),
-            None => (self.src, self.dest),
+        let start = self.pos;
+        let mut end = self.pos;
+        while end < self.input.len() && self.input[end] != b'\n' {
+            end += 1;
         }
-    }
+        let raw_end = if end < self.input.len() { end + 1 } else { end };
+        self.pos = raw_end;
 
-    pub(crate) fn swap(&mut self) {
-        self.ro_src.take();
-        std::mem::swap(&mut self.src, &mut self.dest);
-        self.dest.clear();
+        let raw = &self.input[start..raw_end];
+        let mut content_end = raw.len();
+        if content_end > 0 && raw[content_end - 1] == b'\n' {
+            content_end -= 1;
+        }
+        if content_end > 0 && raw[content_end - 1] == b'\r' {
+            content_end -= 1;
+        }
+        let content = &raw[..content_end];
+
+        let line = LineView {
+            raw,
+            content,
+            line_no: self.line_no,
+        };
+        self.line_no += 1;
+        Some(line)
     }
 }
 
@@ -71,17 +97,22 @@ mod tests {
     }
 
     #[test]
-    fn buffers_foreign_source_lifecycle() {
-        let mut bufs = Buffers::default();
-        let mut bufs = bufs.use_foreign_src(b"a");
+    fn iter_lines_preserves_raw_and_content() {
+        let input = b"a\r\n#b\nlast";
+        let lines: Vec<LineView<'_>> = iter_lines(input).collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].raw, b"a\r\n");
+        assert_eq!(lines[0].content, b"a");
+        assert_eq!(lines[1].raw, b"#b\n");
+        assert_eq!(lines[1].content, b"#b");
+        assert_eq!(lines[2].raw, b"last");
+        assert_eq!(lines[2].content, b"last");
+    }
 
-        let (src, dest) = bufs.src_and_dest();
-        assert_eq!(src, b"a");
-        dest.extend_from_slice(b"b");
-
-        bufs.swap();
-        let (src, dest) = bufs.src_and_dest();
-        assert_eq!(src, b"b");
-        assert!(dest.is_empty());
+    #[test]
+    fn rewrite_lossless_identity() {
+        let input = b"one\r\ntwo\nthree";
+        let out = rewrite_lossless(input, |line, dest| dest.extend_from_slice(line.raw));
+        assert_eq!(out, input);
     }
 }

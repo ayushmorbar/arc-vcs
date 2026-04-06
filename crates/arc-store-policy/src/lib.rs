@@ -96,9 +96,7 @@ impl ArcIgnoreMatcher {
 
         let mut loader = IgnoreLoader {
             workspace_root: &workspace_root,
-            max_depth: 32,
-            visited: HashSet::new(),
-            stack: Vec::new(),
+            include_state: IncludeState::new(32),
             lattice: &mut lattice,
             rules: &mut rules,
         };
@@ -211,15 +209,34 @@ pub fn explain_config_key(
     })
 }
 
+/// Rewrite policy/config text line-by-line while preserving all untouched bytes.
+///
+/// The callback receives the line content without trailing newline bytes. If it
+/// returns `Some(replacement)`, the original line content is replaced and the
+/// original line ending (`\n`, `\r\n`, or none) is preserved.
+pub fn rewrite_policy_text_lossless(
+    input: &[u8],
+    mut rewrite_line: impl FnMut(&str) -> Option<String>,
+) -> Vec<u8> {
+    text::rewrite_lossless(input, |line, out| {
+        let line_text = String::from_utf8_lossy(line.content);
+        if let Some(replacement) = rewrite_line(line_text.as_ref()) {
+            out.extend_from_slice(replacement.as_bytes());
+            let newline = &line.raw[line.content.len()..];
+            out.extend_from_slice(newline);
+        } else {
+            out.extend_from_slice(line.raw);
+        }
+    })
+}
+
 fn load_config_lattice(
     workspace_root: &Path,
 ) -> Result<PolicyLattice<'static, Cow<'static, str>>, PolicyStoreError> {
     let mut lattice = PolicyLattice::new();
     let mut loader = ConfigLoader {
         workspace_root,
-        max_depth: 32,
-        visited: HashSet::new(),
-        stack: Vec::new(),
+        include_state: IncludeState::new(32),
         lattice: &mut lattice,
     };
 
@@ -234,9 +251,7 @@ fn load_config_lattice(
 
 struct ConfigLoader<'a> {
     workspace_root: &'a Path,
-    max_depth: u16,
-    visited: HashSet<PathBuf>,
-    stack: Vec<PathBuf>,
+    include_state: IncludeState,
     lattice: &'a mut PolicyLattice<'static, Cow<'static, str>>,
 }
 
@@ -247,54 +262,30 @@ impl<'a> ConfigLoader<'a> {
         trust: TrustLevel,
         depth: u16,
     ) -> Result<(), PolicyStoreError> {
-        let canonical = file_path
-            .canonicalize()
-            .map_err(|source| PolicyStoreError::Read {
-                path: file_path.to_path_buf(),
+        let Some(canonical) = self.include_state.enter(file_path, depth)? else {
+            return Ok(());
+        };
+
+        let result = (|| {
+            let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
+                path: canonical.clone(),
                 source,
             })?;
-
-        if depth > self.max_depth {
-            return Err(PolicyStoreError::MaxDepth {
-                path: canonical.clone(),
-            });
-        }
-
-        if let Some(idx) = self.stack.iter().position(|p| p == &canonical) {
-            let mut cycle: Vec<String> = self.stack[idx..]
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect();
-            cycle.push(canonical.display().to_string());
-            return Err(PolicyStoreError::IncludeCycle {
-                cycle: cycle.join(" -> "),
-            });
-        }
-
-        if !self.visited.insert(canonical.clone()) {
-            return Ok(());
-        }
-
-        self.stack.push(canonical.clone());
-
-        let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
-            path: canonical.clone(),
-            source,
-        })?;
-        for include in parse_config_includes(&bytes, &canonical, self.workspace_root) {
-            let include = include?;
-            if !include.path.starts_with(self.workspace_root) {
-                return Err(PolicyStoreError::OutsideWorkspace { path: include.path });
+            for include in parse_config_includes(&bytes, &canonical, self.workspace_root) {
+                let include = include?;
+                if !include.path.starts_with(self.workspace_root) {
+                    return Err(PolicyStoreError::OutsideWorkspace { path: include.path });
+                }
+                self.load_recursive(&include.path, trust, depth + 1)?;
             }
-            self.load_recursive(&include.path, trust, depth + 1)?;
-        }
+            let parsed: toml::Value =
+                toml::from_slice(&bytes).unwrap_or(toml::Value::Table(Default::default()));
+            flatten_config_value(&parsed, "", &canonical, depth, trust, self.lattice);
+            Ok(())
+        })();
 
-        let parsed: toml::Value =
-            toml::from_slice(&bytes).unwrap_or(toml::Value::Table(Default::default()));
-        flatten_config_value(&parsed, "", &canonical, depth, trust, self.lattice);
-
-        self.stack.pop();
-        Ok(())
+        self.include_state.exit();
+        result
     }
 }
 
@@ -422,20 +413,68 @@ struct IncludeDirective {
     path: PathBuf,
 }
 
+#[derive(Debug, Default)]
+struct IncludeState {
+    max_depth: u16,
+    visited: HashSet<PathBuf>,
+    stack: Vec<PathBuf>,
+}
+
+impl IncludeState {
+    fn new(max_depth: u16) -> Self {
+        Self {
+            max_depth,
+            visited: HashSet::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    fn enter(&mut self, file_path: &Path, depth: u16) -> Result<Option<PathBuf>, PolicyStoreError> {
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|source| PolicyStoreError::Read {
+                path: file_path.to_path_buf(),
+                source,
+            })?;
+
+        if depth > self.max_depth {
+            return Err(PolicyStoreError::MaxDepth {
+                path: canonical.clone(),
+            });
+        }
+
+        if let Some(idx) = self.stack.iter().position(|p| p == &canonical) {
+            let mut cycle: Vec<String> = self.stack[idx..]
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            cycle.push(canonical.display().to_string());
+            return Err(PolicyStoreError::IncludeCycle {
+                cycle: cycle.join(" -> "),
+            });
+        }
+
+        if !self.visited.insert(canonical.clone()) {
+            return Ok(None);
+        }
+
+        self.stack.push(canonical.clone());
+        Ok(Some(canonical))
+    }
+
+    fn exit(&mut self) {
+        self.stack.pop();
+    }
+}
+
 fn parse_config_includes(
     bytes: &[u8],
     source_path: &Path,
     workspace_root: &Path,
 ) -> Vec<Result<IncludeDirective, PolicyStoreError>> {
     let mut out = Vec::new();
-    let mut buffers = text::Buffers::default();
-    for raw_line in bytes.split(|b| *b == b'\n') {
-        let mut with_src = buffers.use_foreign_src(raw_line);
-        let (src, dest) = with_src.src_and_dest();
-        dest.extend(src.iter().copied().filter(|b| *b != b'\r'));
-        with_src.swap();
-        let (src, _dest) = with_src.src_and_dest();
-        let line_cow = String::from_utf8_lossy(src);
+    for line_view in text::iter_lines(bytes) {
+        let line_cow = String::from_utf8_lossy(line_view.content);
         let line = line_cow.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -490,132 +529,101 @@ fn resolve_include(
 
 struct IgnoreLoader<'a> {
     workspace_root: &'a Path,
-    max_depth: u16,
-    visited: HashSet<PathBuf>,
-    stack: Vec<PathBuf>,
+    include_state: IncludeState,
     lattice: &'a mut PolicyLattice<'static, bool>,
     rules: &'a mut HashMap<String, IgnoreRule>,
 }
 
 impl<'a> IgnoreLoader<'a> {
     fn load_recursive(&mut self, file_path: &Path, depth: u16) -> Result<(), PolicyStoreError> {
-        if depth > self.max_depth {
-            return Err(PolicyStoreError::MaxDepth {
-                path: file_path.to_path_buf(),
-            });
-        }
+        let Some(canonical) = self.include_state.enter(file_path, depth)? else {
+            return Ok(());
+        };
 
-        let canonical = file_path
-            .canonicalize()
-            .map_err(|source| PolicyStoreError::Read {
-                path: file_path.to_path_buf(),
+        let result = (|| {
+            let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
+                path: canonical.clone(),
                 source,
             })?;
 
-        if let Some(idx) = self.stack.iter().position(|p| p == &canonical) {
-            let mut cycle: Vec<String> = self.stack[idx..]
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect();
-            cycle.push(canonical.display().to_string());
-            return Err(PolicyStoreError::IncludeCycle {
-                cycle: cycle.join(" -> "),
-            });
-        }
+            for line_view in text::iter_lines(&bytes) {
+                let line_cow = String::from_utf8_lossy(line_view.content);
+                let line = line_cow.trim();
 
-        if !self.visited.insert(canonical.clone()) {
-            return Ok(());
-        }
+                if line.is_empty() {
+                    continue;
+                }
 
-        self.stack.push(canonical.clone());
-
-        let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
-            path: canonical.clone(),
-            source,
-        })?;
-
-        let mut buffers = text::Buffers::default();
-
-        for (line_idx, raw_line) in bytes.split(|b| *b == b'\n').enumerate() {
-            let mut with_src = buffers.use_foreign_src(raw_line);
-            let (src, dest) = with_src.src_and_dest();
-            dest.extend(src.iter().copied().filter(|b| *b != b'\r'));
-            with_src.swap();
-            let (src, _dest) = with_src.src_and_dest();
-            let line_cow = String::from_utf8_lossy(src);
-            let line = line_cow.trim();
-
-            if line.is_empty() {
-                continue;
-            }
-
-            if let Some(rest) = line.strip_prefix("#include ") {
-                let include_file =
-                    resolve_ignore_include(&canonical, self.workspace_root, rest.trim())?;
-                self.load_recursive(&include_file, depth + 1)?;
-                continue;
-            }
-
-            if let Some(rest) = line.strip_prefix("#includeIf.exists ") {
-                let candidate = canonical
-                    .parent()
-                    .unwrap_or(self.workspace_root)
-                    .join(rest.trim());
-                if candidate.exists() {
+                if let Some(rest) = line.strip_prefix("#include ") {
                     let include_file =
                         resolve_ignore_include(&canonical, self.workspace_root, rest.trim())?;
                     self.load_recursive(&include_file, depth + 1)?;
+                    continue;
                 }
-                continue;
+
+                if let Some(rest) = line.strip_prefix("#includeIf.exists ") {
+                    let candidate = canonical
+                        .parent()
+                        .unwrap_or(self.workspace_root)
+                        .join(rest.trim());
+                    if candidate.exists() {
+                        let include_file =
+                            resolve_ignore_include(&canonical, self.workspace_root, rest.trim())?;
+                        self.load_recursive(&include_file, depth + 1)?;
+                    }
+                    continue;
+                }
+
+                if line.starts_with('#') {
+                    continue;
+                }
+
+                let (value, pattern) = if let Some(stripped) = line.strip_prefix('!') {
+                    (PolicyValue::Present(false), stripped)
+                } else {
+                    (PolicyValue::Present(true), line)
+                };
+                let pattern = pattern.trim();
+                if pattern.is_empty() {
+                    continue;
+                }
+
+                let mut builder = GitignoreBuilder::new(self.workspace_root);
+                builder
+                    .add_line(Some(canonical.clone()), pattern)
+                    .map_err(|source| PolicyStoreError::InvalidGlob {
+                        path: canonical.clone(),
+                        pattern: pattern.to_string(),
+                        details: source.to_string(),
+                    })?;
+                let matcher = builder.build().unwrap_or_else(|_| Gitignore::empty());
+
+                let key = format!("{}:{}:{}", canonical.display(), line_view.line_no, pattern);
+                self.rules.insert(
+                    key.clone(),
+                    IgnoreRule {
+                        pattern: pattern.to_string(),
+                        matcher,
+                        line: line_view.line_no,
+                    },
+                );
+                self.lattice.push(PolicyAtom {
+                    domain: PolicyDomain::Ignore,
+                    key: Cow::Owned(key),
+                    value,
+                    source: SourceTrace {
+                        origin: Cow::Owned(canonical.display().to_string()),
+                        depth,
+                        trust: TrustLevel::Repo,
+                    },
+                });
             }
 
-            if line.starts_with('#') {
-                continue;
-            }
+            Ok(())
+        })();
 
-            let (value, pattern) = if let Some(stripped) = line.strip_prefix('!') {
-                (PolicyValue::Present(false), stripped)
-            } else {
-                (PolicyValue::Present(true), line)
-            };
-            let pattern = pattern.trim();
-            if pattern.is_empty() {
-                continue;
-            }
-
-            let mut builder = GitignoreBuilder::new(self.workspace_root);
-            builder
-                .add_line(Some(canonical.clone()), pattern)
-                .map_err(|source| PolicyStoreError::InvalidGlob {
-                    path: canonical.clone(),
-                    pattern: pattern.to_string(),
-                    details: source.to_string(),
-                })?;
-            let matcher = builder.build().unwrap_or_else(|_| Gitignore::empty());
-
-            let key = format!("{}:{}:{}", canonical.display(), line_idx + 1, pattern);
-            self.rules.insert(
-                key.clone(),
-                IgnoreRule {
-                    pattern: pattern.to_string(),
-                    matcher,
-                    line: line_idx + 1,
-                },
-            );
-            self.lattice.push(PolicyAtom {
-                domain: PolicyDomain::Ignore,
-                key: Cow::Owned(key),
-                value,
-                source: SourceTrace {
-                    origin: Cow::Owned(canonical.display().to_string()),
-                    depth,
-                    trust: TrustLevel::Repo,
-                },
-            });
-        }
-
-        self.stack.pop();
-        Ok(())
+        self.include_state.exit();
+        result
     }
 }
 
@@ -681,5 +689,18 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let trust = repo_trust_level(tmp.path());
         assert!(matches!(trust, TrustLevel::Repo | TrustLevel::Untrusted));
+    }
+
+    #[test]
+    fn lossless_rewrite_preserves_newlines_and_comments() {
+        let input = b"# header\r\nkey = old\n# footer";
+        let out = rewrite_policy_text_lossless(input, |line| {
+            if line.trim() == "key = old" {
+                Some("key = new".to_string())
+            } else {
+                None
+            }
+        });
+        assert_eq!(out, b"# header\r\nkey = new\n# footer");
     }
 }

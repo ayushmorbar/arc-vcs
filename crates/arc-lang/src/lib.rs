@@ -12,3 +12,9 @@
 
 /// AST diffing and source reconstruction across supported programming languages.
 pub mod ast;
+
+/// Zero-copy lexical event stream parsing primitives.
+pub mod event_stream;
+
+/// Borrowed/owned dual byte-value wrappers.
+pub mod value;
