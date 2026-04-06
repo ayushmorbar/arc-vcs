@@ -118,6 +118,30 @@ Any change that alters a fundamental design decision — storage format, diff al
 
 ---
 
+## Governance Norms (Capstone)
+
+### Keep `main` Healthy
+
+- `main` should stay green and warning-free.
+- If you introduce a break and know the cause, prioritize immediate repair.
+- If the cause is unclear, open a synchronization PR instead of parallel
+	speculative fixes.
+
+### PR Class Expectations
+
+- Minor/local changes: short-lived PRs are preferred.
+- Architectural or cross-slice changes: open design discussion (issue/ADR)
+	before merge.
+- Changes impacting consumers must include migration guidance.
+
+### Boundary Discipline
+
+- Pure semantic crates must not add filesystem/network/process-clock I/O.
+- Boundary crates should not re-implement pure semantics.
+- Any boundary-crossing policy change must be documented in `docs/architecture`.
+
+---
+
 ## License
 
 By contributing you agree that your contributions will be dual-licensed under `MIT OR Apache-2.0`, matching the project license.

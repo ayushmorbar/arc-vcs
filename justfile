@@ -17,6 +17,7 @@ alias t  := test
 alias c  := check
 alias l  := lint
 alias nt := nextest
+alias v  := verify-fast
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,10 @@ doc-tests:
 verify:
     cargo nextest run -p arc-cli --no-fail-fast \
         -E 'test(tooling_audit_current_workspace) | test(governance_audit_current_workspace) | test(workspace_policy_audit_current_workspace)'
+
+# Public policy lane
+verify-policy:
+    @{{ j }} verify
 
 # Run tests matching a filter string, e.g. `just test-filter my_fn`
 test-filter FILTER:
@@ -78,6 +83,9 @@ docs-serve:
 docs:
     mdbook build docs
 
+# Documentation verification lane (book + rustdoc)
+verify-docs: docs doc
+
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 # Debug build
@@ -101,6 +109,15 @@ audit:
 # Fallback: quick CVE-only audit (requires: cargo install cargo-audit)
 audit-quick:
     cargo audit
+
+# Security verification lane
+verify-security: audit
+
+# Fast contributor lane: most common local pre-push checks
+verify-fast: fmt-check lint test doc-tests verify-docs
+
+# Full lane: mirrors strict CI + policy + supply chain checks
+verify-full: verify-fast verify-policy verify-security
 
 # ── Full CI gate ──────────────────────────────────────────────────────────────
 

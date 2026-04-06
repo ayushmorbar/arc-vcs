@@ -13,6 +13,7 @@ A practical guide to building, testing, profiling, and releasing the arc codebas
 | `rustfmt` | bundled | `rustup component add rustfmt` |
 | `just` | any recent | `cargo install just` |
 | `mdbook` | ≥ 0.4 | `cargo install mdbook` |
+| `cargo-deny` | any recent | `cargo install cargo-deny` (recommended) |
 | `cargo-audit` | any recent | `cargo install cargo-audit` (recommended) |
 
 All core development tasks work with plain `cargo`. `just` and `mdbook` are optional but strongly recommended.
@@ -77,6 +78,8 @@ just docs-serve  # mdbook serve --open docs  (live-reload at http://localhost:30
 just clean       # cargo clean
 just ci          # test + lint + fmt check (full local CI gate)
 just release     # cargo build --workspace --release
+just verify-fast # quick lane (format/lint/test/docs)
+just verify-full # full lane (fast + security + policy tests)
 ```
 
 ---
@@ -151,6 +154,21 @@ cargo flamegraph --bin arc -- snap -m "profile target"
 ```sh
 cargo audit
 ```
+
+Prefer `just verify-security` and `just verify-full` for release-prep checks.
+These lanes are intentionally stricter than the default CI path and help catch
+issues before push.
+
+---
+
+## Contributor Workflow Norms
+
+1. Prefer small, focused PRs for iterative change.
+2. Use ADR-backed design proposals for architectural changes.
+3. Keep pure crates side-effect free; place side effects in boundary crates.
+4. When modifying docs/contracts, update `docs/architecture/CRATE_STATUS.md`,
+   `docs/architecture/STABILITY.md`, or `docs/architecture/SHORTCOMINGS.md`
+   as appropriate.
 
 ---
 
