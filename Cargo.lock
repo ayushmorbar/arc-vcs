@@ -297,6 +297,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-diff"
+version = "0.1.0-beta.6"
+
+[[package]]
 name = "arc-engine"
 version = "0.1.0-beta.6"
 dependencies = [
