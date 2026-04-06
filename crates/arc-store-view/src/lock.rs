@@ -41,6 +41,21 @@ const STALE_LOCK_TTL: Duration = Duration::from_secs(30);
 const CREATE_DIR_RETRY_LIMIT: usize = 6;
 const CREATE_DIR_RETRY_DELAY: Duration = Duration::from_millis(2);
 
+/// Configure lock acquisition behavior when contention is detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockFailMode {
+    /// Fail immediately if lock is not currently available.
+    Immediately,
+    /// Retry with fixed backoff until timeout budget is exceeded.
+    AfterDurationWithBackoff(Duration),
+}
+
+impl Default for LockFailMode {
+    fn default() -> Self {
+        Self::AfterDurationWithBackoff(default_lock_timeout())
+    }
+}
+
 /// Mutual-exclusion lock marker.
 ///
 /// Acquire with [`LockMarker::acquire`]. The lock file is deleted on drop.
@@ -57,6 +72,12 @@ impl LockMarker {
     /// cannot be simultaneously acquired by competing writers.
     #[instrument(skip_all)]
     pub fn acquire(path: &Path) -> std::io::Result<Self> {
+        Self::acquire_with(path, LockFailMode::AfterDurationWithBackoff(default_lock_timeout()))
+    }
+
+    /// Acquire a marker lock using explicit contention behavior.
+    #[instrument(skip_all)]
+    pub fn acquire_with(path: &Path, mode: LockFailMode) -> std::io::Result<Self> {
         let parent = path.parent().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -65,7 +86,10 @@ impl LockMarker {
         })?;
         create_dir_all_retry(parent)?;
 
-        for _ in 0..MAX_LOCK_ATTEMPTS {
+        let deadline = deadline_for_mode(mode);
+        let mut attempts = 0usize;
+        loop {
+            attempts += 1;
             match OpenOptions::new().create_new(true).write(true).open(path) {
                 Ok(mut file) => {
                     let _ = writeln!(file, "pid={}", std::process::id());
@@ -82,15 +106,26 @@ impl LockMarker {
                         let _ = fs::remove_file(path);
                         continue;
                     }
+                    if should_fail_now(mode, deadline) {
+                        break;
+                    }
                     thread::sleep(LOCK_RETRY_DELAY);
                 }
                 Err(err) => return Err(err),
+            }
+
+            if attempts >= MAX_LOCK_ATTEMPTS && should_fail_now(mode, deadline) {
+                break;
             }
         }
 
         Err(std::io::Error::new(
             ErrorKind::TimedOut,
-            format!("timed out acquiring lock {}", path.display()),
+            format!(
+                "timed out acquiring lock {} after {} attempt(s)",
+                path.display(),
+                attempts
+            ),
         ))
     }
 
@@ -136,6 +171,15 @@ impl LockFile {
     /// Acquire a lock file for writing a future update to `target_path`.
     #[instrument(skip_all)]
     pub fn acquire_for_update(target_path: &Path) -> std::io::Result<Self> {
+        Self::acquire_for_update_with(
+            target_path,
+            LockFailMode::AfterDurationWithBackoff(default_lock_timeout()),
+        )
+    }
+
+    /// Acquire a lock file using explicit contention behavior.
+    #[instrument(skip_all)]
+    pub fn acquire_for_update_with(target_path: &Path, mode: LockFailMode) -> std::io::Result<Self> {
         let parent = target_path.parent().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -146,7 +190,10 @@ impl LockFile {
 
         let lock_path = lock_path_for(target_path);
         let owner_path = owner_path_for(&lock_path);
-        for _ in 0..MAX_LOCK_ATTEMPTS {
+        let deadline = deadline_for_mode(mode);
+        let mut attempts = 0usize;
+        loop {
+            attempts += 1;
             match OpenOptions::new()
                 .create_new(true)
                 .write(true)
@@ -173,17 +220,25 @@ impl LockFile {
                         let _ = fs::remove_file(&owner_path);
                         continue;
                     }
+                    if should_fail_now(mode, deadline) {
+                        break;
+                    }
                     thread::sleep(LOCK_RETRY_DELAY);
                 }
                 Err(err) => return Err(err),
+            }
+
+            if attempts >= MAX_LOCK_ATTEMPTS && should_fail_now(mode, deadline) {
+                break;
             }
         }
 
         Err(std::io::Error::new(
             ErrorKind::TimedOut,
             format!(
-                "timed out acquiring lock file for {}",
-                target_path.display()
+                "timed out acquiring lock file for {} after {} attempt(s)",
+                target_path.display(),
+                attempts
             ),
         ))
     }
@@ -456,6 +511,29 @@ fn create_dir_all_retry(parent: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other(
         "exhausted lock parent directory creation retries",
     ))
+}
+
+fn default_lock_timeout() -> Duration {
+    Duration::from_millis((MAX_LOCK_ATTEMPTS as u64) * (LOCK_RETRY_DELAY.as_millis() as u64))
+}
+
+fn deadline_for_mode(mode: LockFailMode) -> Option<SystemTime> {
+    match mode {
+        LockFailMode::Immediately => None,
+        LockFailMode::AfterDurationWithBackoff(timeout) => {
+            let now = SystemTime::now();
+            Some(now.checked_add(timeout).unwrap_or(now))
+        }
+    }
+}
+
+fn should_fail_now(mode: LockFailMode, deadline: Option<SystemTime>) -> bool {
+    match mode {
+        LockFailMode::Immediately => true,
+        LockFailMode::AfterDurationWithBackoff(_) => {
+            deadline.is_some_and(|limit| SystemTime::now().duration_since(limit).is_ok())
+        }
+    }
 }
 
 #[cfg(test)]

@@ -5,6 +5,9 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Crash-consistent persistence for arc mutable views and operation log"
 
+[lints]
+workspace = true
+
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }

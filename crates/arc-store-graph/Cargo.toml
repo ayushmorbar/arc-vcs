@@ -5,6 +5,13 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Pure DAG traversal, topology, and bisect state management for arc"
 
+[features]
+default = ["native-workers"]
+native-workers = []
+
+[lints]
+workspace = true
+
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }

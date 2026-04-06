@@ -28,16 +28,19 @@
 
 /// Deterministic bisect state machine and persistence helpers.
 pub mod bisect;
+/// Digest-key optimized hasher utilities for DAG maps.
+pub mod blake3_hasher;
 /// In-memory change DAG traversal and topology algorithms.
 pub mod graph;
 /// Native-only scoped worker orchestration for parallel DAG passes.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-workers"))]
 pub mod scoped_workers;
 /// Compact bitflag-based node traversal metadata.
 pub mod traversal_state;
 
 pub use bisect::*;
+pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use graph::*;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-workers"))]
 pub use scoped_workers::*;
 pub use traversal_state::*;

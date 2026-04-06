@@ -5,5 +5,18 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Shared global error wrappers and extension traits for arc"
 
+[features]
+default = ["tree-error"]
+auto-chain-error = []
+tree-error = []
+
+[[test]]
+name = "auto-chain-error"
+path = "tests/auto_chain_error.rs"
+required-features = ["auto-chain-error"]
+
+[lints]
+workspace = true
+
 [dependencies]
 thiserror = "2.0.18"

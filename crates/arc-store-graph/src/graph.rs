@@ -1,29 +1,11 @@
 use std::collections::{BTreeSet, HashSet, VecDeque};
-use std::hash::{BuildHasherDefault, Hasher};
 
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_types::newtypes::ChangeId;
 use tracing::instrument;
 
-#[derive(Default)]
-struct Blake3Hasher(u64);
-
-impl Hasher for Blake3Hasher {
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        if bytes.len() >= 8 {
-            self.0 = u64::from_le_bytes(bytes[..8].try_into().expect("slice length checked"));
-        }
-    }
-
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-}
-
-type Blake3HashMap<V> = std::collections::HashMap<Blake3Hash, V, BuildHasherDefault<Blake3Hasher>>;
+use crate::blake3_hasher::Blake3HashMap;
 
 /// Immutable insertion abstraction for graph backends.
 pub trait ImmutableInsert<T>: Sized {

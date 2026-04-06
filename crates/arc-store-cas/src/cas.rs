@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fs;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -10,9 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use arc_algebra_types::Blake3Hash;
 use arc_store_types::newtypes::{BlobId, ChangeId};
 use bytes::Bytes;
+#[cfg(feature = "native-io")]
 use memmap2::{Mmap, MmapOptions};
 use thiserror::Error;
 use tracing::{debug, instrument, warn};
+
+use crate::blake3_hasher::Blake3HashMap;
 
 const SMALL_OBJECT_THRESHOLD: u64 = 4096;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -104,7 +107,7 @@ struct WeightedEntry {
 pub struct WeightedLruCache {
     capacity_bytes: usize,
     used_bytes: usize,
-    entries: HashMap<Blake3Hash, WeightedEntry>,
+    entries: Blake3HashMap<WeightedEntry>,
     lru: VecDeque<Blake3Hash>,
     free_buffers: Vec<Vec<u8>>,
 }
@@ -115,7 +118,7 @@ impl WeightedLruCache {
         Self {
             capacity_bytes,
             used_bytes: 0,
-            entries: HashMap::new(),
+            entries: Blake3HashMap::default(),
             lru: VecDeque::new(),
             free_buffers: Vec::new(),
         }
@@ -204,7 +207,7 @@ struct TinyEntry {
 /// Fixed-size linked-list LRU for tiny hot sets.
 pub struct TinyLinkedLruCache<const N: usize> {
     slots: [Option<TinyEntry>; N],
-    index: HashMap<Blake3Hash, usize>,
+    index: Blake3HashMap<usize>,
     head: Option<usize>,
     tail: Option<usize>,
     free: Vec<usize>,
@@ -215,7 +218,7 @@ impl<const N: usize> Default for TinyLinkedLruCache<N> {
         let free = (0..N).rev().collect();
         Self {
             slots: std::array::from_fn(|_| None),
-            index: HashMap::new(),
+            index: Blake3HashMap::default(),
             head: None,
             tail: None,
             free,
@@ -357,6 +360,7 @@ pub enum CasBytes {
     /// `Bytes` preserves zero-copy handoff into downstream streaming paths.
     Owned(Bytes),
     /// Memory-mapped file for large blobs (≥ 4 096 bytes).
+    #[cfg(feature = "native-io")]
     Mapped(Mmap),
 }
 
@@ -366,6 +370,7 @@ impl std::ops::Deref for CasBytes {
     fn deref(&self) -> &[u8] {
         match self {
             CasBytes::Owned(v) => v,
+            #[cfg(feature = "native-io")]
             CasBytes::Mapped(m) => m,
         }
     }
@@ -586,33 +591,47 @@ fn read_cas_bytes_with_policy(
         return Ok(CasBytes::Owned(owned));
     }
 
-    // SAFETY: CAS files are immutable after successful publish.
-    match unsafe { MmapOptions::new().map(&file) } {
-        Ok(mapped) => {
-            if let Some(expected) = expected_hash
-                && *expected != *blake3::hash(&mapped).as_bytes()
-            {
-                // Fallback to buffered retry path to avoid failing on one mmap
-                // read attempt under interrupted conditions.
+    #[cfg(feature = "native-io")]
+    {
+        // SAFETY: CAS files are immutable after successful publish.
+        match unsafe { MmapOptions::new().map(&file) } {
+            Ok(mapped) => {
+                if let Some(expected) = expected_hash
+                    && *expected != *blake3::hash(&mapped).as_bytes()
+                {
+                    // Fallback to buffered retry path to avoid failing on one mmap
+                    // read attempt under interrupted conditions.
+                    let mut second = open_read_no_follow(path)?;
+                    let owned = read_owned_interrupt_aware(&mut second, len as usize, interrupted)?;
+                    if *expected != *blake3::hash(owned.as_ref()).as_bytes() {
+                        return Err(CasError::ChecksumMismatch);
+                    }
+                    return Ok(CasBytes::Owned(owned));
+                }
+                Ok(CasBytes::Mapped(mapped))
+            }
+            Err(_) => {
                 let mut second = open_read_no_follow(path)?;
                 let owned = read_owned_interrupt_aware(&mut second, len as usize, interrupted)?;
-                if *expected != *blake3::hash(owned.as_ref()).as_bytes() {
+                if let Some(expected) = expected_hash
+                    && *expected != *blake3::hash(owned.as_ref()).as_bytes()
+                {
                     return Err(CasError::ChecksumMismatch);
                 }
-                return Ok(CasBytes::Owned(owned));
+                Ok(CasBytes::Owned(owned))
             }
-            Ok(CasBytes::Mapped(mapped))
         }
-        Err(_) => {
-            let mut second = open_read_no_follow(path)?;
-            let owned = read_owned_interrupt_aware(&mut second, len as usize, interrupted)?;
-            if let Some(expected) = expected_hash
-                && *expected != *blake3::hash(owned.as_ref()).as_bytes()
-            {
-                return Err(CasError::ChecksumMismatch);
-            }
-            Ok(CasBytes::Owned(owned))
+    }
+
+    #[cfg(not(feature = "native-io"))]
+    {
+        let owned = read_owned_interrupt_aware(&mut file, len as usize, interrupted)?;
+        if let Some(expected) = expected_hash
+            && *expected != *blake3::hash(owned.as_ref()).as_bytes()
+        {
+            return Err(CasError::ChecksumMismatch);
         }
+        Ok(CasBytes::Owned(owned))
     }
 }
 
