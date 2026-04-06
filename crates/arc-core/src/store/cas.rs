@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use arc_store_cas::cas::ObjectStore as RawObjectStore;
+use tracing::info_span;
 
 pub use arc_store_cas::cas::CasBytes;
 
 use crate::algebra::Blake3Hash;
 use crate::error::{Exn, ResultExt};
+use crate::ops::OperationStage;
 use crate::store::StoreError;
 use crate::store::change::Change;
 
@@ -41,45 +43,101 @@ impl ObjectStore {
     /// Persist a [`Change`] to the CAS.
     #[track_caller]
     pub fn write_change(&self, change: &Change) -> Result<Blake3Hash, Exn<StoreError>> {
-        let bytes = bincode::serialize(change).or_raise(|| {
-            StoreError::Serialization(Box::new(bincode::ErrorKind::Custom(
-                "serialize failed".to_string(),
-            )))
+        let discover_span = info_span!(
+            "arc_core.cas.write_change",
+            stage = %OperationStage::Discover,
+            object = "change"
+        );
+        let bytes = discover_span.in_scope(|| {
+            bincode::serialize(change).or_raise(|| {
+                StoreError::Serialization(Box::new(bincode::ErrorKind::Custom(
+                    "serialize failed".to_string(),
+                )))
+            })
         })?;
-        self.inner
-            .write_object(&change.id, &bytes)
-            .or_raise(|| StoreError::Io(std::io::Error::other("write object failed")))
+
+        let transfer_span = info_span!(
+            "arc_core.cas.write_change",
+            stage = %OperationStage::Transfer,
+            object = "change",
+            bytes = bytes.len()
+        );
+        let hash = transfer_span.in_scope(|| {
+            self.inner
+                .write_object(&change.id, &bytes)
+                .or_raise(|| StoreError::Io(std::io::Error::other("write object failed")))
+        })?;
+
+        let finalize_span = info_span!(
+            "arc_core.cas.write_change",
+            stage = %OperationStage::Finalize,
+            object = "change"
+        );
+        finalize_span.in_scope(|| ());
+
+        Ok(hash)
     }
 
     /// Read a [`Change`] back from the CAS.
     #[track_caller]
     pub fn read_change(&self, hash: &Blake3Hash) -> Result<Change, Exn<StoreError>> {
-        let bytes = self
-            .inner
-            .read_object(hash)
-            .or_raise(|| StoreError::Io(std::io::Error::other("read object failed")))?;
-        let change: Change = bincode::deserialize(&bytes).or_raise(|| {
-            StoreError::Serialization(Box::new(bincode::ErrorKind::Custom(
-                "deserialize failed".to_string(),
-            )))
+        let transfer_span = info_span!(
+            "arc_core.cas.read_change",
+            stage = %OperationStage::Transfer,
+            object = "change"
+        );
+        let bytes = transfer_span.in_scope(|| {
+            self.inner
+                .read_object(hash)
+                .or_raise(|| StoreError::Io(std::io::Error::other("read object failed")))
         })?;
+
+        let materialize_span = info_span!(
+            "arc_core.cas.read_change",
+            stage = %OperationStage::Materialize,
+            object = "change",
+            bytes = bytes.len()
+        );
+        let change: Change = materialize_span.in_scope(|| {
+            bincode::deserialize(&bytes).or_raise(|| {
+                StoreError::Serialization(Box::new(bincode::ErrorKind::Custom(
+                    "deserialize failed".to_string(),
+                )))
+            })
+        })?;
+
         Ok(change)
     }
 
     /// Persist raw bytes as a content-addressed blob.
     #[track_caller]
     pub fn write_blob(&self, bytes: &[u8]) -> Result<Blake3Hash, Exn<StoreError>> {
-        self.inner
-            .write_blob(bytes)
-            .or_raise(|| StoreError::Io(std::io::Error::other("write blob failed")))
+        let transfer_span = info_span!(
+            "arc_core.cas.write_blob",
+            stage = %OperationStage::Transfer,
+            object = "blob",
+            bytes = bytes.len()
+        );
+        transfer_span.in_scope(|| {
+            self.inner
+                .write_blob(bytes)
+                .or_raise(|| StoreError::Io(std::io::Error::other("write blob failed")))
+        })
     }
 
     /// Read raw bytes for a blob by its BLAKE3 hash.
     #[track_caller]
     pub fn read_blob(&self, hash: &Blake3Hash) -> Result<CasBytes, Exn<StoreError>> {
-        self.inner
-            .read_blob(hash)
-            .or_raise(|| StoreError::Io(std::io::Error::other("read blob failed")))
+        let transfer_span = info_span!(
+            "arc_core.cas.read_blob",
+            stage = %OperationStage::Transfer,
+            object = "blob"
+        );
+        transfer_span.in_scope(|| {
+            self.inner
+                .read_blob(hash)
+                .or_raise(|| StoreError::Io(std::io::Error::other("read blob failed")))
+        })
     }
 
     /// Return `true` when the blob exists in `.arc/blobs/`.

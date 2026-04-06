@@ -44,6 +44,20 @@ jobs:
           cargo install typos-cli --locked --version 1.37.0
           typos --config ./typos.toml
 
+      - name: Enforce architecture layering
+        run: bash scripts/ci/enforce-layering.sh
+
+      - name: Install cargo-diet
+        run: cargo install cargo-diet --locked
+
+      - name: Package size guardrails
+        run: |
+          bash scripts/ci/check-package-size.sh \
+            crates/arc-core:300KB \
+            crates/arc-cli:350KB \
+            crates/arc-daemon:250KB \
+            crates/arc-git-bridge:300KB
+
       - name: Workspace tests
         run: cargo test --workspace --all-targets --locked
 

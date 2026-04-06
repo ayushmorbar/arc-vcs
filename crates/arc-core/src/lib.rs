@@ -39,4 +39,6 @@ pub use arc_network as network;
 pub mod revset;
 /// Generic operation contexts with dual output channels.
 pub mod operation_context;
+/// Shared taxonomy for staged operations and tracing semantics.
+pub mod ops;
 pub mod store;

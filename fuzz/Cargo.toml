@@ -1,0 +1,24 @@
+[package]
+name = "arc-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.arc-lang]
+path = "../crates/arc-lang"
+
+[[bin]]
+name = "fuzz_lang_parser"
+path = "fuzz_targets/fuzz_lang_parser.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

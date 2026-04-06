@@ -86,6 +86,10 @@ docs:
 # Documentation verification lane (book + rustdoc)
 verify-docs: docs doc
 
+# Generate API stability map from architecture component graph
+stability-map:
+    bash scripts/docs/generate-stability-map.sh
+
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 # Debug build
@@ -112,6 +116,17 @@ audit-quick:
 
 # Security verification lane
 verify-security: audit
+
+# Fuzzing smoke check for arc-lang parser target
+fuzz-check:
+    cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=1024 -max_total_time=10
+
+# Benchmark arc-core operations and emit report-friendly summary
+bench-trend:
+    mkdir -p target/bench
+    cargo bench -p arc-core --bench core_ops | tee target/bench/core_ops.latest.txt
+    printf "## Benchmark Snapshot\n\n- Command: cargo bench -p arc-core --bench core_ops\n- Raw output: target/bench/core_ops.latest.txt\n\n### Extracted timings\n" > target/bench/core_ops-summary.md
+    grep -E "arc_core_cas/.+time:" target/bench/core_ops.latest.txt >> target/bench/core_ops-summary.md || true
 
 # Fast contributor lane: most common local pre-push checks
 verify-fast: fmt-check lint test doc-tests verify-docs

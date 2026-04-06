@@ -7,7 +7,39 @@ on:
 permissions: read-all
 
 jobs:
+  preflight-release-guards:
+    name: preflight-release-guards
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+
+      - name: Ensure unique release tag
+        run: bash scripts/ci/enforce-unique-tag.sh
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
+
+      - name: Install cargo-diet
+        run: cargo install cargo-diet --locked
+
+      - name: Package size preflight
+        run: |
+          bash scripts/ci/check-package-size.sh \
+            crates/arc-core:300KB \
+            crates/arc-cli:350KB \
+            crates/arc-daemon:250KB \
+            crates/arc-git-bridge:300KB
+
   build-release:
+    needs: [preflight-release-guards]
     strategy:
       fail-fast: false
       matrix:

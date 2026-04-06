@@ -43,7 +43,13 @@ rand_core = { version = "0.6.4", features = ["getrandom"] }
 serde_json = { version = "1.0.149", optional = true }
 directories = { version = "6.0.0", optional = true }
 ignore = "0.4.25"
+tracing = "0.1.44"
 
 [dev-dependencies]
+criterion = "0.8.2"
 tempfile = "3.27.0"
 tokio = { version = "1.51.0", features = ["rt", "macros"] }
+
+[[bench]]
+name = "core_ops"
+harness = false
