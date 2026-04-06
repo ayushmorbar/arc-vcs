@@ -279,6 +279,7 @@ dependencies = [
  "dashmap",
  "directories",
  "ed25519-dalek",
+ "getrandom 0.4.2",
  "ignore",
  "rand_core 0.6.4",
  "serde",
@@ -2090,10 +2091,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]

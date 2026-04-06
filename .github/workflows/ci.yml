@@ -22,7 +22,7 @@ jobs:
       toolchain: stable # <-- Ensures $toolchain is available to all steps
 
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -44,8 +44,20 @@ jobs:
           cargo install typos-cli --locked --version 1.37.0
           typos --config ./typos.toml
 
+      - name: Install nightly toolchain (API drift gate)
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --locked --version 0.51.0
+
+      - name: Enforce stable API baselines
+        run: bash scripts/ci/check-api-drift.sh
+
       - name: Enforce architecture layering
         run: bash scripts/ci/enforce-layering.sh
+
+      - name: Lint latest monthly report
+        run: bash scripts/ci/lint-reports.sh
 
       - name: Install cargo-diet
         run: cargo install cargo-diet --locked

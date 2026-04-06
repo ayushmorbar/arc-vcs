@@ -119,7 +119,9 @@ verify-security: audit
 
 # Fuzzing smoke check for arc-lang parser target
 fuzz-check:
-    cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=1024 -max_total_time=10
+    cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=256 -max_total_time=5
+    cargo fuzz run fuzz_net_protocol --sanitizer none -- -runs=256 -max_total_time=5
+    cargo fuzz run fuzz_crdt_merge --sanitizer none -- -runs=256 -max_total_time=5
 
 # Benchmark arc-core operations and emit report-friendly summary
 bench-trend:
@@ -138,3 +140,7 @@ verify-full: verify-fast verify-policy verify-security
 
 # Complete local CI check — mirrors CI pipeline exactly
 ci: test doc-tests lint fmt-check doc verify
+    rustup toolchain install nightly --profile minimal
+    cargo install cargo-public-api --locked --version 0.51.0
+    bash scripts/ci/check-api-drift.sh
+    bash scripts/ci/lint-reports.sh

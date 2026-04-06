@@ -1,0 +1,77 @@
+pub mod arc_git_bridge
+pub mod arc_git_bridge::http
+pub async fn arc_git_bridge::http::discover_refs(url: &str) -> anyhow::Result<std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>>
+pub async fn arc_git_bridge::http::push_packfile(url: &str, old_sha: &str, new_sha: &str, ref_name: &str, packfile: &[u8]) -> anyhow::Result<()>
+pub mod arc_git_bridge::object
+pub struct arc_git_bridge::object::GitIdentity
+pub arc_git_bridge::object::GitIdentity::email: alloc::string::String
+pub arc_git_bridge::object::GitIdentity::name: alloc::string::String
+pub arc_git_bridge::object::GitIdentity::timestamp: i64
+pub arc_git_bridge::object::GitIdentity::timezone: alloc::string::String
+impl core::clone::Clone for arc_git_bridge::object::GitIdentity
+pub fn arc_git_bridge::object::GitIdentity::clone(&self) -> arc_git_bridge::object::GitIdentity
+impl core::cmp::Eq for arc_git_bridge::object::GitIdentity
+impl core::cmp::PartialEq for arc_git_bridge::object::GitIdentity
+pub fn arc_git_bridge::object::GitIdentity::eq(&self, other: &arc_git_bridge::object::GitIdentity) -> bool
+impl core::fmt::Debug for arc_git_bridge::object::GitIdentity
+pub fn arc_git_bridge::object::GitIdentity::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_bridge::object::GitIdentity
+pub struct arc_git_bridge::object::GitSha1(pub [u8; 20])
+impl arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::from_hex(hex: &str) -> core::option::Option<Self>
+pub fn arc_git_bridge::object::GitSha1::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::clone(&self) -> arc_git_bridge::object::GitSha1
+impl core::cmp::Eq for arc_git_bridge::object::GitSha1
+impl core::cmp::Ord for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::cmp(&self, other: &arc_git_bridge::object::GitSha1) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::eq(&self, other: &arc_git_bridge::object::GitSha1) -> bool
+impl core::cmp::PartialOrd for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::partial_cmp(&self, other: &arc_git_bridge::object::GitSha1) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_git_bridge::object::GitSha1
+pub fn arc_git_bridge::object::GitSha1::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for arc_git_bridge::object::GitSha1
+impl core::marker::StructuralPartialEq for arc_git_bridge::object::GitSha1
+pub const arc_git_bridge::object::GIT_OBJECT_BLOB: u8
+pub const arc_git_bridge::object::GIT_OBJECT_COMMIT: u8
+pub const arc_git_bridge::object::GIT_OBJECT_TREE: u8
+pub fn arc_git_bridge::object::hash_blob(content: &[u8]) -> (arc_git_bridge::object::GitSha1, alloc::vec::Vec<u8>)
+pub fn arc_git_bridge::object::hash_commit(tree: arc_git_bridge::object::GitSha1, parents: &[arc_git_bridge::object::GitSha1], author: &arc_git_bridge::object::GitIdentity, committer: &arc_git_bridge::object::GitIdentity, message: &str) -> (arc_git_bridge::object::GitSha1, alloc::vec::Vec<u8>)
+pub fn arc_git_bridge::object::hash_tree(entries: &[(alloc::string::String, arc_git_bridge::object::GitSha1, u32)]) -> (arc_git_bridge::object::GitSha1, alloc::vec::Vec<u8>)
+pub mod arc_git_bridge::pack
+pub fn arc_git_bridge::pack::encode_packfile(objects: &[(u8, &[u8])]) -> alloc::vec::Vec<u8>
+pub mod arc_git_bridge::protocol
+pub fn arc_git_bridge::protocol::pkt_flush() -> &'static [u8]
+pub fn arc_git_bridge::protocol::pkt_line(data: &[u8]) -> alloc::vec::Vec<u8>
+pub mod arc_git_bridge::translator
+pub struct arc_git_bridge::translator::CommitCompileInput<'a>
+pub arc_git_bridge::translator::CommitCompileInput::author: &'a arc_git_bridge::object::GitIdentity
+pub arc_git_bridge::translator::CommitCompileInput::change: &'a arc_change::change::Change
+pub arc_git_bridge::translator::CommitCompileInput::committer: &'a arc_git_bridge::object::GitIdentity
+pub arc_git_bridge::translator::CommitCompileInput::parent_commits: &'a [arc_git_bridge::object::GitSha1]
+pub arc_git_bridge::translator::CommitCompileInput::projected_state_has_conflict: bool
+pub arc_git_bridge::translator::CommitCompileInput::root_tree: arc_git_bridge::object::GitSha1
+pub struct arc_git_bridge::translator::GitMap
+impl arc_git_bridge::translator::GitMap
+pub fn arc_git_bridge::translator::GitMap::get(&self, arc: &arc_algebra_types::Blake3Hash) -> core::option::Option<arc_git_bridge::object::GitSha1>
+pub fn arc_git_bridge::translator::GitMap::insert(&mut self, arc: arc_algebra_types::Blake3Hash, git: arc_git_bridge::object::GitSha1)
+impl core::default::Default for arc_git_bridge::translator::GitMap
+pub fn arc_git_bridge::translator::GitMap::default() -> arc_git_bridge::translator::GitMap
+impl core::fmt::Debug for arc_git_bridge::translator::GitMap
+pub fn arc_git_bridge::translator::GitMap::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_git_bridge::translator::GitOdb
+impl arc_git_bridge::translator::GitOdb
+pub fn arc_git_bridge::translator::GitOdb::get(&self, id: &arc_git_bridge::object::GitSha1) -> core::option::Option<&(u8, alloc::vec::Vec<u8>)>
+pub fn arc_git_bridge::translator::GitOdb::insert(&mut self, id: arc_git_bridge::object::GitSha1, kind: u8, payload: alloc::vec::Vec<u8>)
+pub fn arc_git_bridge::translator::GitOdb::is_empty(&self) -> bool
+pub fn arc_git_bridge::translator::GitOdb::len(&self) -> usize
+pub fn arc_git_bridge::translator::GitOdb::pack_objects(&self) -> alloc::vec::Vec<(u8, &[u8])>
+impl core::default::Default for arc_git_bridge::translator::GitOdb
+pub fn arc_git_bridge::translator::GitOdb::default() -> arc_git_bridge::translator::GitOdb
+impl core::fmt::Debug for arc_git_bridge::translator::GitOdb
+pub fn arc_git_bridge::translator::GitOdb::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_git_bridge::translator::compile_commit(input: arc_git_bridge::translator::CommitCompileInput<'_>, odb: &mut arc_git_bridge::translator::GitOdb, map: &mut arc_git_bridge::translator::GitMap) -> anyhow::Result<arc_git_bridge::object::GitSha1>
+pub fn arc_git_bridge::translator::compile_tree(state: &std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>, odb: &mut arc_git_bridge::translator::GitOdb) -> anyhow::Result<arc_git_bridge::object::GitSha1>

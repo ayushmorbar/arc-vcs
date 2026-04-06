@@ -17,18 +17,15 @@ native = [
 wasm = []
 
 [dependencies]
-arc-ai = { path = "../arc-ai", optional = true }
 arc-algebra = { path = "../arc-algebra" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-engine = { path = "../arc-engine" }
 arc-git = { path = "../arc-git" }
-arc-network = { path = "../arc-network", optional = true }
 arc-revset = { path = "../arc-revset" }
 arc-error = { path = "../arc-error" }
 arc-store-cas = { path = "../arc-store-cas" }
 arc-store-graph = { path = "../arc-store-graph" }
-arc-store-policy = { path = "../arc-store-policy", optional = true }
 arc-store-view = { path = "../arc-store-view" }
 arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
@@ -40,10 +37,18 @@ thiserror = "2.0.18"
 anyhow = "1.0.102"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
+ignore = "0.4.25"
+tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+arc-ai = { path = "../arc-ai", optional = true }
+arc-network = { path = "../arc-network", optional = true }
+arc-store-policy = { path = "../arc-store-policy", optional = true }
 serde_json = { version = "1.0.149", optional = true }
 directories = { version = "6.0.0", optional = true }
-ignore = "0.4.25"
-tracing = "0.1.44"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4.2", features = ["wasm_js"] }
 
 [dev-dependencies]
 criterion = "0.8.2"

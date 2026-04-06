@@ -38,11 +38,11 @@ pub enum ArcError {
         path: String,
     },
     /// Policy evaluation and load failures (native-only).
-    #[cfg(feature = "native")]
+    #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
     #[error("policy error: {0}")]
     Policy(#[from] arc_store_policy::PolicyStoreError),
     /// Transport-level failures (native-only).
-    #[cfg(feature = "native")]
+    #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
     #[error("network error: {0}")]
     Network(#[from] anyhow::Error),
 }
@@ -145,7 +145,7 @@ struct SharedState {
     store: Arc<ObjectStore>,
     frontier: ArcSwap<Vec<Blake3Hash>>,
     options: OpenOptions,
-    #[cfg(feature = "native")]
+    #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
     policy_matcher: Option<arc_store_policy::ArcIgnoreMatcher>,
 }
 
@@ -173,14 +173,14 @@ impl SharedRepository {
 
         let root = root.as_ref().to_path_buf();
 
-        #[cfg(not(feature = "native"))]
+        #[cfg(any(not(feature = "native"), target_arch = "wasm32"))]
         if matches!(options.policy_mode, PolicyMode::Enforce) {
             return Err(ArcError::InvalidOpenOptions {
                 reason: "PolicyMode::Enforce requires the 'native' feature".to_string(),
             });
         }
 
-        #[cfg(feature = "native")]
+        #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
         let policy_matcher = if matches!(options.policy_mode, PolicyMode::Enforce) {
             Some(arc_store_policy::ArcIgnoreMatcher::load(&root)?)
         } else {
@@ -192,7 +192,7 @@ impl SharedRepository {
             root,
             frontier: ArcSwap::new(Arc::new(Vec::new())),
             options,
-            #[cfg(feature = "native")]
+            #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
             policy_matcher,
         };
 
@@ -227,7 +227,7 @@ impl SharedRepository {
     }
 
     /// Create a native network client using facade defaults.
-    #[cfg(feature = "native")]
+    #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
     pub fn network_client(&self) -> ArcResult<arc_network::NetworkClient> {
         let _ = self;
         Ok(arc_network::NetworkClient::new()?)
@@ -318,7 +318,7 @@ impl Repository {
     }
 
     fn policy_denies(&self, relative_path: &str) -> bool {
-        #[cfg(feature = "native")]
+        #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
         {
             self
                 .shared
@@ -332,7 +332,7 @@ impl Repository {
                 })
         }
 
-        #[cfg(not(feature = "native"))]
+        #[cfg(any(not(feature = "native"), target_arch = "wasm32"))]
         {
             let _ = relative_path;
             false

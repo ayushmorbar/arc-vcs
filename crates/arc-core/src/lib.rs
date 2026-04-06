@@ -20,7 +20,7 @@
 
 #![warn(missing_docs)]
 
-#[cfg(feature = "native")]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use arc_ai as ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
@@ -33,7 +33,7 @@ pub use arc_git as git_bridge;
 /// Top-level repository facade with state-split handles and open options.
 pub mod repository;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS) when `native` is enabled.
-#[cfg(feature = "native")]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use arc_network as network;
 /// Revset grammar and parser for DAG query expressions.
 pub mod revset;

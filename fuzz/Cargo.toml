@@ -9,13 +9,42 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+bytes = "1.11.1"
+tokio-util = { version = "0.7.18", features = ["codec"] }
+bincode = "1.3.3"
 
 [dependencies.arc-lang]
 path = "../crates/arc-lang"
 
+[dependencies.arc-net]
+path = "../crates/arc-net"
+
+[dependencies.arc-core]
+path = "../crates/arc-core"
+
+[dependencies.arc-change]
+path = "../crates/arc-change"
+
+[dependencies.arc-algebra-types]
+path = "../crates/arc-algebra-types"
+
 [[bin]]
 name = "fuzz_lang_parser"
 path = "fuzz_targets/fuzz_lang_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_net_protocol"
+path = "fuzz_targets/fuzz_net_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_crdt_merge"
+path = "fuzz_targets/fuzz_crdt_merge.rs"
 test = false
 doc = false
 bench = false

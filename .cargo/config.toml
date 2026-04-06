@@ -7,6 +7,9 @@
 linker    = "clang"
 rustflags = ["-Clink-arg=-fuse-ld=mold"]
 
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
+
 # ── Build: split debuginfo for fast incremental links (dev only) ──────────────
 [profile.dev]
 split-debuginfo = "unpacked"   # keeps .dwo separate → faster incremental links
