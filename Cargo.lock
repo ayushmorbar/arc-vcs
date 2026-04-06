@@ -292,6 +292,8 @@ name = "arc-diagnostics"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
+ "rusqlite",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

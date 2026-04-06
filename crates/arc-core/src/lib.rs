@@ -33,4 +33,6 @@ pub use arc_git as git_bridge;
 pub use arc_network as network;
 /// Revset grammar and parser for DAG query expressions.
 pub mod revset;
+/// Generic operation contexts with dual output channels.
+pub mod operation_context;
 pub mod store;

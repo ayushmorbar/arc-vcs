@@ -9,3 +9,9 @@ description = "Structured diagnostics and actionable hints for arc"
 anyhow = "1.0.102"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

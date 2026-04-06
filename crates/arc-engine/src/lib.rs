@@ -12,6 +12,8 @@
 
 pub mod mutator;
 pub mod spacetime;
+pub mod task_harness;
 
 pub use mutator::*;
 pub use spacetime::*;
+pub use task_harness::*;

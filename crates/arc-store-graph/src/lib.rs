@@ -30,9 +30,14 @@
 pub mod bisect;
 /// In-memory change DAG traversal and topology algorithms.
 pub mod graph;
+/// Native-only scoped worker orchestration for parallel DAG passes.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod scoped_workers;
 /// Compact bitflag-based node traversal metadata.
 pub mod traversal_state;
 
 pub use bisect::*;
 pub use graph::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use scoped_workers::*;
 pub use traversal_state::*;

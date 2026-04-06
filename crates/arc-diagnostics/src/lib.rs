@@ -10,6 +10,9 @@ use tracing_subscriber::EnvFilter;
 
 static TRACING_INIT: OnceLock<()> = OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native;
+
 /// Initialize tracing from ARC_* environment variables.
 ///
 /// Behavior:
