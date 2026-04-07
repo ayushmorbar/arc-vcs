@@ -81,6 +81,7 @@ description: Table of contents for arc documentation.
 - [ADR 003 — CRDT over OT](architecture/decisions/003-crdt-over-ot.md)
 - [ADR 004 — Gitoxide Architecture Study](architecture/decisions/004-gitoxide-architecture-study.md)
 - [ADR 005 — Gitoxide Report Extraction](architecture/decisions/005-gitoxide-report-extraction.md)
+- [ADR 006 - AiResolver static analysis sandwich](architecture/decisions/006-airesolver-pipeline.md)
 - [Vision: Agentic Era (2026)](design/VISION.md)
 - [Semantic Diff Engine](design/semantic_diff.md)
 - [Spacetime Operation Log](design/oplog.md)
