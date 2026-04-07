@@ -177,7 +177,7 @@
     },
     {
       "id": "arc-daemon",
-      "class": "cli-surface",
+      "class": "application",
       "owner": "product-surfaces",
       "stabilityTier": 1
     },

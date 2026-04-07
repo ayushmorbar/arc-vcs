@@ -6,6 +6,7 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use inquire::Text;
 use std::collections::{BTreeSet, HashSet};
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::Blake3Hash;
@@ -129,7 +130,7 @@ fn cli_styles() -> Styles {
     about = "Atomic Replayable Changes",
     styles = cli_styles(),
     subcommand_help_heading = "COMMANDS",
-    after_help = "DAILY USE\n  arc init\n  arc snap\n  arc sync\n\nADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
+    after_help = "DAILY USE\n  arc init\n  arc snap\n  arc watch\n  arc sync\n\nADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -169,6 +170,12 @@ enum Command {
         /// Interactively select which AST atoms to stage.
         #[arg(short = 'i', long, default_value_t = false)]
         interactive: bool,
+    },
+    /// Start the arc-watch daemon for debounced auto-snapshots.
+    Watch {
+        /// Optional root path to watch recursively (defaults to current directory).
+        #[arg(help_heading = "DAILY USE")]
+        path: Option<PathBuf>,
     },
     /// Show the change log.
     Log {
@@ -1825,6 +1832,14 @@ fn run_cli() -> anyhow::Result<()> {
                 }
             }
         },
+        Command::Watch { path } => {
+            let watch_path = match path {
+                Some(path) => path,
+                None => std::env::current_dir()?,
+            };
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(arc_daemon::AutoSnapDaemon::start(watch_path, 400))?;
+        }
         Command::Serve { port } => {
             let repo = Repository::open(".")?;
             let rt = tokio::runtime::Runtime::new()?;
@@ -4066,6 +4081,7 @@ mod tests {
         assert!(help.contains("DAILY USE"));
         assert!(help.contains("init"));
         assert!(help.contains("snap"));
+        assert!(help.contains("watch"));
         assert!(help.contains("sync"));
     }
 }

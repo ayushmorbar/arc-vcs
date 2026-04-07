@@ -1,3 +1,5 @@
+#![cfg(feature = "rpc-server")]
+
 use anyhow::Context as _;
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_cli::repo::Repository;

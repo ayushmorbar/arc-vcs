@@ -192,6 +192,7 @@ dependencies = [
  "arc-algebra-types",
  "arc-change",
  "arc-core",
+ "arc-daemon",
  "arc-diagnostics",
  "arc-engine",
  "arc-git",
@@ -301,7 +302,7 @@ dependencies = [
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",
- "arc-cli",
+ "arc-core",
  "arc-diagnostics",
  "arc-store-types",
  "arc-store-view",
@@ -310,6 +311,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -5,19 +5,32 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "JSON-RPC daemon backend for IDE integrations"
 
+[features]
+default = []
+rpc-server = [
+	"dep:arc-algebra",
+	"dep:arc-algebra-types",
+	"dep:arc-change",
+	"dep:arc-store-types",
+	"dep:arc-store-view",
+	"dep:serde",
+	"dep:serde_json",
+]
+
 [dependencies]
 tokio = { version = "1.51.0", features = ["full"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.149", optional = true }
 anyhow = "1.0.102"
-arc-algebra = { path = "../arc-algebra" }
-arc-algebra-types = { path = "../arc-algebra-types" }
-arc-change = { path = "../arc-change" }
-arc-store-types = { path = "../arc-store-types" }
-arc-store-view = { path = "../arc-store-view" }
-arc-cli = { path = "../arc-cli" }
+arc-algebra = { path = "../arc-algebra", optional = true }
+arc-algebra-types = { path = "../arc-algebra-types", optional = true }
+arc-change = { path = "../arc-change", optional = true }
+arc-store-types = { path = "../arc-store-types", optional = true }
+arc-store-view = { path = "../arc-store-view", optional = true }
+arc-core = { path = "../arc-core" }
 notify = "8.2.0"
 arc-diagnostics = { path = "../arc-diagnostics" }
+tracing = "0.1.44"
 
 [dev-dependencies]
 tempfile = "3.27.0"
