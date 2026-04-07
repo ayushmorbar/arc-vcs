@@ -15,7 +15,7 @@ arc-change = { path = "../arc-change" }
 arc-store-types = { path = "../arc-store-types" }
 arc-store-graph = { path = "../arc-store-graph" }
 serde = { version = "1.0.228", features = ["derive"] }
-bincode = "1.3.2"
+bincode = "3.0.0"
 anyhow = "1.0.102"
 blake3 = "1.8.4"
 dashmap = "6.1.0"

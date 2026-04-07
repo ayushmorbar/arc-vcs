@@ -16,7 +16,7 @@ workspace = true
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-store-types = { path = "../arc-store-types" }
 blake3 = "1.8.4"
-bincode = "1.3.2"
+bincode = "3.0.0"
 memmap2 = { version = "0.9.10", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 anyhow = "1.0.102"
