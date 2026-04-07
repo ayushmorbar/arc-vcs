@@ -42,3 +42,5 @@ pub mod operation_context;
 /// Shared taxonomy for staged operations and tracing semantics.
 pub mod ops;
 pub mod store;
+/// Virtual filesystem abstraction for CAS-backed materialized views.
+pub mod vfs;

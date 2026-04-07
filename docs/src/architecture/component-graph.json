@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-04-06",
+  "generatedAt": "2026-04-07",
   "description": "Arc workspace component graph used for CI layering enforcement.",
   "rules": {
     "forbiddenClassEdges": [
@@ -66,6 +66,12 @@
       "class": "foundation",
       "owner": "platform-runtime",
       "stabilityTier": 2
+    },
+    {
+      "id": "arc-vfs",
+      "class": "foundation",
+      "owner": "storage-systems",
+      "stabilityTier": 3
     },
     {
       "id": "arc-algebra",
@@ -153,6 +159,12 @@
     },
     {
       "id": "arc-ai",
+      "class": "application",
+      "owner": "language-ai",
+      "stabilityTier": 3
+    },
+    {
+      "id": "arc-lsp",
       "class": "application",
       "owner": "language-ai",
       "stabilityTier": 3
