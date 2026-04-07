@@ -106,11 +106,11 @@ arc-vcs/
 │   └── src/
 │       ├── SUMMARY.md
 │       ├── introduction.md
-│       ├── getting-started/   tutorial, everyday, git-migration, glossary
-│       ├── reference/         cli-reference, config, ignore, ai-intents
-│       ├── design/            patch_theory, crdt_sync, ast_diffing
-│       ├── how-to/            custom-hooks
-│       └── architecture/decisions/ 001, 002, 003, 004, 005
+│       ├── learn/             tutorial and onboarding paths
+│       ├── guides/            task-focused runbooks and workflows
+│       ├── concepts/          semantic and architecture explanations
+│       ├── reference/         command, policy, security, and report references
+│       └── agent-skills/      automation and agent integration references
 ├── crates/
 │   ├── arc-core/           # algebra + CAS + graph + author identities
 │   ├── arc-lang/           # tree-sitter language plugins
@@ -166,8 +166,8 @@ issues before push.
 1. Prefer small, focused PRs for iterative change.
 2. Use ADR-backed design proposals for architectural changes.
 3. Keep pure crates side-effect free; place side effects in boundary crates.
-4. When modifying docs/contracts, update `docs/architecture/CRATE_STATUS.md`,
-   `docs/architecture/STABILITY.md`, or `docs/architecture/SHORTCOMINGS.md`
+4. When modifying docs/contracts, update `docs/src/reference/architecture/research/CRATE_STATUS.md`,
+   `docs/src/reference/architecture/research/STABILITY.md`, or `docs/src/reference/architecture/research/SHORTCOMINGS.md`
    as appropriate.
 
 ---

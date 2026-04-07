@@ -57,10 +57,10 @@ integration guide.
 
 ## Choose Your Starting Point
 
-- **New to arc?** → [`learn/first-repo.md`](learn/first-repo.md)
-- **Daily workflows** → [`guides/team-workflows.md`](guides/team-workflows.md)
-- **How arc thinks** → [`concepts/change-algebra.md`](concepts/change-algebra.md)
-- **Commands and flags** → [`reference/cli/index.md`](reference/cli/index.md)
+- **New to arc?** → [`learn/tutorial.md`](learn/tutorial.md)
+- **Daily workflows** → [`learn/team-workflow.md`](learn/team-workflow.md)
+- **How arc thinks** → [`concepts/conflict-algebra.md`](concepts/conflict-algebra.md)
+- **Commands and flags** → [`reference/cli-reference.md`](reference/cli-reference.md)
 - **System architecture** → [`reference/architecture/overview.md`](reference/architecture/overview.md)
 - **Agent and MCP integration** → [`agent-skills/index.md`](agent-skills/index.md)
 

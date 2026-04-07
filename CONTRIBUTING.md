@@ -104,7 +104,7 @@ Before changing a public API, check [STABILITY.md](STABILITY.md):
 
 ## Architecture Decision Records (ADRs)
 
-Any change that alters a fundamental design decision — storage format, diff algorithm, sync protocol — **requires an ADR** filed under `docs/src/architecture/decisions/`. Use the existing ADRs as templates and reference the ADR number in your PR description.
+Any change that alters a fundamental design decision — storage format, diff algorithm, sync protocol — **requires an ADR** filed under `docs/src/reference/architecture/decisions/`. Use the existing ADRs as templates and reference the ADR number in your PR description.
 
 ---
 
@@ -118,7 +118,7 @@ Any change that alters a fundamental design decision — storage format, diff al
 
 ---
 
-## Governance Norms (Capstone)
+## Governance Norms
 
 ### Keep `main` Healthy
 
@@ -138,7 +138,7 @@ Any change that alters a fundamental design decision — storage format, diff al
 
 - Pure semantic crates must not add filesystem/network/process-clock I/O.
 - Boundary crates should not re-implement pure semantics.
-- Any boundary-crossing policy change must be documented in `docs/architecture`.
+- Any boundary-crossing policy change must be documented in `docs/src/reference/architecture/`.
 
 ---
 
