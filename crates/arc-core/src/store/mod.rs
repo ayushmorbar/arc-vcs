@@ -23,9 +23,7 @@ pub use blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use cas::CasBytes;
 
 /// Append-only spacetime operation log for O(1) undo.
-pub mod oplog {
-    pub use arc_store_view::oplog::*;
-}
+pub mod oplog;
 
 /// Crash-consistent synthesized architecture snapshots.
 pub mod synthesis {
