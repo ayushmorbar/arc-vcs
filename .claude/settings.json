@@ -1,0 +1,19 @@
+{
+  "preferredModel": "default",
+  "autoApprove": [
+    "cargo check*",
+    "cargo test*",
+    "cargo clippy*",
+    "cargo fmt*",
+    "cargo build*",
+    "just check",
+    "just test"
+  ],
+  "customCommands": [
+    {
+      "name": "lint",
+      "description": "Run the strict clippy linting pipeline for the arc workspace",
+      "prompt": "Run `cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps`. If there are warnings, analyze them and fix the code to resolve them."
+    }
+  ]
+}

@@ -1,42 +1,63 @@
-# Copilot Instructions for arc
+# Copilot Instructions for arc-vcs
 
-This repository is `arc`, a Rust 2024 multi-crate workspace for replayable
-change graphs, CAS-backed storage, and CLI workflows.
+You are assisting in `arc-vcs`, a Rust 2024 workspace for a semantic,
+AST-aware, content-addressed Spacetime DAG version control system.
 
-## Architectural Axioms
+## Core model
 
-1. Axiom of Purity
-- Math/algebra crates must not perform filesystem, network, process, or clock I/O.
-- Keep I/O only in boundary crates (`cli`, `interop`, `network`, storage adapters).
+- `arc` is not a line-diff VCS.
+- Prefer semantic operations over text-patch reasoning.
+- Changes are typed semantic atoms over syntax trees.
+- Content is immutable in BLAKE3 CAS.
+- Metadata and indexes may be stored separately from blobs.
 
-2. Wasm Boundary
-- Core computation should remain platform-neutral and wasm-safe.
-- Platform-specific code must stay behind explicit boundary modules.
+## Hard constraints
 
-3. Five-Stage Pipeline Taxonomy
-- Every heavy operation should map to these stages:
-  - `discover`
-  - `negotiate`
-  - `transfer`
-  - `materialize`
-  - `finalize`
-- Errors and telemetry should include stage context.
+- Do not suggest Myers diff, line-number patching, or regex-based diff logic
+  for core semantic workflows.
+- Do not introduce filesystem, network, process, or clock I/O into pure crates.
+- Do not add hidden global mutable state to represent repository state.
+- Do not fabricate semantic outputs when parser or classifier support is absent.
 
-## Code and Safety Rules
+## Layering
 
-- Prefer immutable data and explicit transitions over in-place mutation.
-- Avoid adding new `unsafe`; if unavoidable, isolate and document invariants.
-- Validate all external input at boundaries.
-- Keep cross-crate contracts explicit and typed.
+- Keep pure algebra, graph, and patch logic free of boundary I/O.
+- Keep platform-specific and I/O-heavy code in boundary crates.
+- Preserve explicit typed contracts across crates.
 
-## Testing and Verification
+## Storage
 
-- Run targeted crate tests during iteration, then validate workspace integrity.
-- Keep `cargo check --workspace` green for all meta/config updates.
-- For policy changes, prefer deterministic checks in CI.
+- Use `blake3` for canonical hashing.
+- Keep immutable blobs in CAS paths.
+- Use Redb for structured metadata and indexes where appropriate.
+- Treat canonical encoding changes as compatibility-sensitive.
 
-## CI and Security Expectations
+## AI-specific rules
 
-- Use least-privilege permissions in GitHub workflows.
-- Pin third-party actions by commit SHA where practical.
-- Keep supply-chain checks (`cargo-deny`, code scanning, action scanning) active.
+- AI-generated or AI-resolved changes remain advisory until verified.
+- Unverified autonomous work should remain provisional.
+- Preserve provenance, auditability, and deterministic validation.
+
+## Coding style
+
+- Favor explicit invariants over clever shortcuts.
+- Prefer narrow, auditable changes.
+- Use `thiserror` for library boundaries and `anyhow` for application layers
+  when appropriate.
+- Avoid `unsafe`; if unavoidable, isolate it and document invariants.
+
+## Validation
+
+Prefer the narrowest useful validation first:
+
+- `cargo test -p <crate-name>`
+- `cargo check -p gix`
+- `just check`
+- `just test`
+- `cargo fmt`
+- `cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps`
+
+## When uncertain
+
+Choose deterministic, auditable behavior over convenience and state uncertainty
+explicitly.
