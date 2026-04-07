@@ -9,7 +9,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use arc_algebra::apply::MaterializedState;
-use arc_algebra_types::Blake3Hash;
+use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
 use arc_cli::governance::audit_github_governance;
 use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
 use arc_cli::interop::git::import_repo;
@@ -802,15 +802,10 @@ enum SparseAction {
 enum MountAction {
     /// Declare a sub-repository mount in the current view.
     Add {
+        /// Spacetime coordinate (for example `arc://org/repo@<hash>`).
+        coordinate: String,
         /// Local path at which to mount the sub-repository.
-        #[arg(long)]
         path: String,
-        /// URL or filesystem path of the remote `arc` repository.
-        #[arg(long)]
-        url: String,
-        /// View name to check out inside the mounted sub-repository.
-        #[arg(long)]
-        target: String,
     },
     /// Clone / update all declared mounts.
     Sync,
@@ -2429,13 +2424,22 @@ fn run_cli() -> anyhow::Result<()> {
             }
         },
         Command::Mount { action } => match action {
-            MountAction::Add { path, url, target } => {
+            MountAction::Add { coordinate, path } => {
                 let mut repo = Repository::open(".")?;
                 let (author, signing_key) = load_identity()?;
                 repo.set_identity(author, signing_key);
-                let id = repo.mount_add(&path, &url, &target)?;
+                let coord = SpacetimeCoordinate::from_uri(&coordinate).map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid coordinate '{coordinate}': {e} (expected arc://<namespace>/<repo>@<hash>)"
+                    )
+                })?;
+                let id = repo.mount_add(&path, coord)?;
+                repo.refresh_projection()?;
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
-                println!("Mounted '{path}' → {url}@{target}  (change {})", &hex[..8]);
+                println!(
+                    "Mounted '{path}' → {coordinate}  (change {})",
+                    &hex[..8]
+                );
             }
             MountAction::Sync => {
                 let mut repo = Repository::open(".")?;

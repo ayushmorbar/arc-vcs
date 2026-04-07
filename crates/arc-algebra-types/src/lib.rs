@@ -36,6 +36,55 @@ pub type Blake3Hash = [u8; 32];
 /// Path segments addressing a node inside an AST (e.g. `["fn_foo", "body", "0"]`).
 pub type NodePath = Vec<String>;
 
+/// Address of a mounted sub-graph in the global arc spacetime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpacetimeCoordinate {
+    /// Organization, team, or tenant namespace.
+    pub namespace: String,
+    /// Repository name inside `namespace`.
+    pub repo: String,
+    /// Target content-addressed head hash.
+    pub hash: blake3::Hash,
+}
+
+impl SpacetimeCoordinate {
+    /// Parse `arc://<namespace>/<repo>@<64-hex-hash>` into a coordinate.
+    pub fn from_uri(uri: &str) -> Result<Self, String> {
+        let body = uri
+            .strip_prefix("arc://")
+            .ok_or_else(|| "coordinate must start with 'arc://'".to_string())?;
+        let (repo_part, hash_hex) = body
+            .split_once('@')
+            .ok_or_else(|| "coordinate must include '@<hash>'".to_string())?;
+        let (namespace, repo) = repo_part
+            .split_once('/')
+            .ok_or_else(|| "coordinate must include '<namespace>/<repo>'".to_string())?;
+        if repo.contains('/') {
+            return Err("coordinate repo must not contain '/'".to_string());
+        }
+        if namespace.is_empty() || repo.is_empty() {
+            return Err("namespace and repo must be non-empty".to_string());
+        }
+        let hash = blake3::Hash::from_hex(hash_hex)
+            .map_err(|_| "coordinate hash must be 64 lowercase/uppercase hex chars".to_string())?;
+        Ok(Self {
+            namespace: namespace.to_string(),
+            repo: repo.to_string(),
+            hash,
+        })
+    }
+
+    /// Render this coordinate as `arc://<namespace>/<repo>@<hash>`.
+    pub fn to_uri(&self) -> String {
+        format!(
+            "arc://{}/{}@{}",
+            self.namespace,
+            self.repo,
+            self.hash.to_hex()
+        )
+    }
+}
+
 /// The typed atom vocabulary for AST-level operations.
 ///
 /// Every change is composed of one or more atoms that describe
@@ -87,14 +136,12 @@ pub enum Atom {
         /// BLAKE3 hash of the raw file bytes.
         hash: Blake3Hash,
     },
-    /// Declare that a sub-repository should be mounted at `path`.
+    /// Declare that a sub-graph should be mounted at `path`.
     Mount {
         /// Path segments for the mount-point directory.
         path: NodePath,
-        /// URL or filesystem path of the remote `arc` repository.
-        url: String,
-        /// View name to check out inside the mounted sub-repository.
-        target: String,
+        /// Spacetime coordinate of the mounted repository graph.
+        coordinate: SpacetimeCoordinate,
     },
     /// Represents an unresolved N-way conflict as first-class algebra.
     Conflict {
@@ -120,5 +167,25 @@ impl Atom {
             Atom::Mount { path, .. } => vec![path],
             Atom::Conflict { at, .. } => vec![at],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SpacetimeCoordinate;
+
+    #[test]
+    fn spacetime_coordinate_roundtrip_uri() {
+        let uri = "arc://org/repo@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let coord = SpacetimeCoordinate::from_uri(uri).expect("coordinate should parse");
+        assert_eq!(coord.namespace, "org");
+        assert_eq!(coord.repo, "repo");
+        assert_eq!(coord.to_uri(), uri);
+    }
+
+    #[test]
+    fn spacetime_coordinate_rejects_nested_repo() {
+        let uri = "arc://org/repo/sub@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        assert!(SpacetimeCoordinate::from_uri(uri).is_err());
     }
 }

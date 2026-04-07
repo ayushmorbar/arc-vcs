@@ -7,3 +7,4 @@ description = "Foundational algebra types for arc"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
+blake3 = { version = "1.8.4", features = ["serde"] }

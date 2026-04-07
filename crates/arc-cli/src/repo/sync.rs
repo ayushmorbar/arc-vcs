@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 
+use arc_algebra_types::SpacetimeCoordinate;
+
 use super::core::*;
 
 impl Repository {
@@ -55,16 +57,31 @@ impl Repository {
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
 
+        enum MountSpec {
+            Coordinate(SpacetimeCoordinate),
+            Legacy { url: String, target: String },
+        }
+
         // Collect all ARC_MOUNT: entries.
-        let mounts: Vec<(String, String, String)> = state
+        let mounts: Vec<(String, MountSpec)> = state
             .iter()
             .filter_map(|(key, value)| {
                 if key.len() == 2 && key[0] == "file" && value.starts_with(b"ARC_MOUNT:") {
                     let info = std::str::from_utf8(value)
                         .ok()?
                         .strip_prefix("ARC_MOUNT:")?;
-                    let (url, tgt) = info.split_once('|')?;
-                    Some((key[1].clone(), url.to_string(), tgt.to_string()))
+                    if let Ok(coord) = SpacetimeCoordinate::from_uri(info) {
+                        Some((key[1].clone(), MountSpec::Coordinate(coord)))
+                    } else {
+                        let (url, tgt) = info.split_once('|')?;
+                        Some((
+                            key[1].clone(),
+                            MountSpec::Legacy {
+                                url: url.to_string(),
+                                target: tgt.to_string(),
+                            },
+                        ))
+                    }
                 } else {
                     None
                 }
@@ -79,24 +96,39 @@ impl Repository {
         let spinner =
             crate::progress::Progress::spinner(format!("Syncing {} mount(s)...", mounts.len()));
 
-        for (path, url, target) in &mounts {
-            spinner.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
+        for (path, spec) in &mounts {
             let mount_dir = self.work_root.join(path);
             let arc_sub = mount_dir.join(".arc");
-            let mut sub_repo = if arc_sub.exists() {
-                Repository::open(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to open mount '{}': {e}", path))?
-            } else {
-                fs::create_dir_all(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to create mount dir '{}': {e}", path))?;
-                Repository::init(&mount_dir)
-                    .map_err(|e| anyhow::anyhow!("failed to init mount '{}': {e}", path))?
-            };
-            crate::sync::fetch(&mut sub_repo, url, target)
-                .map_err(|e| anyhow::anyhow!("fetch failed for mount '{}': {e}", path))?;
-            sub_repo
-                .switch_view(target)
-                .map_err(|e| anyhow::anyhow!("switch_view failed for mount '{}': {e}", path))?;
+            match spec {
+                MountSpec::Coordinate(coord) => {
+                    spinner.set_message(format!(
+                        "Cannot sync mount '{path}' at {}...",
+                        coord.to_uri()
+                    ));
+                    anyhow::bail!(
+                        "mount sync for coordinate '{}' is scaffold-only and not implemented yet",
+                        coord.to_uri()
+                    );
+                }
+                MountSpec::Legacy { url, target } => {
+                    spinner.set_message(format!("Syncing mount '{path}' from {url}@{target}..."));
+                    let mut sub_repo = if arc_sub.exists() {
+                        Repository::open(&mount_dir)
+                            .map_err(|e| anyhow::anyhow!("failed to open mount '{}': {e}", path))?
+                    } else {
+                        fs::create_dir_all(&mount_dir).map_err(|e| {
+                            anyhow::anyhow!("failed to create mount dir '{}': {e}", path)
+                        })?;
+                        Repository::init(&mount_dir)
+                            .map_err(|e| anyhow::anyhow!("failed to init mount '{}': {e}", path))?
+                    };
+                    crate::sync::fetch(&mut sub_repo, url, target)
+                        .map_err(|e| anyhow::anyhow!("fetch failed for mount '{}': {e}", path))?;
+                    sub_repo.switch_view(target).map_err(|e| {
+                        anyhow::anyhow!("switch_view failed for mount '{}': {e}", path)
+                    })?;
+                }
+            }
         }
 
         spinner.finish_with_message(format!("Synced {} mount(s).", mounts.len()));

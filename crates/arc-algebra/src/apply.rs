@@ -30,7 +30,7 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 ///   not consulted during application — it is used for inversion).
 /// - `Directory { path }` records a bare directory existence (empty value).
 /// - `Blob { path, hash }` stores an `ARC_BLOB_REF:` token with the blob hash.
-/// - `Mount { path, url, target }` stores an `ARC_MOUNT:` token.
+/// - `Mount { path, coordinate }` stores an `ARC_MOUNT:` token.
 /// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the
 ///   serialized conflict payload.
 /// - `Move` and `SemanticsPreserving` currently return an error.
@@ -147,10 +147,10 @@ pub fn apply_change_scoped(
                     b.insert(path.clone(), change.id);
                 }
             }
-            Atom::Mount { path, url, target } => {
+            Atom::Mount { path, coordinate } => {
                 // Store a magic mount token; write_state_to_working_dir
                 // detects this prefix and creates the directory placeholder.
-                let token = format!("ARC_MOUNT:{url}|{target}").into_bytes();
+                let token = format!("ARC_MOUNT:{}", coordinate.to_uri()).into_bytes();
                 state.insert(path.clone(), token);
                 if let Some(ref mut b) = blame {
                     b.insert(path.clone(), change.id);

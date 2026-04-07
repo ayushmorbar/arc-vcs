@@ -89,4 +89,4 @@ pub mod inverse {
     }
 }
 
-pub use arc_algebra_types::{Atom, Blake3Hash, NodePath};
+pub use arc_algebra_types::{Atom, Blake3Hash, NodePath, SpacetimeCoordinate};

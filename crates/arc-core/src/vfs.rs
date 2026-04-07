@@ -7,6 +7,7 @@
 use std::io::Read;
 use std::path::Path;
 
+use arc_algebra_types::SpacetimeCoordinate;
 use arc_git::GitOid;
 
 /// Virtualized metadata returned from a VFS-backed path view.
@@ -29,6 +30,16 @@ pub trait Vfs {
 
     /// Stream content directly from CAS without forcing disk materialization.
     fn read_at_oid(&self, oid: &GitOid) -> Box<dyn Read>;
+
+    /// Resolve a mounted sub-graph stream by spacetime coordinate.
+    ///
+    /// VFS implementations must intercept mounted path resolution and route
+    /// reads for `Mount` atoms directly to the CAS backend represented by
+    /// `coord`, without requiring intermediate working-copy materialization.
+    fn resolve_mount(
+        &self,
+        coord: &SpacetimeCoordinate,
+    ) -> Result<Box<dyn Read>, crate::error::Error>;
 
     /// Read virtual metadata from the projected namespace.
     fn stat(&self, path: &Path) -> Result<VfsMetadata, crate::error::Error>;

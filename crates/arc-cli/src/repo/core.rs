@@ -16,7 +16,7 @@ use arc_ai::vector_store::VectorStore;
 use arc_algebra::apply::{BlameState, MaterializedState};
 use arc_algebra::commute::commutes;
 use arc_algebra::sparse::SparseMatcher;
-use arc_algebra_types::{Atom, Blake3Hash, NodePath};
+use arc_algebra_types::{Atom, Blake3Hash, NodePath, SpacetimeCoordinate};
 use arc_change::Change;
 use arc_diagnostics::ResultExt;
 use arc_engine::mutator;
@@ -3374,7 +3374,11 @@ impl Repository {
     /// The change is signed, written to the CAS, and replaces the view's head
     /// frontier.  The operation is also appended to the operation log so that
     /// `arc undo` can revert it.
-    pub fn mount_add(&mut self, path: &str, url: &str, target: &str) -> anyhow::Result<Blake3Hash> {
+    pub fn mount_add(
+        &mut self,
+        path: &str,
+        coordinate: SpacetimeCoordinate,
+    ) -> anyhow::Result<Blake3Hash> {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let mut view = View::load(&self.shared_root, &view_name)
@@ -3382,13 +3386,12 @@ impl Repository {
         let (author, signing_key) = self.signing_identity()?;
         let atom = Atom::Mount {
             path: vec!["file".to_string(), path.to_string()],
-            url: url.to_string(),
-            target: target.to_string(),
+            coordinate: coordinate.clone(),
         };
         let change = Change::new(
             view.heads.clone(),
             vec![atom],
-            format!("mount {path} → {url}@{target}"),
+            format!("mount {path} → {}", coordinate.to_uri()),
             author.clone(),
             signing_key,
         );
@@ -3407,6 +3410,14 @@ impl Repository {
         view.save(&self.shared_root)
             .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
         Ok(change.id)
+    }
+
+    /// Refresh the mounted working-copy projection after a view mutation.
+    pub fn refresh_projection(&mut self) -> anyhow::Result<()> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let state = self.materialize(&view_name)?;
+        write_state_to_working_dir(&self.work_root, &self.shared_root, &state)
     }
 
     // ------------------------------------------------------------------
@@ -5169,10 +5180,9 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
             path: prepend(path),
             hash,
         },
-        Atom::Mount { path, url, target } => Atom::Mount {
+        Atom::Mount { path, coordinate } => Atom::Mount {
             path: prepend(path),
-            url,
-            target,
+            coordinate,
         },
         Atom::Conflict { bases, sides, at } => Atom::Conflict {
             bases,

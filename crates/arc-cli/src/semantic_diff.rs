@@ -485,7 +485,10 @@ fn format_atom_brief(atom: &Atom) -> String {
     match atom {
         Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
         Atom::Blob { path, .. } => format!("~~ blob {}", path.join("/")).yellow().to_string(),
-        Atom::Mount { path, url, .. } => format!("~~ mount {} @ {}", path.join("/"), url)
+        Atom::Mount {
+            path,
+            coordinate,
+        } => format!("~~ mount {} @ {}", path.join("/"), coordinate.to_uri())
             .cyan()
             .to_string(),
         // File atoms are handled by group_and_render — this arm is a safety net.
