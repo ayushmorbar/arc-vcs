@@ -1,53 +1,76 @@
 ---
 title: "Introduction"
-description: "BLUF orientation to arc's semantic VCS model, ADR-004 architecture, and where to start in the docs."
+description: "arc is an AI-native, AST-aware version control system with equal support for human-first manual workflows and optional autonomous agent workflows."
+category: "Overview"
+audience: "All"
 ---
 
-# arc: Atomic Replayable Changes
+# arc: Semantic Version Control for Humans and Agents
 
-Bottom line up front: arc is a semantic VCS built to control complexity under concurrent change. It records typed changes over a DAG, verifies provenance cryptographically, and isolates side effects to explicit storage and transport boundaries.
+**arc is a version control system that records *why* you changed something,
+not just what changed** — using typed semantic operations, cryptographic
+provenance, and a pure mathematical change model instead of line diffs.
 
-## Mental Model
+arc is designed for two equal user types. Neither path is secondary,
+and AI features are always optional.
+
+| Path | Who | What you get |
+|---|---|---|
+| **Human-first** | Developers using arc daily | Semantic diffs, safe undo/redo, ergonomic CLI, text-first feedback |
+| **Agent-assisted** | Automation engineers and AI workflows | Typed intent surfaces, structured query primitives, MCP-ready skill manifests |
+
+
+## How arc Works (5 Steps)
 
 1. You edit files.
-2. `arc snap` computes semantic deltas and records signed `Change` objects.
-3. Change objects and blobs are content-addressed by BLAKE3.
-4. Views point to named head sets in the change graph.
-5. Merge and rewrite operations execute algebraic rules, not line heuristics.
+2. `arc snap` computes **semantic deltas** — AST-aware atoms, not raw line hunks.
+3. Each `Change` object is content-addressed by **BLAKE3** and signed with **Ed25519**.
+4. **Views** point to named head sets in the change graph.
+5. Merge and rewrite operations apply **algebraic rules** — not line heuristics.
 
-## Architecture Snapshot
+> These five steps are the same whether you are a human typing at a terminal
+> or an agent issuing structured commands.
 
-ADR-004 decomposed the old monolithic core into micro-crate slices:
 
-- Domain types: `arc-algebra-types`, `arc-store-types`, `arc-change`
-- Pure semantics: `arc-algebra`, `arc-engine`, `arc-revset`
-- Persistence: `arc-store-cas`, `arc-store-graph`, `arc-store-view`
-- Transport: `arc-network`, `arc-net`
-- Product surfaces: `arc-cli`, `arc-daemon`, `arc-git-bridge`, `arc-lang`, `arc-ai`
+## If You Never Want AI
 
-> **Note:** A temporary compatibility facade exists during migration, but the long-term architecture is the split micro-crate DAG.
+You still get the complete value of arc:
 
-## Purity And Crash Consistency
+- Semantic change tracking over AST-aware atoms
+- Safe undo/redo with causality-aware history operations
+- Cryptographic provenance and deterministic, content-addressed storage
+- Clear CLI workflows with predictable, text-first feedback
 
-- Semantic crates are side-effect free by contract.
-- Disk and network effects are isolated to dedicated crates.
-- Crash consistency is enforced with atomic rename update paths and append-only operation logging.
 
-## What Is Code-Verified Today
+## If You Are Building Agentic Tooling
 
-- BLAKE3 content addressing across changes and blobs.
-- Ed25519-backed author provenance and zero-trust ingress checks in sync paths.
-- DAG graph and view pointer model with rewrite-aware workflows.
-- Rust AST-aware plugin flow via `arc-lang`.
-- CLI and daemon orchestration surfaces on top of split crates.
+arc exposes structured surfaces for automation:
 
-## Start Here
+- Typed change atoms and semantic operations
+- Intent-oriented query primitives via `arc-semantic-query`
+- Agent skill manifests in `docs/src/agent-skills/`
+- MCP-ready integration points across tooling surfaces
 
-- New users: [getting-started/tutorial.md](getting-started/tutorial.md)
-- Daily workflows: [getting-started/everyday.md](getting-started/everyday.md)
-- Commands and flags: [reference/cli-reference.md](reference/cli-reference.md)
-- System architecture: [architecture/overview.md](architecture/overview.md)
+See [`agent-skills/index.md`](agent-skills/index.md) for the full agent
+integration guide.
 
-## Scope Truth
 
-Workspace build truth is `crates/*`. If behavior is not code-verified, it must be documented as a limitation, not presented as shipped capability.
+## Choose Your Starting Point
+
+- **New to arc?** → [`learn/first-repo.md`](learn/first-repo.md)
+- **Daily workflows** → [`guides/team-workflows.md`](guides/team-workflows.md)
+- **How arc thinks** → [`concepts/change-algebra.md`](concepts/change-algebra.md)
+- **Commands and flags** → [`reference/cli/index.md`](reference/cli/index.md)
+- **System architecture** → [`reference/architecture/overview.md`](reference/architecture/overview.md)
+- **Agent and MCP integration** → [`agent-skills/index.md`](agent-skills/index.md)
+
+
+## Scope and Limitations
+
+> **What is documented as implemented is code-verified.** If a capability
+> has not shipped, it is explicitly marked with an admonition like:
+> `> **Note:** This feature is planned for 0.x.0.`
+> Nothing in this documentation is presented as working if it is not.
+
+Workspace build truth lives in `crates/*`. The authoritative list of
+what is implemented today is in [`reference/architecture/invariants.md`](reference/architecture/invariants.md).

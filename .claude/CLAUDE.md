@@ -48,6 +48,15 @@ Use project skills when relevant:
 - `arc-cas-storage` for CAS paths, hashing, mmap, and persistence rules
 - `arc-semver-policy` for crate versions, schema epochs, and protocol bumps
 - `arc-git-commit` for commit message generation
+- `arc-docs` for docs migration, templates, and audience-aware writing
+- `arc-causal-graph` for frontier/causality/convergence reasoning
+- `arc-redb-indexes` for metadata/index transaction design
+- `arc-tree-sitter` for parser/lifetime/query constraints
+- `arc-intent-reasoning` for semantic decomposition of large changes
+- `arc-semantic-query` for intent-search and vibe query behavior
+- `arc-sync-protocol` for discover/negotiate/transfer/materialize/finalize flows
+- `arc-ghost-nodes` for provisional agent checkpoints and sponsorship transitions
+- `arc-property-testing` for invariants and property-based law verification
 
 ## Working style
 
