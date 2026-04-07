@@ -3,7 +3,7 @@ use std::fs;
 
 use arc_algebra_types::SpacetimeCoordinate;
 use arc_core::algebra::Atom;
-use arc_core::algebra::policy::{ArcPolicy, Ast, DefaultEvaluator, Evaluator, PolicyError};
+use arc_core::algebra::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
 
 use super::core::*;
 
@@ -62,8 +62,8 @@ impl Repository {
         let policy = ArcPolicy::load_from_path(&policy_path).map_err(|e| {
             anyhow::anyhow!("policy load failed before sync gate evaluation: {e}")
         })?;
-        let evaluator = DefaultEvaluator::new(policy.clone());
-        let local_ast = Ast;
+        let evaluator = policy.default_evaluator();
+        let local_ast = Ast::default();
 
         enum MountSpec {
             Coordinate(SpacetimeCoordinate),
@@ -129,11 +129,17 @@ impl Repository {
             evaluator
                 .evaluate_delta_impact(&local_ast, &incoming_atoms)
                 .map_err(|e| match e {
-                    PolicyError::SignatureMismatch { reason } => anyhow::anyhow!(
-                        "policy gate rejected incoming sync delta for mount '{}': {}. \
+                    PolicyError::SignatureMismatch {
+                        broken_functions,
+                        old_signature,
+                        new_signature,
+                    } => anyhow::anyhow!(
+                        "policy gate rejected incoming sync delta for mount '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
                          Generate a Lensed Ghost Node and re-run sync.",
                         path,
-                        reason
+                        broken_functions.join(", "),
+                        old_signature,
+                        new_signature
                     ),
                     PolicyError::MissingDependency { dependency } => anyhow::anyhow!(
                         "policy gate rejected incoming sync delta for mount '{}': missing dependency '{}'. \

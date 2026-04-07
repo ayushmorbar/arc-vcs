@@ -4,6 +4,8 @@ pub use arc_algebra::sparse;
 
 /// Semantic policy engine: config loading and delta-impact evaluation traits.
 pub mod policy;
+/// tree-sitter-based delta-impact evaluator.
+pub mod evaluator;
 
 use crate::store::cas::ObjectStore;
 use arc_algebra_types::Blake3Hash as AlgebraBlake3Hash;

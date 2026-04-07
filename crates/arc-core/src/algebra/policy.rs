@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use arc_algebra_types::Atom as SemanticAtom;
@@ -9,7 +10,14 @@ use thiserror::Error;
 /// The full AST model will be wired in once transport-stage delta payloads
 /// expose typed tree material.
 #[derive(Debug, Default, Clone)]
-pub struct Ast;
+pub struct Ast {
+    /// Local Rust source buffers used for invocation scanning.
+    pub local_rust_sources: Vec<String>,
+    /// Expected local API signatures keyed by exported function name.
+    pub expected_api_signatures: HashMap<String, String>,
+    /// Foreign Rust source buffers representing incoming mounted deltas.
+    pub foreign_rust_sources: Vec<String>,
+}
 
 /// Repository policy loaded from `.arc/arc.policy.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -59,11 +67,15 @@ pub enum PolicyError {
         #[source]
         source: serde_json::Error,
     },
-    /// Incoming payload signature/sponsorship does not satisfy policy.
-    #[error("incoming update failed sponsorship/signature checks: {reason}")]
+    /// Incoming payload breaks semantic signatures consumed by the local graph.
+    #[error("incoming update introduced semantic signature mismatch")]
     SignatureMismatch {
-        /// Human-readable explanation of the sponsorship/signature violation.
-        reason: String,
+        /// Function names whose signatures changed and are referenced locally.
+        broken_functions: Vec<String>,
+        /// Previous expected signature representation.
+        old_signature: String,
+        /// New foreign signature representation.
+        new_signature: String,
     },
     /// Incoming payload references graph dependencies absent from local boundary.
     #[error("incoming update references missing dependency '{dependency}'")]
@@ -83,39 +95,12 @@ pub trait Evaluator {
     ) -> Result<(), PolicyError>;
 }
 
-/// Default policy evaluator scaffold.
-pub struct DefaultEvaluator {
-    policy: ArcPolicy,
-}
+/// Default policy evaluator alias backed by tree-sitter delta-impact analysis.
+pub type DefaultEvaluator = super::evaluator::TreeSitterEvaluator;
 
-impl DefaultEvaluator {
-    /// Build a default evaluator from repository policy.
-    pub fn new(policy: ArcPolicy) -> Self {
-        Self { policy }
-    }
-}
-
-impl Evaluator for DefaultEvaluator {
-    fn evaluate_delta_impact(
-        &self,
-        _local_ast: &Ast,
-        incoming_atoms: &[SemanticAtom],
-    ) -> Result<(), PolicyError> {
-        if self.policy.require_ghost_node_sponsor
-            && incoming_atoms
-                .iter()
-                .any(|atom| matches!(atom, SemanticAtom::Mount { .. }))
-        {
-            return Err(PolicyError::SignatureMismatch {
-                reason: "mount delta requires a ghost-node sponsor under current policy"
-                    .to_string(),
-            });
-        }
-
-        if !self.policy.block_unresolved_sem_breaks {
-            return Ok(());
-        }
-
-        Ok(())
+impl ArcPolicy {
+    /// Construct the default policy evaluator for this configuration.
+    pub fn default_evaluator(&self) -> DefaultEvaluator {
+        DefaultEvaluator::new(self.clone())
     }
 }
