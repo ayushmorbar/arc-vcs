@@ -9,21 +9,9 @@ use std::borrow::Cow;
 
 use arc_core::store::ChangeGraph;
 
-/// A 20-byte SHA-1 object id used for Git object addressing.
-pub type GitOid = [u8; 20];
+pub mod hash;
 
-/// Kind tag for synthesized Git objects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GitObjectKind {
-    /// Raw file content object.
-    Blob,
-    /// Directory listing object.
-    Tree,
-    /// Commit metadata object.
-    Commit,
-    /// Annotated tag object.
-    Tag,
-}
+pub use hash::{GitObjectKind, GitOid, git_hash};
 
 /// In-memory representation of a synthesized Git object.
 #[derive(Debug, Clone, PartialEq, Eq)]
