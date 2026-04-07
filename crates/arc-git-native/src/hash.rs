@@ -1,6 +1,7 @@
 //! Git object hashing primitives.
 
 use std::fmt;
+use std::str::FromStr;
 
 use sha1::{Digest, Sha1};
 
@@ -44,6 +45,31 @@ impl GitOid {
     pub const fn as_bytes(self) -> [u8; 20] {
         self.0
     }
+
+    /// Parse a lowercase or uppercase 40-char hex object id.
+    pub fn from_hex(hex: &str) -> Result<Self, &'static str> {
+        if hex.len() != 40 {
+            return Err("git oid hex must be exactly 40 characters");
+        }
+
+        let mut out = [0u8; 20];
+        let bytes = hex.as_bytes();
+        for i in 0..20 {
+            let hi = decode_hex_nibble(bytes[i * 2]).ok_or("invalid hex digit in git oid")?;
+            let lo = decode_hex_nibble(bytes[i * 2 + 1]).ok_or("invalid hex digit in git oid")?;
+            out[i] = (hi << 4) | lo;
+        }
+        Ok(Self(out))
+    }
+}
+
+fn decode_hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + (b - b'a')),
+        b'A'..=b'F' => Some(10 + (b - b'A')),
+        _ => None,
+    }
 }
 
 impl fmt::Debug for GitOid {
@@ -64,6 +90,14 @@ impl fmt::Display for GitOid {
         // Git OIDs are always lowercase ASCII hex.
         let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
         f.write_str(s)
+    }
+}
+
+impl FromStr for GitOid {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_hex(s)
     }
 }
 
