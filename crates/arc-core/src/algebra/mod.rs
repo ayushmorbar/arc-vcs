@@ -2,6 +2,9 @@ pub use arc_algebra::BlobStore;
 pub use arc_algebra::commute;
 pub use arc_algebra::sparse;
 
+/// Semantic policy engine: config loading and delta-impact evaluation traits.
+pub mod policy;
+
 use crate::store::cas::ObjectStore;
 use arc_algebra_types::Blake3Hash as AlgebraBlake3Hash;
 

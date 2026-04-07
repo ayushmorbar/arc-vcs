@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 
 use arc_algebra_types::SpacetimeCoordinate;
+use arc_core::algebra::Atom;
+use arc_core::algebra::policy::{ArcPolicy, Ast, DefaultEvaluator, Evaluator, PolicyError};
 
 use super::core::*;
 
@@ -56,6 +58,12 @@ impl Repository {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
+        let policy_path = self.shared_root.join(".arc").join("arc.policy.json");
+        let policy = ArcPolicy::load_from_path(&policy_path).map_err(|e| {
+            anyhow::anyhow!("policy load failed before sync gate evaluation: {e}")
+        })?;
+        let evaluator = DefaultEvaluator::new(policy.clone());
+        let local_ast = Ast;
 
         enum MountSpec {
             Coordinate(SpacetimeCoordinate),
@@ -99,6 +107,47 @@ impl Repository {
         for (path, spec) in &mounts {
             let mount_dir = self.work_root.join(path);
             let arc_sub = mount_dir.join(".arc");
+
+            let incoming_atoms = match spec {
+                MountSpec::Coordinate(coord) => vec![Atom::Mount {
+                    path: vec!["file".to_string(), path.clone()],
+                    coordinate: coord.clone(),
+                }],
+                MountSpec::Legacy { url, target } => {
+                    let synthetic_coord = SpacetimeCoordinate {
+                        namespace: "legacy".to_string(),
+                        repo: target.clone(),
+                        hash: blake3::hash(format!("{url}|{target}").as_bytes()),
+                    };
+                    vec![Atom::Mount {
+                        path: vec!["file".to_string(), path.clone()],
+                        coordinate: synthetic_coord,
+                    }]
+                }
+            };
+
+            evaluator
+                .evaluate_delta_impact(&local_ast, &incoming_atoms)
+                .map_err(|e| match e {
+                    PolicyError::SignatureMismatch { reason } => anyhow::anyhow!(
+                        "policy gate rejected incoming sync delta for mount '{}': {}. \
+                         Generate a Lensed Ghost Node and re-run sync.",
+                        path,
+                        reason
+                    ),
+                    PolicyError::MissingDependency { dependency } => anyhow::anyhow!(
+                        "policy gate rejected incoming sync delta for mount '{}': missing dependency '{}'. \
+                         Reconcile the foreign DAG frontier before retrying sync.",
+                        path,
+                        dependency
+                    ),
+                    other => anyhow::anyhow!(
+                        "policy gate rejected incoming sync delta for mount '{}': {}",
+                        path,
+                        other
+                    ),
+                })?;
+
             match spec {
                 MountSpec::Coordinate(coord) => {
                     spinner.set_message(format!(
