@@ -1,9 +1,10 @@
 //! Causality-aware operation log for local compaction and safe undo boundaries.
 
 use crate::git_bridge::GitOid;
+use serde::{Deserialize, Serialize};
 
 /// Causality boundary for operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Causality {
     /// Operation has not been broadcast and can be compacted locally.
     Local,
@@ -12,7 +13,7 @@ pub enum Causality {
 }
 
 /// User intent represented in the operation log.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpAction {
     /// Snapshot working-copy changes.
     Snap,
@@ -25,7 +26,7 @@ pub enum OpAction {
 }
 
 /// Single operation record in the OpLog.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpRecord {
     /// Unique operation id.
     pub id: String,
@@ -37,6 +38,20 @@ pub struct OpRecord {
     pub timestamp: i64,
     /// Resulting graph state after applying the operation.
     pub target_oid: GitOid,
+    /// Optional machine-generated or human-authored intent summary.
+    pub intent_summary: Option<String>,
+}
+
+/// Build a lightweight auto-generated intent summary from parsed symbols.
+pub fn auto_intent_summary(symbols: &[String]) -> String {
+    let descriptor = if symbols.is_empty() {
+        "workspace".to_string()
+    } else {
+        symbols.join(", ")
+    };
+    format!(
+        "[auto-snap] Structural changes to {descriptor} detected via tree-sitter."
+    )
 }
 
 /// Backward-compatible alias for existing docs and older call-sites.
@@ -122,6 +137,7 @@ mod tests {
             causality,
             timestamp: 1_700_000_000,
             target_oid: oid(target),
+            intent_summary: None,
         }
     }
 
@@ -162,5 +178,43 @@ mod tests {
         assert_eq!(previous, oid(7));
         assert_eq!(log.records().len(), 1);
         assert_eq!(log.records()[0].id, "stable");
+    }
+
+    #[test]
+    fn intent_summary_survives_local_compaction_boundary() {
+        let mut log = OpLog::from_records(vec![
+            OpRecord {
+                id: "stable".to_string(),
+                action: OpAction::Snap,
+                causality: Causality::NetworkStable,
+                timestamp: 1_700_000_000,
+                target_oid: oid(1),
+                intent_summary: Some("keep me".to_string()),
+            },
+            OpRecord {
+                id: "local".to_string(),
+                action: OpAction::Snap,
+                causality: Causality::Local,
+                timestamp: 1_700_000_001,
+                target_oid: oid(2),
+                intent_summary: Some("drop me".to_string()),
+            },
+        ]);
+
+        let compacted = log
+            .compact_local_history()
+            .expect("in-memory compaction is infallible");
+        assert_eq!(compacted, 1);
+        assert_eq!(log.records().len(), 1);
+        assert_eq!(log.records()[0].intent_summary.as_deref(), Some("keep me"));
+    }
+
+    #[test]
+    fn auto_summary_template_is_stable() {
+        let summary = super::auto_intent_summary(&["compute_total".to_string(), "Invoice".to_string()]);
+        assert_eq!(
+            summary,
+            "[auto-snap] Structural changes to compute_total, Invoice detected via tree-sitter."
+        );
     }
 }

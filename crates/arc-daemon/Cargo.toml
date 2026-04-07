@@ -27,10 +27,14 @@ arc-algebra-types = { path = "../arc-algebra-types", optional = true }
 arc-change = { path = "../arc-change", optional = true }
 arc-store-types = { path = "../arc-store-types", optional = true }
 arc-store-view = { path = "../arc-store-view", optional = true }
-arc-core = { path = "../arc-core" }
+arc-core = { path = "../arc-core", features = ["redb-metadata"] }
 notify = "8.2.0"
 arc-diagnostics = { path = "../arc-diagnostics" }
 tracing = "0.1.44"
+tree-sitter = "0.26.8"
+tree-sitter-rust = "0.24.2"
+blake3 = "1.8.4"
+hex = "0.4.3"
 
 [dev-dependencies]
 tempfile = "3.27.0"
