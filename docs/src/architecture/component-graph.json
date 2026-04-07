@@ -140,6 +140,12 @@
       "stabilityTier": 3
     },
     {
+      "id": "arc-git-native",
+      "class": "application",
+      "owner": "interop",
+      "stabilityTier": 1
+    },
+    {
       "id": "arc-lang",
       "class": "application",
       "owner": "language-ai",

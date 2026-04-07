@@ -386,6 +386,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-git-native"
+version = "0.1.0-beta.6"
+dependencies = [
+ "arc-core",
+ "sha1",
+]
+
+[[package]]
 name = "arc-lang"
 version = "0.1.0-beta.6"
 dependencies = [

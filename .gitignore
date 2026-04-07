@@ -3,6 +3,7 @@
 research/
 # Ignore generated book files
 docs/book/*
+web/*
 
 # --- Rust/Cargo ---
 # The primary build directory
