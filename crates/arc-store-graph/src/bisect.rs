@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use arc_algebra_types::Blake3Hash;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::ChangeId;
 
 use crate::graph::ChangeGraph;
 

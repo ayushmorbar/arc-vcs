@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
+arc-store-cas = { path = "../arc-store-cas" }
 arc-store-types = { path = "../arc-store-types" }
 dashmap = "6.1.0"
 bitflags = "2.11.0"

@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::ChangeId;
 use tracing::instrument;
 
 use crate::blake3_hasher::Blake3HashMap;

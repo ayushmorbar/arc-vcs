@@ -530,6 +530,7 @@ dependencies = [
  "anyhow",
  "arc-algebra-types",
  "arc-change",
+ "arc-store-cas",
  "arc-store-types",
  "bincode",
  "bitflags 2.11.0",
