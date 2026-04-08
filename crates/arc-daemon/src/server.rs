@@ -306,7 +306,8 @@ fn file_path_from_atom(atom: &Atom) -> Option<String> {
         {
             Some(at[1].clone())
         }
-        Atom::Blob { path, .. } | Atom::Mount { path, .. } | Atom::Directory { path }
+        Atom::Blob { path, .. } => Some(path.clone()),
+        Atom::Mount { path, .. } | Atom::Directory { path }
             if path.len() >= 2 && path[0] == "file" =>
         {
             Some(path[1].clone())

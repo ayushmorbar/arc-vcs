@@ -165,6 +165,9 @@ pub struct SnapshotConfig {
     /// Whether stale workspaces are auto-updated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_update_stale: Option<bool>,
+    /// Explicit binary/blob extensions tracked via `arc blob track`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob_extensions: Option<Vec<String>>,
 }
 
 /// Hint toggles for UX guidance.
@@ -286,6 +289,7 @@ pub fn synthesized_defaults_config() -> ArcConfig {
     cfg.snapshot.max_new_file_size = Some("1MiB".to_string());
     cfg.snapshot.auto_track = Some("all()".to_string());
     cfg.snapshot.auto_update_stale = Some(false);
+    cfg.snapshot.blob_extensions = None;
 
     cfg.revsets
         .insert("arrange".to_string(), "reachable(@, mutable())".to_string());
@@ -1569,7 +1573,8 @@ impl Repository {
                 Atom::Move { to, .. } if to.len() >= 2 && to[0] == "file" => {
                     Some(PathBuf::from(&to[1]))
                 }
-                Atom::Blob { path, .. } | Atom::Mount { path, .. } | Atom::Directory { path }
+                Atom::Blob { path, .. } => Some(PathBuf::from(path)),
+                Atom::Mount { path, .. } | Atom::Directory { path }
                     if path.len() >= 2 && path[0] == "file" =>
                 {
                     Some(PathBuf::from(&path[1]))
@@ -2877,15 +2882,13 @@ impl Repository {
     /// can later find the bytes it needs without performing disk I/O itself.
     pub(super) fn write_blob_atoms(&self, atoms: &[Atom]) -> anyhow::Result<()> {
         for atom in atoms {
-            if let Atom::Blob { path, hash } = atom {
-                let filepath = path
-                    .get(1)
-                    .ok_or_else(|| anyhow::anyhow!("invalid blob path: {path:?}"))?;
+            if let Atom::Blob { path, hash, .. } = atom {
+                let filepath = path;
                 let bytes = fs::read(self.work_root.join(filepath))
                     .map_err(|e| anyhow::anyhow!("failed to read blob source '{filepath}': {e}"))?;
                 let blobs_dir = self.shared_root.join(".arc").join("blobs");
                 fs::create_dir_all(&blobs_dir)?;
-                let blob_file = blobs_dir.join(_hex(hash));
+                let blob_file = blobs_dir.join(_hex(hash.as_bytes()));
                 if !blob_file.exists() {
                     fs::write(&blob_file, &bytes)
                         .map_err(|e| anyhow::anyhow!("failed to write blob: {e}"))?;
@@ -3958,7 +3961,7 @@ impl Repository {
                     for atom in &change.atoms {
                         match atom {
                             Atom::Blob { hash, .. } => {
-                                referenced_blobs.insert(_hex(hash));
+                                referenced_blobs.insert(_hex(hash.as_bytes()));
                             }
                             Atom::Insert { content_hash, .. } => {
                                 referenced_blobs.insert(_hex(content_hash));
@@ -4113,8 +4116,9 @@ impl Repository {
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("corrupt ARC_BLOB_REF token at {path:?}"))?;
                 atoms.push(Atom::Blob {
-                    path: path.clone(),
-                    hash,
+                    path: path.get(1).cloned().unwrap_or_else(|| path.join("/")),
+                    hash: hash.into(),
+                    size: content.len() as u64,
                 });
             } else {
                 let content_hash = self
@@ -5378,7 +5382,7 @@ fn atom_label(atom: &Atom) -> String {
             format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
         }
         Atom::Blob { path, .. } => {
-            format!("Blob:     {}", path.last().unwrap_or(&"?".to_string()))
+            format!("Blob:     {path}")
         }
         Atom::Mount { path, .. } => {
             format!("Mount:    {}", path.last().unwrap_or(&"?".to_string()))
@@ -5438,9 +5442,14 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
         Atom::Directory { path } => Atom::Directory {
             path: prepend(path),
         },
-        Atom::Blob { path, hash } => Atom::Blob {
-            path: prepend(path),
+        Atom::Blob { path, hash, size } => Atom::Blob {
+            path: if path.is_empty() {
+                filepath.to_string()
+            } else {
+                format!("{filepath}/{path}")
+            },
             hash,
+            size,
         },
         Atom::Mount { path, coordinate } => Atom::Mount {
             path: prepend(path),
@@ -5802,6 +5811,9 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
         if global.snapshot.auto_update_stale.is_some() {
             merged.snapshot.auto_update_stale = global.snapshot.auto_update_stale;
         }
+        if global.snapshot.blob_extensions.is_some() {
+            merged.snapshot.blob_extensions = global.snapshot.blob_extensions;
+        }
         merged.remotes.extend(global.remotes);
         merged.aliases.extend(global.aliases);
         merged.hooks.extend(global.hooks);
@@ -5861,6 +5873,9 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     }
     if local.snapshot.auto_update_stale.is_some() {
         merged.snapshot.auto_update_stale = local.snapshot.auto_update_stale;
+    }
+    if local.snapshot.blob_extensions.is_some() {
+        merged.snapshot.blob_extensions = local.snapshot.blob_extensions;
     }
     merged.remotes.extend(local.remotes);
     merged.aliases.extend(local.aliases);
@@ -7374,8 +7389,9 @@ mod tests {
         let legacy_change = Change::new(
             HashSet::new(),
             vec![Atom::Blob {
-                path: vec!["file".to_string(), "legacy.txt".to_string()],
-                hash: blob_hash,
+                path: "legacy.txt".to_string(),
+                hash: blob_hash.into(),
+                size: b"legacy".len() as u64,
             }],
             "seed legacy tracked blob",
             author,

@@ -473,6 +473,71 @@ impl ObjectStore {
         Ok(hash)
     }
 
+    /// Persist a blob from a streaming reader without buffering the entire
+    /// payload in memory.
+    ///
+    /// Returns the BLAKE3 content hash and total number of bytes written.
+    #[instrument(skip_all)]
+    pub fn write_blob_stream<R: Read>(&self, reader: &mut R) -> Result<(Blake3Hash, u64), CasError> {
+        let blobs_dir = self.root.join("blobs");
+        create_dir_all_retry(&blobs_dir)?;
+
+        let tmp_path = create_unique_temp_path(&blobs_dir, OsStr::new("blob-stream"))?;
+        let mut tmp = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&tmp_path)?;
+
+        let mut hasher = blake3::Hasher::new();
+        let mut total_bytes: u64 = 0;
+        let mut buffer = [0u8; 64 * 1024];
+
+        loop {
+            let read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) => {
+                    let _ = fs::remove_file(&tmp_path);
+                    return Err(CasError::Io(err));
+                }
+            };
+
+            tmp.write_all(&buffer[..read])?;
+            hasher.update(&buffer[..read]);
+            total_bytes = total_bytes.saturating_add(read as u64);
+        }
+
+        tmp.sync_data()?;
+        drop(tmp);
+
+        let hash: Blake3Hash = *hasher.finalize().as_bytes();
+        let final_path = self.blob_path(&hash);
+
+        if final_path.exists() {
+            let _ = fs::remove_file(&tmp_path);
+            return Ok((hash, total_bytes));
+        }
+
+        match fs::rename(&tmp_path, &final_path) {
+            Ok(()) => {
+                sync_directory_if_supported(&blobs_dir)?;
+                Ok((hash, total_bytes))
+            }
+            Err(err)
+                if err.kind() == std::io::ErrorKind::AlreadyExists
+                    || (err.kind() == std::io::ErrorKind::PermissionDenied && final_path.exists()) =>
+            {
+                let _ = fs::remove_file(&tmp_path);
+                Ok((hash, total_bytes))
+            }
+            Err(err) => {
+                let _ = fs::remove_file(&tmp_path);
+                Err(CasError::Io(err))
+            }
+        }
+    }
+
     /// Persist raw bytes as a content-addressed blob and return a typed
     /// identifier for cross-crate APIs.
     ///

@@ -99,19 +99,19 @@ impl LanguagePlugin for RustPlugin {
 
         // Sort atoms for deterministic output.
         atoms.sort_by(|a, b| {
-            fn key(atom: &Atom) -> &NodePath {
+            fn key(atom: &Atom) -> String {
                 match atom {
                     Atom::Insert { at, .. }
                     | Atom::Delete { at, .. }
                     | Atom::SemanticsPreserving { at, .. }
-                    | Atom::Conflict { at, .. } => at,
-                    Atom::Move { from, .. } => from,
-                    Atom::Directory { path } => path,
-                    Atom::Blob { path, .. } => path,
-                    Atom::Mount { path, .. } => path,
+                    | Atom::Conflict { at, .. } => at.join("/"),
+                    Atom::Move { from, .. } => from.join("/"),
+                    Atom::Directory { path } => path.join("/"),
+                    Atom::Blob { path, .. } => format!("file/{path}"),
+                    Atom::Mount { path, .. } => path.join("/"),
                 }
             }
-            key(a).cmp(key(b))
+            key(a).cmp(&key(b))
         });
 
         Ok(atoms)

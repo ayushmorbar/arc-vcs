@@ -137,14 +137,15 @@ pub fn apply_change_scoped(
             Atom::SemanticsPreserving { .. } => {
                 return Err("SemanticsPreserving atoms are not yet supported".to_string());
             }
-            Atom::Blob { path, hash } => {
+            Atom::Blob { path, hash, .. } => {
                 // Store a magic reference token; write_state_to_working_dir
                 // detects this prefix and reads raw bytes from .arc/blobs/.
                 let mut token = b"ARC_BLOB_REF:".to_vec();
-                token.extend_from_slice(hash);
-                state.insert(path.clone(), token);
+                token.extend_from_slice(hash.as_bytes());
+                let key = vec!["file".to_string(), path.clone()];
+                state.insert(key.clone(), token);
                 if let Some(ref mut b) = blame {
-                    b.insert(path.clone(), change.id);
+                    b.insert(key, change.id);
                 }
             }
             Atom::Mount { path, coordinate } => {
@@ -403,8 +404,9 @@ mod tests {
         let change = Change::new(
             HashSet::new(),
             vec![Atom::Blob {
-                path: vec!["file".into(), "logo.png".into()],
-                hash,
+                path: "logo.png".into(),
+                hash: hash.into(),
+                size: 0,
             }],
             "add binary asset",
             author,

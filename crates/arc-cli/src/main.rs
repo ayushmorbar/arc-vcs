@@ -385,6 +385,11 @@ enum Command {
         #[command(subcommand)]
         action: SparseAction,
     },
+    /// Manage explicit binary/blob tracking extensions.
+    Blob {
+        #[command(subcommand)]
+        action: BlobAction,
+    },
     /// Manage sub-repository mounts (mathematical submodule replacement).
     Mount {
         #[command(subcommand)]
@@ -802,6 +807,17 @@ enum SparseAction {
 }
 
 #[derive(Subcommand)]
+enum BlobAction {
+    /// Track a binary/blob file extension (for example: png, zip, wasm).
+    Track {
+        /// Extension with or without leading dot (e.g. `png` or `.png`).
+        extension: String,
+    },
+    /// List tracked binary/blob extensions.
+    Ls,
+}
+
+#[derive(Subcommand)]
 enum MountAction {
     /// Declare a sub-repository mount in the current view.
     Add {
@@ -1118,6 +1134,18 @@ fn resolve_sync_token() -> anyhow::Result<Option<String>> {
     } else {
         Ok(Some(token))
     }
+}
+
+fn normalize_blob_extension(raw: &str) -> anyhow::Result<String> {
+    let normalized = raw.trim().trim_start_matches('.').to_ascii_lowercase();
+    anyhow::ensure!(!normalized.is_empty(), "extension cannot be empty");
+    anyhow::ensure!(
+        normalized
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'),
+        "extension must contain only ASCII letters, digits, '-' or '_'"
+    );
+    Ok(normalized)
 }
 
 fn run_cli() -> anyhow::Result<()> {
@@ -2439,6 +2467,39 @@ fn run_cli() -> anyhow::Result<()> {
                 println!("Sparse filter cleared — working directory fully restored.");
             }
         },
+        Command::Blob { action } => match action {
+            BlobAction::Track { extension } => {
+                let repo = Repository::open(".")?;
+                let mut config = load_merged_config(&repo.shared_root)?;
+                let normalized = normalize_blob_extension(&extension)?;
+
+                let mut extensions = config.snapshot.blob_extensions.unwrap_or_default();
+                if extensions.iter().any(|ext| ext == &normalized) {
+                    println!("Extension '.{normalized}' is already tracked.");
+                } else {
+                    extensions.push(normalized.clone());
+                    extensions.sort();
+                    extensions.dedup();
+                    config.snapshot.blob_extensions = Some(extensions);
+                    save_local_config(&config, &repo.shared_root)?;
+                    println!("Tracked blob extension '.{normalized}'.");
+                }
+            }
+            BlobAction::Ls => {
+                let repo = Repository::open(".")?;
+                let config = load_merged_config(&repo.shared_root)?;
+                let mut extensions = config.snapshot.blob_extensions.unwrap_or_default();
+                if extensions.is_empty() {
+                    println!("No blob extensions tracked.");
+                } else {
+                    extensions.sort();
+                    extensions.dedup();
+                    for ext in &extensions {
+                        println!(".{ext}");
+                    }
+                }
+            }
+        },
         Command::Mount { action } => match action {
             MountAction::Add { coordinate, path } => {
                 let mut repo = Repository::open(".")?;
@@ -2630,7 +2691,11 @@ fn run_cli() -> anyhow::Result<()> {
                             "properties": {
                                 "max_new_file_size": {"type": "string"},
                                 "auto_track": {"type": "string"},
-                                "auto_update_stale": {"type": "boolean"}
+                                        "auto_update_stale": {"type": "boolean"},
+                                        "blob_extensions": {
+                                            "type": "array",
+                                            "items": {"type": "string"}
+                                        }
                             }
                         },
                         "revsets": {"type": "object", "additionalProperties": {"type": "string"}},
@@ -3808,7 +3873,7 @@ fn atom_display_label(atom: &Atom) -> String {
                 .to_string()
         }
         Atom::Blob { path, .. } => {
-            format!("~~ Blob:    {}", path.last().unwrap_or(&"?".to_string()))
+            format!("~~ Blob:    {path}")
                 .yellow()
                 .to_string()
         }

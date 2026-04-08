@@ -11,6 +11,12 @@ use tree_sitter::{Node, Parser};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
+const BINARY_EXT_ALLOWLIST: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "pdf", "zip", "gz", "bz2",
+    "xz", "7z", "tar", "jar", "mp3", "mp4", "avi", "mov", "wasm", "exe", "dll", "so",
+    "dylib", "bin", "ttf", "otf", "woff", "woff2",
+];
+
 #[derive(Default)]
 struct TransientBuffer {
     paths: BTreeSet<PathBuf>,
@@ -152,6 +158,10 @@ fn evaluate_semantic_gate(paths: &BTreeSet<PathBuf>) -> anyhow::Result<SemanticA
     let mut artifacts = SemanticArtifacts::default();
 
     for path in paths {
+        if is_binary_fast_path(path) {
+            continue;
+        }
+
         if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             continue;
         }
@@ -181,6 +191,25 @@ fn evaluate_semantic_gate(paths: &BTreeSet<PathBuf>) -> anyhow::Result<SemanticA
     }
 
     Ok(artifacts)
+}
+
+fn is_binary_fast_path(path: &Path) -> bool {
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        let ext_lower = ext.to_ascii_lowercase();
+        if BINARY_EXT_ALLOWLIST.iter().any(|allowed| *allowed == ext_lower) {
+            return true;
+        }
+    }
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut sample = [0u8; 1024];
+    match std::io::Read::read(&mut file, &mut sample) {
+        Ok(read) if read > 0 => sample[..read].contains(&0),
+        _ => false,
+    }
 }
 
 fn has_error_nodes(node: Node<'_>) -> bool {

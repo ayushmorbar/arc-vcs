@@ -200,6 +200,9 @@ fn atoms_disjoint(atoms_a: &[Atom], atoms_b: &[Atom]) -> bool {
             if matches!(b, Atom::Move { .. }) {
                 continue;
             }
+            if blob_conflicts(a, b) {
+                return false;
+            }
             for pa in a.paths() {
                 for pb in b.paths() {
                     if paths_overlap(pa, pb) {
@@ -210,6 +213,41 @@ fn atoms_disjoint(atoms_a: &[Atom], atoms_b: &[Atom]) -> bool {
         }
     }
     true
+}
+
+fn blob_conflicts(a: &Atom, b: &Atom) -> bool {
+    match (a, b) {
+        (
+            Atom::Blob {
+                path: path_a,
+                hash: hash_a,
+                size: size_a,
+            },
+            Atom::Blob {
+                path: path_b,
+                hash: hash_b,
+                size: size_b,
+            },
+        ) => path_a == path_b && (hash_a != hash_b || size_a != size_b),
+        (Atom::Blob { path, .. }, other) | (other, Atom::Blob { path, .. }) => {
+            file_path_for_atom(other).is_some_and(|other_path| other_path == path)
+        }
+        _ => false,
+    }
+}
+
+fn file_path_for_atom(atom: &Atom) -> Option<&str> {
+    match atom {
+        Atom::Insert { at, .. }
+        | Atom::Delete { at, .. }
+        | Atom::SemanticsPreserving { at, .. }
+        | Atom::Conflict { at, .. } if at.len() >= 2 && at[0] == "file" => Some(&at[1]),
+        Atom::Move { from, .. } if from.len() >= 2 && from[0] == "file" => Some(&from[1]),
+        Atom::Move { to, .. } if to.len() >= 2 && to[0] == "file" => Some(&to[1]),
+        Atom::Directory { path } if path.len() >= 2 && path[0] == "file" => Some(&path[1]),
+        Atom::Mount { path, .. } if path.len() >= 2 && path[0] == "file" => Some(&path[1]),
+        _ => None,
+    }
 }
 
 /// Two AST paths overlap when one is a prefix of (or equal to) the other.

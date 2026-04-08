@@ -331,7 +331,7 @@ impl Repository {
                 hasher.reset();
                 hasher.update(&bytes);
                 let new_hash: Blake3Hash = *hasher.finalize().as_bytes();
-                let path_key = vec!["file".to_string(), filepath];
+                let path_key = vec!["file".to_string(), filepath.clone()];
                 if let Some(existing) = state.get(&path_key)
                     && existing.starts_with(b"ARC_BLOB_REF:")
                     && existing.len() >= 45
@@ -342,8 +342,9 @@ impl Repository {
                     }
                 }
                 Ok(Some(Atom::Blob {
-                    path: path_key,
-                    hash: new_hash,
+                    path: filepath,
+                    hash: new_hash.into(),
+                    size: bytes.len() as u64,
                 }))
             },
             BlobAtomReducer::new(),

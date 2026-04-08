@@ -131,10 +131,12 @@ pub enum Atom {
     },
     /// Track a non-AST binary or text asset by its BLAKE3 content hash.
     Blob {
-        /// Path segments identifying the asset (e.g. `["file", "logo.png"]`).
-        path: NodePath,
+        /// Repository-relative file path identifying the asset (e.g. `assets/logo.png`).
+        path: String,
         /// BLAKE3 hash of the raw file bytes.
-        hash: Blake3Hash,
+        hash: blake3::Hash,
+        /// Blob size in bytes.
+        size: u64,
     },
     /// Declare that a sub-graph should be mounted at `path`.
     Mount {
@@ -163,7 +165,7 @@ impl Atom {
             Atom::Move { from, to } => vec![from, to],
             Atom::SemanticsPreserving { at, .. } => vec![at],
             Atom::Directory { path } => vec![path],
-            Atom::Blob { path, .. } => vec![path],
+            Atom::Blob { .. } => Vec::new(),
             Atom::Mount { path, .. } => vec![path],
             Atom::Conflict { at, .. } => vec![at],
         }

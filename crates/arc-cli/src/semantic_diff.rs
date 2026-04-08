@@ -484,7 +484,7 @@ fn is_pure_import_change(old_text: &str, new_text: &str) -> bool {
 fn format_atom_brief(atom: &Atom) -> String {
     match atom {
         Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
-        Atom::Blob { path, .. } => format!("~~ blob {}", path.join("/")).yellow().to_string(),
+        Atom::Blob { path, .. } => format!("~~ blob {path}").yellow().to_string(),
         Atom::Mount {
             path,
             coordinate,
