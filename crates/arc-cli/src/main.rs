@@ -7,6 +7,7 @@ use inquire::Text;
 use std::collections::{BTreeSet, HashSet};
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
@@ -35,8 +36,15 @@ use arc_store_types::newtypes::{ChangeId, SnapshotId};
 use arc_store_view::View;
 use arc_store_view::oplog::OperationAgent;
 use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
+use arc_ux::{
+    HumanPlainRenderer, HumanRichRenderer, JsonRenderer, OutputEvent, RenderMode, Renderer,
+    TerminalCapabilities, arc_error_to_report, detect_capabilities, hyperlink_for_hash,
+    hyperlink_for_path,
+};
 use comfy_table::{Cell, Color, Table, presets};
 use owo_colors::OwoColorize;
+
+static OUTPUT_PREFS: OnceLock<(bool, bool)> = OnceLock::new();
 
 /// Serialisable session record written to `.arc/local/session.json` when
 /// `ARC_EPHEMERAL_RUNNER` is set.  Keeps the same ephemeral key stable for
@@ -133,6 +141,12 @@ fn cli_styles() -> Styles {
     after_help = "DAILY USE\n  arc init\n  arc snap\n  arc watch\n  arc sync\n\nADVANCED\n  Use `arc util`, `arc op`, `arc bench`, and `arc workspace` for advanced workflows."
 )]
 struct Cli {
+    /// Emit versioned machine-readable JSON output where supported.
+    #[arg(long, global = true, help_heading = "OUTPUT")]
+    json: bool,
+    /// Reduce non-essential output where supported.
+    #[arg(long, global = true, help_heading = "OUTPUT")]
+    quiet: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -894,6 +908,8 @@ enum UtilAction {
         #[arg(long)]
         expire: Option<String>,
     },
+    /// UX renderer demo for replace-on-done and clickable paths.
+    UxDemo,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1110,10 +1126,61 @@ fn diagnostic_lines(error: &anyhow::Error) -> Vec<String> {
     lines
 }
 
-fn render_diagnostic_error(error: &anyhow::Error) {
-    for line in diagnostic_lines(error) {
-        eprintln!("{line}");
+fn render_diagnostic_error(error: anyhow::Error, force_json: bool, quiet: bool) {
+    let report = arc_error_to_report(arc_error::Error::from_error(AnyhowCompat(error)));
+    let caps = detect_capabilities(force_json, quiet);
+    let mut renderer = make_renderer(&caps);
+    renderer.render(OutputEvent::Diagnostic(report));
+}
+
+#[derive(Debug)]
+struct AnyhowCompat(anyhow::Error);
+
+impl std::fmt::Display for AnyhowCompat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.0)
     }
+}
+
+impl std::error::Error for AnyhowCompat {}
+
+fn make_renderer(caps: &TerminalCapabilities) -> Box<dyn Renderer> {
+    match caps.mode {
+        RenderMode::HumanRich => Box::new(HumanRichRenderer::new(caps.supports_osc8)),
+        RenderMode::HumanPlain => Box::new(HumanPlainRenderer),
+        RenderMode::MachineJson => Box::new(JsonRenderer { ndjson: true }),
+    }
+}
+
+fn run_mock_snap_demo(caps: &TerminalCapabilities) {
+    let mut renderer = make_renderer(caps);
+    renderer.render(OutputEvent::Started("snap: scanning semantic atoms".to_string()));
+
+    for idx in 1..=3_u64 {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        renderer.render(OutputEvent::Progress(
+            idx,
+            3,
+            format!("indexed {idx}/3 files"),
+        ));
+    }
+
+    let hash = "2d33b4f5f55fa8a8d5f704d5909b8f79e76ab26a4f3b7b7d30aef7d56e05e6aa";
+    let details = vec![
+        format!(
+            "change: {}",
+            hyperlink_for_hash(hash, caps.supports_osc8)
+        ),
+        format!(
+            "updated: {}",
+            hyperlink_for_path("src/lib.rs", 128, caps.supports_osc8)
+        ),
+        format!(
+            "updated: {}",
+            hyperlink_for_path("crates/arc-cli/src/main.rs", 3344, caps.supports_osc8)
+        ),
+    ];
+    renderer.render(OutputEvent::Success("snap completed".to_string(), details));
 }
 
 fn resolve_sync_token() -> anyhow::Result<Option<String>> {
@@ -1166,9 +1233,12 @@ fn run_cli() -> anyhow::Result<()> {
         raw_args = expand_command_aliases(&config, raw_args)?;
     }
     let cli = Cli::parse_from(&raw_args);
+    let term_caps = detect_capabilities(cli.json, cli.quiet);
+    let _ = OUTPUT_PREFS.set((cli.json, cli.quiet));
 
     // Extension-style global pre-command behavior driven by config.
-    if let Ok(config) = load_merged_config(std::path::Path::new("."))
+    if !cli.quiet
+        && let Ok(config) = load_merged_config(std::path::Path::new("."))
         && let Some(greet) = config.ui.greet.as_deref()
         && !greet.trim().is_empty()
     {
@@ -2738,6 +2808,9 @@ fn run_cli() -> anyhow::Result<()> {
                     result.changes_deleted, result.blobs_deleted
                 );
             }
+            UtilAction::UxDemo => {
+                run_mock_snap_demo(&term_caps);
+            }
         },
         Command::Gc { dry_run } => {
             if dry_run {
@@ -3342,10 +3415,18 @@ fn run_cli() -> anyhow::Result<()> {
 }
 
 fn main() {
+    let raw_args: Vec<String> = std::env::args().collect();
+    let raw_force_json = raw_args.iter().any(|arg| arg == "--json");
+    let raw_quiet = raw_args.iter().any(|arg| arg == "--quiet");
+
     match run_cli() {
         Ok(()) => {}
         Err(error) => {
-            render_diagnostic_error(&error);
+            let (force_json, quiet) = OUTPUT_PREFS
+                .get()
+                .copied()
+                .unwrap_or((raw_force_json, raw_quiet));
+            render_diagnostic_error(error, force_json, quiet);
             std::process::exit(1);
         }
     }

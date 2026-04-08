@@ -17,6 +17,8 @@ path = "src/main.rs"
 arc-ai = { path = "../arc-ai" }
 arc-algebra = { path = "../arc-algebra" }
 arc-algebra-types = { path = "../arc-algebra-types" }
+arc-error = { path = "../arc-error" }
+arc-ux = { path = "../arc-ux" }
 arc-diagnostics = { path = "../arc-diagnostics" }
 arc-change = { path = "../arc-change" }
 arc-engine = { path = "../arc-engine" }
@@ -49,6 +51,10 @@ anyhow = "1.0"
 blake3 = "1.8.3"
 memmap2 = "0.9.10"
 indicatif = "0.18.4"
+console = "0.16.3"
+cliclack = "0.5.2"
+atty = "0.2.14"
+miette = { version = "7.6.0", features = ["fancy"] }
 tracing-indicatif = "0.3.14"
 comfy-table = "7.2.2"
 owo-colors = "4.3.0"

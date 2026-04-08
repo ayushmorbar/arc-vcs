@@ -9,6 +9,7 @@ web/*
 # The primary build directory
 /target
 /target/
+/.cargo-home/*
 # Generated documentation
 /rendered-docs
 /rendered-docs/
