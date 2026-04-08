@@ -677,6 +677,7 @@ dependencies = [
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",
+ "arc-keyring",
  "arc-store-graph",
  "arc-store-types",
  "arc-store-view",

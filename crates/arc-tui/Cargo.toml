@@ -25,6 +25,7 @@ arc-algebra-types = { path = "../arc-algebra-types" }
 arc-algebra = { path = "../arc-algebra" }
 arc-change = { path = "../arc-change" }
 arc-store-types = { path = "../arc-store-types" }
+arc-keyring = { path = "../arc-keyring" }
 
 anyhow = "1.0.102"
 blake3 = "1.8.4"

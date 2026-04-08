@@ -1,16 +1,20 @@
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Context;
-use crossterm::event::{self, Event as CEvent, KeyCode};
+use arc_keyring::{IdentityManager, KeyringError};
+use crossterm::event::{self, Event as CEvent, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, ExecutableCommand};
 use ratatui::backend::CrosstermBackend;
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tuirealm::{Application, EventListenerCfg, NoUserEvent, PollStrategy};
 use arc_ux::OutputEvent;
 
+use crate::components::commit_input::CommitInput;
 use crate::components::dag_explorer::DagExplorer;
 use crate::components::detail_panel::DetailPanel;
 use crate::components::diff_view::DiffView;
@@ -29,6 +33,7 @@ pub struct App {
     state: AppState,
     dag: DagExplorer,
     diff: SideBySideDiff,
+    commit_input: CommitInput,
     backend_events: mpsc::Receiver<OutputEvent>,
     realm: Application<RealmView, Message, NoUserEvent>,
 }
@@ -49,6 +54,7 @@ impl App {
             state: AppState::new(provider.list_changes()),
             dag: DagExplorer::new(),
             diff: SideBySideDiff::default(),
+            commit_input: CommitInput::new(),
             backend_events,
             realm: Application::init(EventListenerCfg::default()),
         }
@@ -67,24 +73,52 @@ impl App {
         while self.state.running {
             self.drain_backend_events();
             self.realm_tick();
+            self.state.tick_animations();
 
             terminal
                 .draw(|frame| {
                     let bento = split_bento(frame.area());
 
                     if self.state.show_diff {
-                        let diff_area = ratatui::layout::Rect {
+                        let workspace = ratatui::layout::Rect {
                             x: bento.dag.x,
                             y: bento.dag.y,
                             width: bento.dag.width + bento.detail.width,
                             height: bento.dag.height,
                         };
 
+                        let split = ratatui::layout::Layout::vertical([
+                            ratatui::layout::Constraint::Length(2),
+                            ratatui::layout::Constraint::Min(8),
+                            ratatui::layout::Constraint::Length(4),
+                        ])
+                        .split(workspace);
+
+                        let header = Paragraph::new(format!(
+                            "Sponsorship: {} | Selection: {} | Selected Atoms: {}",
+                            self.state.sponsorship.as_label(),
+                            if self.state.selection_mode { "on" } else { "off" },
+                            self.state.selected_atom_count()
+                        ))
+                        .block(Block::default().title("Snap Header").borders(Borders::ALL));
+                        frame.render_widget(header, split[0]);
+
                         if let Some(diff) = self.state.selected_diff() {
-                            DiffView::render(frame, diff_area, diff, &self.diff);
+                            DiffView::render(
+                                frame,
+                                split[1],
+                                diff,
+                                &self.diff,
+                                self.state.selection_mode,
+                                self.state.diff_cursor,
+                                &self.state.selected_atoms,
+                            );
                         } else {
-                            DetailPanel::render(frame, diff_area, &self.state);
+                            DetailPanel::render(frame, split[1], &self.state);
                         }
+
+                        let ghost = self.state.ghost_text();
+                        self.commit_input.render(frame, split[2], &ghost);
                     } else {
                         self.dag.render(frame, bento.dag, &self.state);
                         DetailPanel::render(frame, bento.detail, &self.state);
@@ -115,21 +149,64 @@ impl App {
 
     fn handle_input(&mut self, input: CEvent) {
         if let CEvent::Key(key) = input {
+            if self.state.show_diff {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.handle_message(Message::OpenDiff);
+                        return;
+                    }
+                    KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_message(Message::ToggleSelectionMode);
+                        return;
+                    }
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_message(Message::SponsorshipNext);
+                        return;
+                    }
+                    KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_message(Message::ToggleAtom);
+                        return;
+                    }
+                    KeyCode::Enter => {
+                        self.handle_message(Message::SnapNow);
+                        return;
+                    }
+                    KeyCode::Up => {
+                        if self.state.selection_mode {
+                            self.state.move_diff_cursor_up();
+                        } else {
+                            self.diff.scroll_up();
+                        }
+                        return;
+                    }
+                    KeyCode::Down => {
+                        if self.state.selection_mode {
+                            self.state.move_diff_cursor_down();
+                        } else {
+                            self.diff.scroll_down();
+                        }
+                        return;
+                    }
+                    KeyCode::Char('i') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_message(Message::IntentEvent(
+                            "Refactor: Optimized blake3 hashing in core".to_string(),
+                        ));
+                        return;
+                    }
+                    _ => {}
+                }
+
+                let _ = self.commit_input.handle_key(key);
+                return;
+            }
+
             match key.code {
                 KeyCode::Char('q') => self.handle_message(Message::Quit),
                 KeyCode::Down => {
-                    if self.state.show_diff {
-                        self.diff.scroll_down();
-                    } else {
-                        self.handle_message(Message::MoveDown);
-                    }
+                    self.handle_message(Message::MoveDown);
                 }
                 KeyCode::Up => {
-                    if self.state.show_diff {
-                        self.diff.scroll_up();
-                    } else {
-                        self.handle_message(Message::MoveUp);
-                    }
+                    self.handle_message(Message::MoveUp);
                 }
                 KeyCode::Char('d') => self.handle_message(Message::OpenDiff),
                 _ => {}
@@ -146,12 +223,137 @@ impl App {
             Message::OpenDiff => {
                 self.state.show_diff = !self.state.show_diff;
                 self.state.status_line = if self.state.show_diff {
-                    "DiffView on | up/down scroll | d back | q quit".to_string()
+                    "Snap mode | Enter capture | Ctrl+V atom-select | Ctrl+T toggle atom | Ctrl+S sponsor | Ctrl+I mock-intent | Esc back"
+                        .to_string()
                 } else {
                     "up/down navigate | d diff | q quit".to_string()
                 };
             }
+            Message::ToggleSelectionMode => {
+                self.state.toggle_selection_mode();
+                self.state.status_line = if self.state.selection_mode {
+                    "Selection mode on | up/down move | space toggle atom".to_string()
+                } else {
+                    "Selection mode off".to_string()
+                };
+            }
+            Message::ToggleAtom => {
+                self.state.toggle_selected_atom();
+                self.state.status_line = format!(
+                    "Selected atoms: {}",
+                    self.state.selected_atom_count()
+                );
+            }
+            Message::SponsorshipNext => {
+                self.state.cycle_sponsorship();
+                self.state.status_line = format!(
+                    "Sponsorship set to {}",
+                    self.state.sponsorship.as_label()
+                );
+            }
+            Message::SnapNow => {
+                let intent_text = self.commit_input.intent_text();
+                let intent = if intent_text.trim().is_empty() {
+                    self.state.ghost_text()
+                } else {
+                    intent_text
+                };
+                let metadata = build_intent_metadata(
+                    &intent,
+                    self.state.sponsorship.as_label(),
+                    &self.state.selected_atoms,
+                );
+
+                match sign_intent_metadata(metadata.as_bytes()) {
+                    Ok(signature) => {
+                        let short = self
+                            .state
+                            .selected_change()
+                            .map(|change| change.hash.chars().take(6).collect::<String>())
+                            .unwrap_or_else(|| "a1b2c3".to_string());
+                        self.state.start_success_nudge(short.clone());
+                        self.state.status_line = format!(
+                            "intent signed {}... | finalizing spacetime capture",
+                            &signature[..8]
+                        );
+                    }
+                    Err(error) => {
+                        self.state.status_line = format!("snap signing failed: {error}");
+                    }
+                }
+            }
+            Message::IntentEvent(intent) => {
+                self.state.inject_intent_event(intent.clone());
+                self.state.status_line = format!("intent event received: {intent}");
+            }
             Message::Backend(event) => self.state.apply_output_event(event),
         }
+    }
+}
+
+fn sign_intent_metadata(payload: &[u8]) -> Result<String, String> {
+    let keyring_path = default_tui_keyring_path();
+    let manager = IdentityManager::init_at(&keyring_path)
+        .map_err(|error| format!("keyring init failed: {error}"))?;
+
+    let alias = "arc_tui_snap";
+    let passphrase = std::env::var("ARC_TUI_SNAP_PASSPHRASE")
+        .map_err(|_| "missing ARC_TUI_SNAP_PASSPHRASE env var".to_string())?;
+    match manager.generate(alias, &passphrase) {
+        Ok(_) => {}
+        Err(KeyringError::AliasExists(_)) => {}
+        Err(error) => return Err(format!("identity generation failed: {error}")),
+    }
+
+    manager
+        .load(alias, &passphrase)
+        .map_err(|error| format!("identity load failed: {error}"))?;
+
+    let signature = manager
+        .sign(payload)
+        .map_err(|error| format!("signing failed: {error}"))?;
+    Ok(hex_encode(&signature.to_bytes()))
+}
+
+fn default_tui_keyring_path() -> PathBuf {
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        return PathBuf::from(local).join("arc-vcs").join("tui-keyring");
+    }
+    std::env::temp_dir().join("arc-vcs").join("tui-keyring")
+}
+
+fn build_intent_metadata(intent: &str, sponsorship: &str, selected_atoms: &std::collections::HashSet<usize>) -> String {
+    let mut selected = selected_atoms.iter().copied().collect::<Vec<_>>();
+    selected.sort_unstable();
+    format!(
+        "intent={intent}\nsponsorship={sponsorship}\nselected_atoms={selected:?}\n"
+    )
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::build_intent_metadata;
+
+    #[test]
+    fn metadata_serializes_selected_atoms_in_stable_order() {
+        let mut selected = HashSet::new();
+        selected.insert(3);
+        selected.insert(1);
+        selected.insert(2);
+
+        let metadata = build_intent_metadata("refactor", "Hybrid", &selected);
+        assert!(metadata.contains("selected_atoms=[1, 2, 3]"));
     }
 }

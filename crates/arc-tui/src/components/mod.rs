@@ -1,3 +1,4 @@
+pub mod commit_input;
 pub mod dag_explorer;
 pub mod detail_panel;
 pub mod diff_view;
