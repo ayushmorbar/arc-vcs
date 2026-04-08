@@ -16,34 +16,21 @@ use std::collections::HashSet;
 
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
-use arc_store_types::author::Author;
+use arc_store_types::Author;
+use thiserror::Error;
 
 use crate::BlobStore;
 
 /// Inversion failed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum InvertError {
     /// The blob required to reconstruct the inverse is missing from the CAS.
+    #[error("blob {0:?} is missing from the store boundary - cannot invert")]
     CasMissing(Blake3Hash),
     /// This atom variant has no defined inverse (e.g. `SemanticsPreserving`).
+    #[error("atom type does not support inversion")]
     Unsupported,
 }
-
-impl std::fmt::Display for InvertError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            InvertError::CasMissing(hash) => {
-                write!(
-                    f,
-                    "blob {hash:?} is missing from the store boundary - cannot invert"
-                )
-            }
-            InvertError::Unsupported => write!(f, "atom type does not support inversion"),
-        }
-    }
-}
-
-impl std::error::Error for InvertError {}
 
 /// Compute the semantic inverse of a single [`Atom`].
 ///
@@ -110,7 +97,7 @@ pub fn invert_change(
 mod tests {
     use std::collections::HashSet;
 
-    use arc_store_cas::cas::ObjectStore;
+    use arc_store_cas::ObjectStore;
     use arc_store_types::author;
 
     use super::*;

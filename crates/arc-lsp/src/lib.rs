@@ -110,7 +110,7 @@ impl ArcLanguageServer {
             .arguments
             .into_iter()
             .next()
-            .map(|value| serde_json::from_value::<SemanticDiffParams>(value))
+            .map(serde_json::from_value::<SemanticDiffParams>)
             .transpose()
             .map_err(|err| jsonrpc::Error::invalid_params(format!("invalid params: {err}")))?
             .unwrap_or_default();

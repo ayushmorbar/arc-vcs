@@ -116,7 +116,7 @@ mod tests {
             oid: oid(2),
         };
 
-        let mut file_entries = vec![file_foo_c.clone(), file_foo.clone()];
+        let mut file_entries = [file_foo_c.clone(), file_foo.clone()];
         file_entries.sort();
         assert_eq!(file_entries[0].name, "foo");
         assert_eq!(file_entries[1].name, "foo.c");
@@ -126,7 +126,7 @@ mod tests {
             name: "foo".to_string(),
             oid: oid(3),
         };
-        let mut mixed_entries = vec![file_foo_c, dir_foo];
+        let mut mixed_entries = [file_foo_c, dir_foo];
         mixed_entries.sort();
         assert_eq!(mixed_entries[0].name, "foo.c");
         assert_eq!(mixed_entries[1].name, "foo");

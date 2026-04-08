@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use arc_algebra_types::{Atom, Blake3Hash, NodePath};
 use arc_change::Change;
-use arc_store_types::author::Author;
+use arc_store_types::Author;
 use ignore::gitignore::Gitignore;
 
 use crate::BlobStore;
@@ -181,7 +181,7 @@ pub fn apply_change_scoped(
 mod tests {
     use std::collections::HashSet;
 
-    use arc_store_cas::cas::ObjectStore;
+    use arc_store_cas::ObjectStore;
     use arc_store_types::author;
 
     use super::*;

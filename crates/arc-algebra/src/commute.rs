@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use arc_algebra_types::{Atom, NodePath};
 use arc_change::Change;
-use arc_store_types::author::Author;
+use arc_store_types::Author;
 
 /// Two changes commute if and only if:
 /// 1. Neither depends on the other (no causal ordering).
