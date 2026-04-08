@@ -43,11 +43,19 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, anyhow};
+use arc_keyring::ArcIdentity;
+use arc_store_cas::cas::CasStorage;
+use chrono::{DateTime, Duration, Utc};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use arc_store_types::Signature as ArcSignature;
 
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
+
+const SIGNING_DOMAIN: &[u8] = b"arc-network:signed-sync:v1:";
 
 // ── Wire type ──────────────────────────────────────────────────────────────
 
@@ -74,6 +82,75 @@ pub struct DeltaPayload {
     pub view_heads: HashSet<Blake3Hash>,
 }
 
+/// Sender frontier summary used during discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontierSummary {
+    /// Frontier heads known by the caller.
+    pub frontier: HashSet<Blake3Hash>,
+}
+
+/// Signed network envelope carrying serialized payload bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedRequest {
+    /// Serialized payload bytes (JSON for wire structs).
+    pub payload: Vec<u8>,
+    /// Request timestamp (UTC) used for anti-replay drift checks.
+    pub timestamp: DateTime<Utc>,
+    /// Sender verifying key bytes.
+    pub author_public_key: [u8; 32],
+    /// Ed25519 signature over payload + timestamp.
+    pub signature: ArcSignature,
+}
+
+impl SignedRequest {
+    /// Sign an arbitrary payload with an explicit keypair and timestamp.
+    pub fn sign(payload: Vec<u8>, timestamp: DateTime<Utc>, signing_key: &SigningKey) -> Self {
+        let signing_bytes = signing_bytes(&payload, &timestamp);
+        let signature = signing_key.sign(&signing_bytes);
+        Self {
+            payload,
+            timestamp,
+            author_public_key: signing_key.verifying_key().to_bytes(),
+            signature: ArcSignature(signature.to_bytes()),
+        }
+    }
+
+    /// Sign with an ArcIdentity loaded from keyring.
+    pub fn sign_with_identity(payload: Vec<u8>, timestamp: DateTime<Utc>, identity: &ArcIdentity) -> Self {
+        let signing_key = SigningKey::from_bytes(&identity.signing_key);
+        Self::sign(payload, timestamp, &signing_key)
+    }
+
+    /// Verify signature and replay window on incoming signed envelope.
+    pub fn verify_incoming(&self, now: DateTime<Utc>) -> std::result::Result<(), NetworkError> {
+        let drift = now.signed_duration_since(self.timestamp).num_seconds().abs();
+        if drift > Duration::minutes(5).num_seconds() {
+            return Err(NetworkError::Unauthorized);
+        }
+
+        let verifying_key =
+            VerifyingKey::from_bytes(&self.author_public_key).map_err(|_| NetworkError::Unauthorized)?;
+        let signature = Signature::from_bytes(&self.signature.0);
+        let signing_bytes = signing_bytes(&self.payload, &self.timestamp);
+
+        verifying_key
+            .verify(&signing_bytes, &signature)
+            .map_err(|_| NetworkError::Unauthorized)
+    }
+
+    /// Verify against a trusted expected author key.
+    pub fn verify_incoming_for_author(
+        &self,
+        now: DateTime<Utc>,
+        expected_author_public_key: &[u8; 32],
+    ) -> std::result::Result<(), NetworkError> {
+        if &self.author_public_key != expected_author_public_key {
+            return Err(NetworkError::Unauthorized);
+        }
+        self.verify_incoming(now)
+    }
+}
+
 // ── Sync response ──────────────────────────────────────────────────────────────────────────────
 
 /// Server response to a successful `POST /sync/:view_name`.
@@ -98,6 +175,26 @@ pub struct SyncResponse {
     /// Empty when no identity collapsing occurred (the common case).
     /// JSON map keys are 64-character lowercase hex strings.
     pub rewritten_map: HashMap<String, String>,
+}
+
+/// Errors emitted by signed sync protocol operations.
+#[derive(Debug, Error)]
+pub enum NetworkError {
+    /// Incoming request failed signature or replay-window checks.
+    #[error("unauthorized request")]
+    Unauthorized,
+    /// Incoming payload failed structural or cryptographic validation.
+    #[error("invalid payload: {0}")]
+    InvalidPayload(String),
+    /// Serialization or deserialization failed.
+    #[error("serialization error: {0}")]
+    Serialization(String),
+    /// Persisting verified payload into CAS failed.
+    #[error("cas write failed: {0}")]
+    Storage(String),
+    /// HTTP transport failed or returned non-success.
+    #[error("network error: {0}")]
+    Transport(String),
 }
 
 // ── Zero-trust ingress ─────────────────────────────────────────────────────
@@ -184,6 +281,81 @@ impl NetworkClient {
             .with_context(|| format!("failed to deserialize SyncResponse from {url}"))
     }
 
+    /// Push local frontier delta to remote using signed envelope transport.
+    pub async fn push_changes(
+        &self,
+        remote_url: &str,
+        view_name: &str,
+        local_frontier: &HashSet<Blake3Hash>,
+        remote_frontier: &HashSet<Blake3Hash>,
+        local_changes: &HashMap<Blake3Hash, Change>,
+        identity: &ArcIdentity,
+    ) -> std::result::Result<SyncResponse, NetworkError> {
+        let missing = compute_missing_changes(local_frontier, remote_frontier, local_changes);
+        let payload = DeltaPayload {
+            changes: missing,
+            view_heads: local_frontier.clone(),
+        };
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        let signed = SignedRequest::sign_with_identity(payload_bytes, Utc::now(), identity);
+
+        let url = format!("{remote_url}/sync/{view_name}");
+        let resp = self
+            .client
+            .post(&url)
+            .json(&signed)
+            .send()
+            .await
+            .map_err(|e| NetworkError::Transport(e.to_string()))?
+            .error_for_status()
+            .map_err(|e| NetworkError::Transport(e.to_string()))?;
+
+        resp.json::<SyncResponse>()
+            .await
+            .map_err(|e| NetworkError::Transport(e.to_string()))
+    }
+
+    /// Pull missing changes from remote with zero-trust verification before CAS writes.
+    pub async fn pull_changes<S: CasStorage>(
+        &self,
+        remote_url: &str,
+        view_name: &str,
+        local_frontier: &HashSet<Blake3Hash>,
+        identity: &ArcIdentity,
+        expected_remote_author_public_key: [u8; 32],
+        cas: &S,
+    ) -> std::result::Result<DeltaPayload, NetworkError> {
+        let summary = FrontierSummary {
+            frontier: local_frontier.clone(),
+        };
+        let payload_bytes = serde_json::to_vec(&summary)
+            .map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        let signed_summary = SignedRequest::sign_with_identity(payload_bytes, Utc::now(), identity);
+
+        let url = format!("{remote_url}/sync/{view_name}");
+        let resp = self
+            .client
+            .post(&url)
+            .json(&signed_summary)
+            .send()
+            .await
+            .map_err(|e| NetworkError::Transport(e.to_string()))?
+            .error_for_status()
+            .map_err(|e| NetworkError::Transport(e.to_string()))?;
+
+        let incoming = resp
+            .json::<SignedRequest>()
+            .await
+            .map_err(|e| NetworkError::Transport(e.to_string()))?;
+        process_incoming_signed_delta(
+            &incoming,
+            cas,
+            Utc::now(),
+            &expected_remote_author_public_key,
+        )
+    }
+
     /// GET a single CAS blob from `{remote_url}/blobs/{hex_hash}`.
     ///
     /// Returns the raw bytes.  The caller should verify `blake3(bytes) == hash`
@@ -206,6 +378,67 @@ impl NetworkClient {
     }
 }
 
+/// Verify and persist a signed incoming delta payload.
+///
+/// Verification is always run before any CAS write.
+pub fn process_incoming_signed_delta<S: CasStorage>(
+    incoming: &SignedRequest,
+    cas: &S,
+    now: DateTime<Utc>,
+    expected_author_public_key: &[u8; 32],
+) -> std::result::Result<DeltaPayload, NetworkError> {
+    incoming.verify_incoming_for_author(now, expected_author_public_key)?;
+
+    let payload: DeltaPayload = serde_json::from_slice(&incoming.payload)
+        .map_err(|e| NetworkError::Serialization(e.to_string()))?;
+
+    verify_payload(&payload).map_err(|e| NetworkError::InvalidPayload(e.to_string()))?;
+
+    for change in &payload.changes {
+        let bytes = bincode::serialize(change)
+            .map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        cas.write_object(&change.id, &bytes)
+            .map_err(|e| NetworkError::Storage(e.to_string()))?;
+    }
+    Ok(payload)
+}
+
+fn compute_missing_changes(
+    local_frontier: &HashSet<Blake3Hash>,
+    remote_frontier: &HashSet<Blake3Hash>,
+    local_changes: &HashMap<Blake3Hash, Change>,
+) -> Vec<Change> {
+    let mut missing = Vec::new();
+    let mut stack: Vec<Blake3Hash> = local_frontier.iter().copied().collect();
+    let mut seen = HashSet::new();
+
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        if remote_frontier.contains(&id) {
+            continue;
+        }
+        let Some(change) = local_changes.get(&id) else {
+            continue;
+        };
+        missing.push(change.clone());
+        for dep in &change.deps {
+            stack.push(*dep);
+        }
+    }
+
+    missing
+}
+
+fn signing_bytes(payload: &[u8], timestamp: &DateTime<Utc>) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(SIGNING_DOMAIN.len() + payload.len() + 64);
+    bytes.extend_from_slice(SIGNING_DOMAIN);
+    bytes.extend_from_slice(payload);
+    bytes.extend_from_slice(timestamp.to_rfc3339().as_bytes());
+    bytes
+}
+
 impl Default for NetworkClient {
     fn default() -> Self {
         Self::new().unwrap_or_else(|_| Self {
@@ -216,11 +449,18 @@ impl Default for NetworkClient {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::{
+        collections::HashSet,
+        io::Read,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use super::*;
     use arc_change::Change;
+    use arc_algebra_types::Blake3Hash as CasHash;
+    use arc_store_cas::cas::{CasBytes, CasError};
     use arc_store_types::author::test_keypair;
+    use rand_core::OsRng;
 
     fn make_change(intent: &str) -> Change {
         let (author, key) = test_keypair();
@@ -302,5 +542,85 @@ mod tests {
                 .contains("signature verification failed"),
             "error message must mention signature verification"
         );
+    }
+
+    #[test]
+    fn verify_incoming_rejects_tampered_signature() {
+        let key = SigningKey::generate(&mut OsRng);
+        let mut signed = SignedRequest::sign(b"{}".to_vec(), Utc::now(), &key);
+        signed.signature.0[0] ^= 0x01;
+        let result = signed.verify_incoming(Utc::now());
+        assert!(matches!(result, Err(NetworkError::Unauthorized)));
+    }
+
+    #[test]
+    fn verify_incoming_rejects_expired_timestamp() {
+        let key = SigningKey::generate(&mut OsRng);
+        let old = Utc::now() - Duration::minutes(6);
+        let signed = SignedRequest::sign(b"{}".to_vec(), old, &key);
+        let result = signed.verify_incoming(Utc::now());
+        assert!(matches!(result, Err(NetworkError::Unauthorized)));
+    }
+
+    #[derive(Default)]
+    struct MockCasStorage {
+        writes: AtomicUsize,
+    }
+
+    impl CasStorage for MockCasStorage {
+        fn write_object(&self, _hash: &CasHash, _bytes: &[u8]) -> std::result::Result<CasHash, CasError> {
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            Ok(*_hash)
+        }
+
+        fn read_object(&self, _hash: &CasHash) -> std::result::Result<CasBytes, CasError> {
+            Err(CasError::HashMismatch)
+        }
+
+        fn write_blob_stream(
+            &self,
+            _reader: &mut dyn Read,
+        ) -> std::result::Result<(CasHash, u64), CasError> {
+            Err(CasError::HashMismatch)
+        }
+    }
+
+    #[test]
+    fn process_incoming_rejects_unauthorized_before_cas_write() {
+        let key = SigningKey::generate(&mut OsRng);
+        let payload = DeltaPayload {
+            changes: vec![make_change("incoming")],
+            view_heads: HashSet::new(),
+        };
+        let payload_bytes = serde_json::to_vec(&payload).expect("payload serialization");
+        let mut signed = SignedRequest::sign(payload_bytes, Utc::now(), &key);
+        signed.signature.0[1] ^= 0x01;
+
+        let cas = MockCasStorage::default();
+        let result = process_incoming_signed_delta(
+            &signed,
+            &cas,
+            Utc::now(),
+            &key.verifying_key().to_bytes(),
+        );
+        assert!(matches!(result, Err(NetworkError::Unauthorized)));
+        assert_eq!(cas.writes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn process_incoming_rejects_untrusted_author_key() {
+        let key = SigningKey::generate(&mut OsRng);
+        let trusted = SigningKey::generate(&mut OsRng).verifying_key().to_bytes();
+        let payload = DeltaPayload {
+            changes: vec![make_change("incoming")],
+            view_heads: HashSet::new(),
+        };
+        let payload_bytes = serde_json::to_vec(&payload).expect("payload serialization");
+        let signed = SignedRequest::sign(payload_bytes, Utc::now(), &key);
+
+        let cas = MockCasStorage::default();
+        let result = process_incoming_signed_delta(&signed, &cas, Utc::now(), &trusted);
+        assert!(matches!(result, Err(NetworkError::Unauthorized)));
+        assert_eq!(cas.writes.load(Ordering::SeqCst), 0);
     }
 }
