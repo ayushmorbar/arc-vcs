@@ -8,12 +8,15 @@ description = "arc algebraic foundation: atoms, CAS, change graph, cryptographic
 [features]
 default = ["native"]
 native = [
-	"dep:arc-ai",
+	"ai-resolver",
+	"git-compat",
 	"dep:arc-network",
 	"dep:arc-store-policy",
 	"dep:directories",
 	"dep:serde_json",
 ]
+git-compat = ["dep:arc-git"]
+ai-resolver = ["dep:arc-ai"]
 wasm = []
 redb-metadata = ["dep:redb"]
 
@@ -22,7 +25,6 @@ arc-algebra = { path = "../arc-algebra" }
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-change = { path = "../arc-change" }
 arc-engine = { path = "../arc-engine" }
-arc-git = { path = "../arc-git" }
 arc-revset = { path = "../arc-revset" }
 arc-error = { path = "../arc-error" }
 arc-store-cas = { path = "../arc-store-cas" }
@@ -46,6 +48,7 @@ tree-sitter-rust = "0.24.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 arc-ai = { path = "../arc-ai", optional = true }
+arc-git = { path = "../arc-git", optional = true }
 arc-network = { path = "../arc-network", optional = true }
 arc-store-policy = { path = "../arc-store-policy", optional = true }
 serde_json = { version = "1.0.149", optional = true }

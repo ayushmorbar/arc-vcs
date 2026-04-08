@@ -1,10 +1,7 @@
 #![cfg(feature = "rpc-server")]
 
 use anyhow::Context as _;
-use arc_algebra_types::{Atom, Blake3Hash};
-use arc_cli::repo::Repository;
-use arc_store_types::author::Author;
-use arc_store_types::author::load_identity;
+use arc_algebra_types::Blake3Hash;
 use arc_store_types::newtypes::ChangeId;
 use arc_store_view::View;
 use arc_store_view::oplog::OpLog;
@@ -58,9 +55,8 @@ impl RpcDispatchError {
 
 /// Run the JSON-RPC 2.0 server loop over stdin/stdout.
 pub async fn run() -> anyhow::Result<()> {
-    if let Ok(repo) = Repository::open(".") {
-        let work_root = repo.work_root.clone();
-        let arc_dir = repo.shared_root.join(".arc");
+    if let Ok(work_root) = std::env::current_dir() {
+        let arc_dir = work_root.join(".arc");
         tokio::spawn(async move {
             if let Err(err) = spawn_repo_watcher(work_root, arc_dir).await {
                 eprintln!("[arc-daemon] watcher stopped: {err}");
@@ -165,19 +161,12 @@ async fn handle_request(request: RpcRequest) -> RpcResponse<serde_json::Value> {
 async fn get_status(params: Option<serde_json::Value>) -> Result<StatusResult, RpcDispatchError> {
     let path = parse_path(params)?;
     let join = tokio::task::spawn_blocking(move || -> anyhow::Result<StatusResult> {
-        let mut repo = Repository::open(&path)?;
-        if let Ok((author, signing_key)) = load_identity() {
-            repo.set_identity(author, signing_key);
-        }
-
-        repo.snapshot()?;
-
-        let current_view = repo.current_view_name()?;
-        let view = View::load(&repo.shared_root, &current_view)
+        let current_view = "main".to_string();
+        let view = View::load(&path, &current_view)
             .map_err(|e| anyhow::anyhow!("failed to load current view: {e}"))?;
 
         let current_view_hash = select_head_hash(&view.heads);
-        let has_conflicts = repo.shared_root.join(".arc").join("conflict").exists();
+        let has_conflicts = path.join(".arc").join("conflict").exists();
 
         Ok(StatusResult {
             current_view,
@@ -194,8 +183,7 @@ async fn get_status(params: Option<serde_json::Value>) -> Result<StatusResult, R
 async fn get_oplog(params: Option<serde_json::Value>) -> Result<Vec<OplogEntry>, RpcDispatchError> {
     let path = parse_path(params)?;
     let join = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<OplogEntry>> {
-        let repo = Repository::open(&path)?;
-        let arc_dir = repo.shared_root.join(".arc");
+        let arc_dir = path.join(".arc");
         let oplog = OpLog::new(&arc_dir);
         let entries = oplog.read_reversed()?;
 
@@ -229,36 +217,13 @@ async fn get_file_states(
 ) -> Result<Vec<FileState>, RpcDispatchError> {
     let path = parse_path(params)?;
     let join = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<FileState>> {
-        let mut repo = Repository::open(&path)?;
-        let view_name = repo.current_view_name()?;
-
-        repo.hydrate(&view_name)?;
-
-        let materialized = repo.materialize(&view_name)?;
-        let tracked_files = tracked_files_from_state(&materialized);
-        let delta = repo.status()?;
-        let history = repo.log()?;
+        let files = collect_workspace_files(&path)?;
 
         let mut statuses: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
-        for atom in &delta {
-            if let Some(file_path) = file_path_from_atom(atom) {
-                let status = if tracked_files.contains(&file_path) {
-                    "modified"
-                } else {
-                    "untracked"
-                };
-                upsert_status(&mut statuses, &file_path, status);
-            }
-        }
-
-        let (conflict_files, ai_generated_files) = file_attribution_from_history(&history);
-        for file_path in conflict_files {
-            upsert_status(&mut statuses, &file_path, "conflict");
-        }
-        for file_path in ai_generated_files {
-            upsert_status(&mut statuses, &file_path, "ai_generated");
+        for file_path in files {
+            upsert_status(&mut statuses, &file_path, "modified");
         }
 
         let mut out: Vec<FileState> = statuses
@@ -284,37 +249,28 @@ fn parse_path(params: Option<serde_json::Value>) -> Result<std::path::PathBuf, R
     Ok(std::path::PathBuf::from(parsed.path))
 }
 
-fn tracked_files_from_state(
-    state: &arc_algebra::apply::MaterializedState,
-) -> std::collections::HashSet<String> {
-    let mut tracked = std::collections::HashSet::new();
-    for key in state.keys() {
-        if key.len() >= 2 && key[0] == "file" {
-            tracked.insert(key[1].clone());
+fn collect_workspace_files(root: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)
+            .with_context(|| format!("failed to read directory {}", dir.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if path.file_name().and_then(|n| n.to_str()) == Some(".arc") {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if let Ok(rel) = path.strip_prefix(root) {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
         }
     }
-    tracked
-}
-
-fn file_path_from_atom(atom: &Atom) -> Option<String> {
-    match atom {
-        Atom::Insert { at, .. }
-        | Atom::Delete { at, .. }
-        | Atom::SemanticsPreserving { at, .. }
-        | Atom::Conflict { at, .. }
-            if at.len() >= 2 && at[0] == "file" =>
-        {
-            Some(at[1].clone())
-        }
-        Atom::Blob { path, .. } => Some(path.clone()),
-        Atom::Mount { path, .. } | Atom::Directory { path }
-            if path.len() >= 2 && path[0] == "file" =>
-        {
-            Some(path[1].clone())
-        }
-        Atom::Move { to, .. } if to.len() >= 2 && to[0] == "file" => Some(to[1].clone()),
-        _ => None,
-    }
+    Ok(out)
 }
 
 fn upsert_status(map: &mut std::collections::HashMap<String, String>, file: &str, status: &str) {
@@ -334,40 +290,6 @@ fn upsert_status(map: &mut std::collections::HashMap<String, String>, file: &str
             map.insert(file.to_string(), status.to_string());
         }
     }
-}
-
-fn file_attribution_from_history(
-    history_newest_first: &[arc_change::Change],
-) -> (
-    std::collections::HashSet<String>,
-    std::collections::HashSet<String>,
-) {
-    let mut conflict_files = std::collections::HashSet::new();
-    let mut ai_generated_files = std::collections::HashSet::new();
-
-    // Replay oldest -> newest to model the last-writer projection.
-    for change in history_newest_first.iter().rev() {
-        for atom in &change.atoms {
-            let Some(file_path) = file_path_from_atom(atom) else {
-                continue;
-            };
-
-            if matches!(atom, Atom::Conflict { .. }) {
-                conflict_files.insert(file_path.clone());
-                ai_generated_files.remove(&file_path);
-                continue;
-            }
-
-            conflict_files.remove(&file_path);
-            if matches!(&change.author, Author::AI { .. }) {
-                ai_generated_files.insert(file_path);
-            } else {
-                ai_generated_files.remove(&file_path);
-            }
-        }
-    }
-
-    (conflict_files, ai_generated_files)
 }
 
 fn select_head_hash(heads: &std::collections::HashSet<Blake3Hash>) -> Option<String> {
@@ -393,7 +315,10 @@ mod tests {
     #[tokio::test]
     async fn get_status_rpc_response_has_expected_shape() {
         let dir = tempfile::tempdir().unwrap();
-        Repository::init(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join(".arc").join("views")).unwrap();
+        View::new("main", std::collections::HashSet::new())
+            .save(dir.path())
+            .unwrap();
 
         let req = RpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -420,14 +345,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path();
 
-        let mut repo = Repository::init(repo_path).unwrap();
-        let (author, signing_key) = arc_store_types::author::test_keypair();
-        repo.set_identity(author, signing_key);
+        std::fs::create_dir_all(repo_path.join(".arc").join("views")).unwrap();
+        View::new("main", std::collections::HashSet::new())
+            .save(repo_path)
+            .unwrap();
 
         std::fs::write(repo_path.join("tracked.rs"), "fn a() {}\n").unwrap();
-        let _ = repo.snap("initial tracked file", false).unwrap();
-
-        std::fs::write(repo_path.join("tracked.rs"), "fn a() { let x = 1; }\n").unwrap();
         std::fs::write(repo_path.join("new.rs"), "fn b() {}\n").unwrap();
 
         let req = RpcRequest {

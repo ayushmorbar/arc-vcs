@@ -20,7 +20,7 @@
 
 #![warn(missing_docs)]
 
-#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "ai-resolver", not(target_arch = "wasm32")))]
 pub use arc_ai as ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
@@ -30,7 +30,10 @@ pub mod dag;
 pub mod engine;
 /// Error types for this crate.
 pub use arc_error as error;
+/// Pure Git compatibility scalar types retained inside core.
+pub mod git_types;
 /// Pure-Rust Git interoperability bridge for reading legacy repositories.
+#[cfg(all(feature = "git-compat", not(target_arch = "wasm32")))]
 pub use arc_git as git_bridge;
 /// Top-level repository facade with state-split handles and open options.
 pub mod repository;

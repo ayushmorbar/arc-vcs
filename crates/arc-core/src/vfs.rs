@@ -8,7 +8,7 @@ use std::io::Read;
 use std::path::Path;
 
 use arc_algebra_types::SpacetimeCoordinate;
-use arc_git::GitOid;
+use crate::git_types::GitOid;
 
 /// Virtualized metadata returned from a VFS-backed path view.
 #[derive(Debug, Clone, PartialEq, Eq)]
