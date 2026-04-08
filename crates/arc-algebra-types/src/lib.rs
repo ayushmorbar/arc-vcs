@@ -28,6 +28,15 @@
 //! assert_eq!(op.paths().len(), 1);
 //! ```
 
+#![no_std]
+
+extern crate alloc;
+
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
+
 use serde::{Deserialize, Serialize};
 
 /// BLAKE3 content-addressed identity - 32-byte hash.
@@ -155,6 +164,9 @@ pub enum Atom {
         at: NodePath,
     },
 }
+
+/// Compatibility alias for older naming that referred to semantic atoms.
+pub type SemanticAtom = Atom;
 
 impl Atom {
     /// Returns every AST path this atom touches.

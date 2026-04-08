@@ -1,3 +1,5 @@
+use alloc::string::{String, ToString};
+
 use serde::{Deserialize, Serialize};
 
 /// A 32-byte Ed25519 public key.
@@ -97,7 +99,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
         impl<'de> serde::de::Visitor<'de> for Vis {
             type Value = Signature;
 
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 write!(f, "a 64-byte Ed25519 signature")
             }
 
@@ -144,6 +146,7 @@ pub fn test_keypair() -> (Author, ed25519_dalek::SigningKey) {
 /// `ARC_EPHEMERAL_RUNNER` triggers a fresh workspace.
 ///
 /// Uses the OS CSPRNG — forward-secure on all supported platforms.
+#[cfg(feature = "std")]
 pub fn generate_transient_keypair_seed(session_id: &str) -> (Author, [u8; 32]) {
     use rand_core::OsRng;
     let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
@@ -164,6 +167,7 @@ pub fn generate_transient_keypair_seed(session_id: &str) -> (Author, [u8; 32]) {
 ///
 /// Uses the OS CSPRNG via `rand_core::OsRng` — forward-secure on all
 /// supported platforms.
+#[cfg(feature = "std")]
 pub fn generate_server_keypair_seed(canonical_id: &str) -> (Author, [u8; 32]) {
     use rand_core::OsRng;
     let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
@@ -194,6 +198,7 @@ pub fn server_author_from_seed(canonical_id: &str, seed: &[u8; 32]) -> Author {
 /// Only the 32-byte Ed25519 seed is persisted; the public key is always
 /// re-derived on load so there is a single source of truth.
 #[derive(Debug, Serialize, Deserialize)]
+#[cfg(feature = "std")]
 pub struct IdentityProfile {
     /// The author identity (Human or AI).
     pub author: Author,
@@ -201,6 +206,7 @@ pub struct IdentityProfile {
     pub secret_key: [u8; 32],
 }
 
+#[cfg(feature = "std")]
 fn identity_path() -> anyhow::Result<std::path::PathBuf> {
     let proj = directories::ProjectDirs::from("", "", "arc")
         .ok_or_else(|| anyhow::anyhow!("could not determine OS config directory"))?;
@@ -209,6 +215,7 @@ fn identity_path() -> anyhow::Result<std::path::PathBuf> {
 
 /// Generate a fresh Ed25519 keypair for the given identity and persist it to
 /// the OS-native config directory (e.g. `%APPDATA%\arc\identity.json`).
+#[cfg(feature = "std")]
 pub fn save_identity(name: &str, email: &str) -> anyhow::Result<()> {
     let mut rng = rand_core::OsRng;
     let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
@@ -233,6 +240,7 @@ pub fn save_identity(name: &str, email: &str) -> anyhow::Result<()> {
 ///
 /// Returns a descriptive error instructing the user to run `arc auth login`
 /// if no identity file exists yet.
+#[cfg(feature = "std")]
 pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
     let path = identity_path()?;
     let json = std::fs::read_to_string(&path).map_err(|_| {

@@ -9,6 +9,8 @@
 use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
+use alloc::string::String;
+
 use crate::Blake3Hash;
 use crate::author::{Author, PublicKeyBytes, Signature};
 
@@ -95,6 +97,8 @@ impl Tag {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
     use crate::author::test_keypair;
 

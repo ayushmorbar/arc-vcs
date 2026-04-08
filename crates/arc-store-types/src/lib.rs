@@ -24,18 +24,25 @@
 //!
 //! let id = ChangeId::from_hex(
 //!     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-//! )?;
+//! ).expect("valid hex id");
 //! assert_eq!(id.to_hex().len(), 64);
-//! # Ok::<(), anyhow::Error>(())
 //! ```
+
+#![no_std]
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 /// Author identity types and Ed25519 signature wrappers.
 pub mod author;
 /// Newtype IDs for changes, blobs, snapshots, and mutations.
 pub mod newtypes;
 /// Reference readers for tags, bookmarks, and remote branches.
+#[cfg(feature = "std")]
 pub mod refs;
 /// Immutable cryptographically signed tag model.
+#[cfg(feature = "std")]
 pub mod tag;
 
 /// Local canonical 32-byte BLAKE3 hash type used by store primitives.

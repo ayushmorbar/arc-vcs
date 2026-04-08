@@ -1,4 +1,9 @@
-use std::fmt;
+use alloc::format;
+use alloc::string::String;
+use core::fmt;
+
+#[cfg(feature = "std")]
+use alloc::string::ToString;
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +25,53 @@ pub struct SnapshotId(pub Blake3Hash);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MutationId(pub Blake3Hash);
 
+/// Hex parsing errors for strongly-typed identifiers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseHexError {
+    /// The string length was not exactly 64 hex characters.
+    InvalidLength {
+        /// Actual input length.
+        got: usize,
+    },
+    /// An invalid non-hex character was found.
+    InvalidCharacter {
+        /// The invalid character.
+        ch: char,
+    },
+}
+
+impl fmt::Display for ParseHexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidLength { got } => write!(f, "expected 64 hex chars, got {got}"),
+            Self::InvalidCharacter { ch } => {
+                write!(f, "invalid hex character '{ch}': expected [0-9a-fA-F]")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseHexError {}
+
+#[cfg(feature = "std")]
+type ParseResult<T> = anyhow::Result<T>;
+
+#[cfg(not(feature = "std"))]
+type ParseResult<T> = Result<T, ParseHexError>;
+
+fn lift_parse_result<T>(result: Result<T, ParseHexError>) -> ParseResult<T> {
+    #[cfg(feature = "std")]
+    {
+        result.map_err(|err| anyhow::anyhow!(err.to_string()))
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        result
+    }
+}
+
 impl ChangeId {
     /// Return lowercase hex representation.
     pub fn to_hex(self) -> String {
@@ -27,9 +79,8 @@ impl ChangeId {
     }
 
     /// Parse a 64-char lowercase/uppercase hex string.
-    pub fn from_hex(input: &str) -> anyhow::Result<Self> {
-        let bytes = decode_hex_32(input)?;
-        Ok(Self(bytes))
+    pub fn from_hex(input: &str) -> ParseResult<Self> {
+        lift_parse_result(decode_hex_32(input).map(Self))
     }
 }
 
@@ -40,9 +91,8 @@ impl BlobId {
     }
 
     /// Parse a 64-char lowercase/uppercase hex string.
-    pub fn from_hex(input: &str) -> anyhow::Result<Self> {
-        let bytes = decode_hex_32(input)?;
-        Ok(Self(bytes))
+    pub fn from_hex(input: &str) -> ParseResult<Self> {
+        lift_parse_result(decode_hex_32(input).map(Self))
     }
 }
 
@@ -53,9 +103,8 @@ impl SnapshotId {
     }
 
     /// Parse a 64-char lowercase/uppercase hex string.
-    pub fn from_hex(input: &str) -> anyhow::Result<Self> {
-        let bytes = decode_hex_32(input)?;
-        Ok(Self(bytes))
+    pub fn from_hex(input: &str) -> ParseResult<Self> {
+        lift_parse_result(decode_hex_32(input).map(Self))
     }
 }
 
@@ -66,9 +115,8 @@ impl MutationId {
     }
 
     /// Parse a 64-char lowercase/uppercase hex string.
-    pub fn from_hex(input: &str) -> anyhow::Result<Self> {
-        let bytes = decode_hex_32(input)?;
-        Ok(Self(bytes))
+    pub fn from_hex(input: &str) -> ParseResult<Self> {
+        lift_parse_result(decode_hex_32(input).map(Self))
     }
 }
 
@@ -148,9 +196,9 @@ fn hash_to_hex(hash: &Blake3Hash) -> String {
     hash.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn decode_hex_32(input: &str) -> anyhow::Result<Blake3Hash> {
+fn decode_hex_32(input: &str) -> Result<Blake3Hash, ParseHexError> {
     if input.len() != 64 {
-        anyhow::bail!("expected 64 hex chars, got {}", input.len());
+        return Err(ParseHexError::InvalidLength { got: input.len() });
     }
     let mut out = [0u8; 32];
     let bytes = input.as_bytes();
@@ -162,20 +210,19 @@ fn decode_hex_32(input: &str) -> anyhow::Result<Blake3Hash> {
     Ok(out)
 }
 
-fn nybble(c: u8) -> anyhow::Result<u8> {
+fn nybble(c: u8) -> Result<u8, ParseHexError> {
     match c {
         b'0'..=b'9' => Ok(c - b'0'),
         b'a'..=b'f' => Ok(c - b'a' + 10),
         b'A'..=b'F' => Ok(c - b'A' + 10),
-        _ => anyhow::bail!(
-            "invalid hex character '{}': expected [0-9a-fA-F]",
-            c as char
-        ),
+        _ => Err(ParseHexError::InvalidCharacter { ch: c as char }),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::SnapshotId;
 
     #[test]
