@@ -47,3 +47,6 @@ pub mod tag;
 
 /// Local canonical 32-byte BLAKE3 hash type used by store primitives.
 pub type Blake3Hash = [u8; 32];
+
+pub use author::{Author, PublicKeyBytes, Signature};
+pub use newtypes::ChangeId;

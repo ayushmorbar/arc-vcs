@@ -629,7 +629,8 @@ impl ObjectStore {
     /// signature verification, and merge algebra remain outside this crate.
     #[instrument(skip_all)]
     pub fn write_change_bytes(&self, id: ChangeId, bytes: &[u8]) -> Result<ChangeId, CasError> {
-        self.write_object(&id.0, bytes)?;
+        let path = self.object_path(&id.0);
+        write_once_atomic(&path, bytes)?;
         Ok(id)
     }
 
@@ -639,7 +640,8 @@ impl ObjectStore {
     /// by using read-only memory maps.
     #[instrument(skip_all)]
     pub fn read_change_bytes(&self, id: ChangeId) -> Result<CasBytes, CasError> {
-        self.read_object(&id.0)
+        let path = self.object_path(&id.0);
+        read_cas_bytes_with_policy(&path, self.read_policy, None, None)
     }
 }
 

@@ -4,7 +4,7 @@ use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
 use arc_algebra_types::{Atom, Blake3Hash};
-use arc_store_types::author::{Author, PublicKeyBytes, Signature};
+use arc_store_types::{Author, PublicKeyBytes, Signature};
 
 /// High-level author classification for ghost-node governance.
 #[derive(Debug, Clone, Serialize, Deserialize)]

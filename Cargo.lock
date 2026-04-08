@@ -185,6 +185,7 @@ version = "0.1.0-beta.6"
 dependencies = [
  "arc-algebra-types",
  "arc-content-hash-derive",
+ "arc-store-cas",
  "arc-store-types",
  "bincode",
  "blake3",

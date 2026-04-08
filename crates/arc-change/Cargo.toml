@@ -8,6 +8,7 @@ description = "Change model and cryptographic hashing traits for arc"
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-store-types = { path = "../arc-store-types" }
+arc-store-cas = { path = "../arc-store-cas" }
 serde = { version = "1.0.228", features = ["derive"] }
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 blake3 = "1.8.4"

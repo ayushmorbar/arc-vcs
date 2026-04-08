@@ -4,7 +4,7 @@ use std::hash::Hash;
 use serde::Serialize;
 
 use arc_algebra_types::{Atom, Blake3Hash};
-use arc_store_types::author::Author;
+use arc_store_types::Author;
 
 pub use arc_content_hash_derive::ContentHash;
 

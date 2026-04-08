@@ -3,6 +3,7 @@ use arc_algebra::apply::{BlameState, MaterializedState};
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_cas::ObjectStore;
+use arc_store_types::ChangeId;
 use ignore::gitignore::Gitignore;
 
 struct CliBlobStore<'a>(&'a ObjectStore);
@@ -38,12 +39,19 @@ pub(crate) trait ObjectStoreChangeExt {
 impl ObjectStoreChangeExt for ObjectStore {
     fn write_change(&self, change: &Change) -> Result<Blake3Hash, String> {
         let bytes = bincode::serialize(change).map_err(|e| e.to_string())?;
-        self.write_object(&change.id, &bytes)
+        self.write_change_bytes(ChangeId::from(change.id), &bytes)
+            .map(|id| id.0)
             .map_err(|e| e.to_string())
     }
 
     fn read_change(&self, hash: &Blake3Hash) -> Result<Change, String> {
-        let bytes = self.read_object(hash).map_err(|e| e.to_string())?;
-        bincode::deserialize(&bytes).map_err(|e| e.to_string())
+        let bytes = self
+            .read_change_bytes(ChangeId::from(*hash))
+            .map_err(|e| e.to_string())?;
+        let change: Change = bincode::deserialize(&bytes).map_err(|e| e.to_string())?;
+        if change.id != *hash {
+            return Err("CAS payload change id does not match requested hash".to_string());
+        }
+        Ok(change)
     }
 }
