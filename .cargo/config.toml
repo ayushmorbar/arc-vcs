@@ -1,12 +1,18 @@
-# Base Cargo configuration — applies to all contributors and environments.
-# CI-specific overrides live in .cargo/config-ci.toml.
-# Activated in CI via: cargo --config .cargo/config-ci.toml <cmd>
+# Base Cargo configuration
+# Optimizes for incremental builds and SDK-less Windows environments.
 
-# ── Linker: mold (Linux) — fastest available ──────────────────────────────────
+# ── Linker: mold (Linux) ──────────────────────────────────────────────────────
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))']
 linker    = "clang"
 rustflags = ["-Clink-arg=-fuse-ld=mold"]
 
+# ── Linker: rust-lld (Windows Lite) ──────────────────────────────────────────
+# Bypasses MSVC link.exe requirement for SDK-less environments.
+[target.x86_64-pc-windows-msvc]
+linker    = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# ── Target: WASM ──────────────────────────────────────────────────────────────
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 
@@ -15,10 +21,12 @@ rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 split-debuginfo = "unpacked"   # keeps .dwo separate → faster incremental links
 
 [profile.dev.build-override]
-opt-level    = 3   # proc macros always at full speed
+opt-level     = 3              # keep proc-macros and build scripts fast
 codegen-units = 1
 
-# ── Aliases: match your justfile shortcuts ────────────────────────────────────
+# ── Aliases: productivity shortcuts ───────────────────────────────────────────
 [alias]
 nt  = "nextest run"
 nta = "nextest run --workspace"
+# arc-specific workflow shortcut
+snap = "run -p arc-cli -- snap"

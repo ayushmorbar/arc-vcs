@@ -36,6 +36,7 @@ arc-lang = { path = "../arc-lang" }
 arc-net = { path = "../arc-net" }
 arc-daemon = { path = "../arc-daemon" }
 arc-git-bridge = { path = "../arc-git-bridge" }
+arc-keyring = { path = "../arc-keyring" }
 tree-sitter = "0.26.8"
 tree-sitter-rust = "0.24.2"
 thiserror = "2.0.18"

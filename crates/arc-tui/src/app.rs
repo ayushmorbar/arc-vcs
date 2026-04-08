@@ -1,9 +1,9 @@
 use std::io;
-use std::path::PathBuf;
+use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 
 use anyhow::Context;
-use arc_keyring::{IdentityManager, KeyringError};
+use arc_keyring::{IdentityManager, KeyringSessionFacade};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, ExecutableCommand};
@@ -35,6 +35,9 @@ pub struct App {
     diff: SideBySideDiff,
     commit_input: CommitInput,
     backend_events: mpsc::Receiver<OutputEvent>,
+    ghost_intent_tx: std_mpsc::Sender<(u64, String)>,
+    ghost_intent_rx: std_mpsc::Receiver<(u64, String)>,
+    ghost_request_token: u64,
     realm: Application<RealmView, Message, NoUserEvent>,
 }
 
@@ -50,12 +53,16 @@ impl Drop for TerminalGuard {
 
 impl App {
     pub fn new(provider: impl ChangeProvider, backend_events: mpsc::Receiver<OutputEvent>) -> Self {
+        let (ghost_intent_tx, ghost_intent_rx) = std_mpsc::channel();
         Self {
             state: AppState::new(provider.list_changes()),
             dag: DagExplorer::new(),
             diff: SideBySideDiff::default(),
             commit_input: CommitInput::new(),
             backend_events,
+            ghost_intent_tx,
+            ghost_intent_rx,
+            ghost_request_token: 0,
             realm: Application::init(EventListenerCfg::default()),
         }
     }
@@ -72,6 +79,7 @@ impl App {
 
         while self.state.running {
             self.drain_backend_events();
+            self.drain_ghost_intent_events();
             self.realm_tick();
             self.state.tick_animations();
 
@@ -147,6 +155,15 @@ impl App {
         }
     }
 
+    fn drain_ghost_intent_events(&mut self) {
+        while let Ok((token, intent)) = self.ghost_intent_rx.try_recv() {
+            if token != self.ghost_request_token {
+                continue;
+            }
+            self.handle_message(Message::IntentEvent(intent));
+        }
+    }
+
     fn handle_input(&mut self, input: CEvent) {
         if let CEvent::Key(key) = input {
             if self.state.show_diff {
@@ -187,12 +204,6 @@ impl App {
                         }
                         return;
                     }
-                    KeyCode::Char('i') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.handle_message(Message::IntentEvent(
-                            "Refactor: Optimized blake3 hashing in core".to_string(),
-                        ));
-                        return;
-                    }
                     _ => {}
                 }
 
@@ -223,11 +234,14 @@ impl App {
             Message::OpenDiff => {
                 self.state.show_diff = !self.state.show_diff;
                 self.state.status_line = if self.state.show_diff {
-                    "Snap mode | Enter capture | Ctrl+V atom-select | Ctrl+T toggle atom | Ctrl+S sponsor | Ctrl+I mock-intent | Esc back"
+                    "Snap mode | Enter capture | Ctrl+V atom-select | Ctrl+T toggle atom | Ctrl+S sponsor | Esc back"
                         .to_string()
                 } else {
                     "up/down navigate | d diff | q quit".to_string()
                 };
+                if self.state.show_diff {
+                    self.spawn_ghost_intent_fetch();
+                }
             }
             Message::ToggleSelectionMode => {
                 self.state.toggle_selection_mode();
@@ -284,42 +298,88 @@ impl App {
             }
             Message::IntentEvent(intent) => {
                 self.state.inject_intent_event(intent.clone());
-                self.state.status_line = format!("intent event received: {intent}");
+                self.state.status_line = format!("Ghostwriter summary: {intent}");
             }
             Message::Backend(event) => self.state.apply_output_event(event),
         }
     }
+
+    fn spawn_ghost_intent_fetch(&mut self) {
+        let Some(diff) = self.state.selected_diff() else {
+            return;
+        };
+
+        let summary = summarize_diff_for_ghostwriter(diff);
+        self.ghost_request_token = self.ghost_request_token.saturating_add(1);
+        let token = self.ghost_request_token;
+        let tx = self.ghost_intent_tx.clone();
+        self.state.status_line = "Ghostwriter is analyzing semantic diff...".to_string();
+
+        std::thread::spawn(move || {
+            let intent = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime
+                    .block_on(arc_ai::generate_ghost_intent(&summary))
+                    .unwrap_or_else(|_| fallback_ghost_intent(&summary)),
+                Err(_) => fallback_ghost_intent(&summary),
+            };
+            let _ = tx.send((token, intent));
+        });
+    }
+}
+
+fn summarize_diff_for_ghostwriter(diff: &crate::diff::generator::SemanticDiff) -> String {
+    if diff.lines.is_empty() {
+        return "No semantic atoms changed".to_string();
+    }
+
+    let mut lines = Vec::with_capacity(diff.lines.len());
+    for line in &diff.lines {
+        let kind = match line.kind {
+            crate::diff::generator::SemanticKind::Insert => "Insert",
+            crate::diff::generator::SemanticKind::Delete => "Delete",
+            crate::diff::generator::SemanticKind::Modify => "Modify",
+            crate::diff::generator::SemanticKind::Unavailable => "Unavailable",
+        };
+        lines.push(format!("{kind}: {}", line.path));
+    }
+    lines.join("\n")
+}
+
+fn fallback_ghost_intent(diff_summary: &str) -> String {
+    let lower = diff_summary.to_ascii_lowercase();
+    if lower.contains("network") && lower.contains("sync") {
+        return "Refactor: Modularized network sync logic".to_string();
+    }
+    "Refactor: Summarized semantic changes for snap intent".to_string()
 }
 
 fn sign_intent_metadata(payload: &[u8]) -> Result<String, String> {
-    let keyring_path = default_tui_keyring_path();
-    let manager = IdentityManager::init_at(&keyring_path)
+    let manager = IdentityManager::init()
         .map_err(|error| format!("keyring init failed: {error}"))?;
+    let facade = KeyringSessionFacade::new(manager);
+    let alias = facade
+        .active_alias()
+        .map_err(|error| format!("identity session read failed: {error}"))?
+        .ok_or_else(|| {
+            "No active identity loaded. Select/Generate Identity via 'arc auth login' before snapping.".to_string()
+        })?;
 
-    let alias = "arc_tui_snap";
-    let passphrase = std::env::var("ARC_TUI_SNAP_PASSPHRASE")
-        .map_err(|_| "missing ARC_TUI_SNAP_PASSPHRASE env var".to_string())?;
-    match manager.generate(alias, &passphrase) {
-        Ok(_) => {}
-        Err(KeyringError::AliasExists(_)) => {}
-        Err(error) => return Err(format!("identity generation failed: {error}")),
-    }
+    let passphrase = std::env::var("ARC_KEYRING_PASSPHRASE").map_err(|_| {
+        format!(
+            "Identity '{alias}' is selected but locked. Set ARC_KEYRING_PASSPHRASE to sign snaps."
+        )
+    })?;
 
-    manager
-        .load(alias, &passphrase)
+    facade
+        .manager()
+        .load(&alias, &passphrase)
         .map_err(|error| format!("identity load failed: {error}"))?;
 
-    let signature = manager
+    let signature = facade
+        .manager()
         .sign(payload)
         .map_err(|error| format!("signing failed: {error}"))?;
     Ok(hex_encode(&signature.to_bytes()))
-}
-
-fn default_tui_keyring_path() -> PathBuf {
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        return PathBuf::from(local).join("arc-vcs").join("tui-keyring");
-    }
-    std::env::temp_dir().join("arc-vcs").join("tui-keyring")
 }
 
 fn build_intent_metadata(intent: &str, sponsorship: &str, selected_atoms: &std::collections::HashSet<usize>) -> String {

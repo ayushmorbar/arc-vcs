@@ -209,6 +209,7 @@ dependencies = [
  "arc-error",
  "arc-git",
  "arc-git-bridge",
+ "arc-keyring",
  "arc-lang",
  "arc-net",
  "arc-network",
@@ -655,6 +656,7 @@ name = "arc-tui"
 version = "0.1.0-beta.1"
 dependencies = [
  "anyhow",
+ "arc-ai",
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",

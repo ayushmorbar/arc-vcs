@@ -54,6 +54,10 @@ summarize EXPRESSION='all()':
 
 # ── Linting & Formatting ──────────────────────────────────────────────────────
 
+# Fast compile check without running tests
+check:
+    cargo check --workspace
+
 # Run clippy with zero-warning policy; pass extra args e.g. `just lint -W clippy::pedantic`
 lint *clippy-args:
     cargo clippy --all-targets --all-features -- -D warnings {{ clippy-args }}
@@ -96,12 +100,25 @@ report-hydrate:
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
+[private]
+assert-windows-rust-lld:
+        @case "$(uname -s 2>/dev/null || echo unknown)" in \
+            MINGW*|MSYS*|CYGWIN*) \
+                if ! grep -Eq '^\[target\.x86_64-pc-windows-msvc\]' .cargo/config.toml || ! grep -Eq 'linker\s*=\s*"rust-lld"' .cargo/config.toml; then \
+                    echo "error: Windows builds must use rust-lld in .cargo/config.toml"; \
+                    exit 1; \
+                fi ;; \
+            *) ;; \
+        esac
+
 # Debug build
 build:
+    @{{ j }} assert-windows-rust-lld
     cargo build --workspace
 
 # Release build
 release:
+    @{{ j }} assert-windows-rust-lld
     cargo build --workspace --release
 
 # Remove all build artefacts

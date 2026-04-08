@@ -7,7 +7,8 @@ use crate::store_compat::ObjectStoreChangeExt;
 use arc_algebra_types::Atom;
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
-use arc_network::{DeltaPayload, SyncResponse};
+use arc_keyring::{ArcIdentity, IdentityManager, KeyringSessionFacade};
+use arc_network::{DeltaPayload, NetworkClient, SyncResponse};
 use arc_store_view::View;
 
 /// Resolve `name_or_path` to a concrete URL or filesystem path.
@@ -261,7 +262,26 @@ fn fetch_http(
 ///
 /// This is `fetch` followed by `merge_heads` — the CRDT sync primitive.
 pub fn pull(local: &mut Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()> {
-    let remote_heads = fetch(local, remote_path, view_name)?;
+    let resolved = resolve_remote(local, remote_path)?;
+    let remote_heads = if resolved.starts_with("http://") || resolved.starts_with("https://") {
+        match pull_http_signed(local, &resolved, view_name) {
+            Ok(heads) => heads,
+            Err(error) => {
+                if allow_unsigned_sync_fallback() {
+                    eprintln!(
+                        "warning: signed pull unavailable ({error}); falling back to compatibility fetch"
+                    );
+                    fetch_http(local, &resolved, view_name)?
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "signed pull failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                    ));
+                }
+            }
+        }
+    } else {
+        fetch(local, remote_path, view_name)?
+    };
     local.merge_heads(&remote_heads)?;
     Ok(())
 }
@@ -363,6 +383,7 @@ fn push_local(local: &Repository, remote_path: &str, view_name: &str) -> anyhow:
 }
 
 fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyhow::Result<()> {
+
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -457,7 +478,41 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
     let pb = indicatif::ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(80));
     pb.set_message(format!("Pushing {n_changes} change(s) to {remote_url}..."));
-    let sync_resp = post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?;
+    let signed_sync = (|| -> anyhow::Result<SyncResponse> {
+        let identity = load_active_identity_for_sync()?;
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("failed to create tokio runtime: {e}"))?;
+        let network = NetworkClient::new()
+            .map_err(|e| anyhow::anyhow!("failed to create signed network client: {e}"))?;
+        let local_changes: std::collections::HashMap<Blake3Hash, Change> =
+            payload.changes.iter().cloned().map(|c| (c.id, c)).collect();
+        runtime
+            .block_on(network.push_changes(
+                remote_url,
+                view_name,
+                &payload.view_heads,
+                &remote_heads,
+                &local_changes,
+                &identity,
+            ))
+            .map_err(|e| anyhow::anyhow!("signed push failed: {e}"))
+    })();
+
+    let sync_resp = match signed_sync {
+        Ok(response) => response,
+        Err(error) => {
+            if allow_unsigned_sync_fallback() {
+                eprintln!(
+                    "warning: signed push unavailable ({error}); falling back to compatibility transport"
+                );
+                post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?
+            } else {
+                return Err(anyhow::anyhow!(
+                    "signed push failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                ));
+            }
+        }
+    };
 
     // Phase 3: Process identity collapsing result.
     // If the server collapsed any transient-author Changes under its canonical
@@ -484,6 +539,96 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
         "Pushed {n_changes} change(s) to {remote_url} [view: {view_name}]."
     ));
     Ok(())
+}
+
+fn pull_http_signed(
+    local: &mut Repository,
+    remote_url: &str,
+    view_name: &str,
+) -> anyhow::Result<HashSet<Blake3Hash>> {
+    let identity = load_active_identity_for_sync()?;
+    let remote_author_public_key = load_expected_remote_author_key()?;
+
+    let local_frontier = View::load(&local.shared_root, view_name)
+        .map(|view| view.heads)
+        .unwrap_or_default();
+
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| anyhow::anyhow!("failed to create tokio runtime: {e}"))?;
+    let network = NetworkClient::new()
+        .map_err(|e| anyhow::anyhow!("failed to create signed network client: {e}"))?;
+
+    let payload = runtime
+        .block_on(network.pull_changes(
+            remote_url,
+            view_name,
+            &local_frontier,
+            &identity,
+            remote_author_public_key,
+            &local.store,
+        ))
+        .map_err(|e| anyhow::anyhow!("signed pull failed: {e}"))?;
+
+    for change in &payload.changes {
+        for atom in &change.atoms {
+            match atom {
+                Atom::Insert { content_hash, .. } if !local.store.contains_blob(content_hash) => {
+                    let bytes = runtime
+                        .block_on(network.fetch_blob(remote_url, content_hash))
+                        .map_err(|e| anyhow::anyhow!("failed to fetch blob: {e}"))?;
+                    let _ = local.store.write_blob(&bytes);
+                }
+                Atom::Delete { prior_hash, .. } if !local.store.contains_blob(prior_hash) => {
+                    let bytes = runtime
+                        .block_on(network.fetch_blob(remote_url, prior_hash))
+                        .map_err(|e| anyhow::anyhow!("failed to fetch prior blob: {e}"))?;
+                    let _ = local.store.write_blob(&bytes);
+                }
+                _ => {}
+            }
+        }
+        local.graph_add_change(change.clone());
+    }
+
+    Ok(payload.view_heads)
+}
+
+fn load_active_identity_for_sync() -> anyhow::Result<ArcIdentity> {
+    let manager = IdentityManager::init()
+        .map_err(|e| anyhow::anyhow!("failed to initialize keyring: {e}"))?;
+    let facade = KeyringSessionFacade::new(manager);
+    let alias = facade
+        .active_alias()
+        .map_err(|e| anyhow::anyhow!("failed to read active identity alias: {e}"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no active identity selected; run 'arc auth login' before push/pull"
+            )
+        })?;
+    let passphrase = std::env::var("ARC_KEYRING_PASSPHRASE").map_err(|_| {
+        anyhow::anyhow!(
+            "ARC_KEYRING_PASSPHRASE is required to unlock identity '{alias}' for signed sync"
+        )
+    })?;
+    facade
+        .manager()
+        .load(&alias, &passphrase)
+        .map_err(|e| anyhow::anyhow!("failed to unlock identity '{alias}': {e}"))
+}
+
+fn load_expected_remote_author_key() -> anyhow::Result<[u8; 32]> {
+    let raw = std::env::var("ARC_REMOTE_AUTHOR_KEY").map_err(|_| {
+        anyhow::anyhow!(
+            "ARC_REMOTE_AUTHOR_KEY must be set to the trusted 64-hex remote signing key"
+        )
+    })?;
+    hex_to_blake3(&raw)
+}
+
+fn allow_unsigned_sync_fallback() -> bool {
+    std::env::var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 /// Minimum blob size that gets its own dedicated progress bar line.
