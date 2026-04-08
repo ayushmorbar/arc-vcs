@@ -203,7 +203,6 @@ dependencies = [
  "arc-algebra",
  "arc-algebra-types",
  "arc-change",
- "arc-core",
  "arc-daemon",
  "arc-diagnostics",
  "arc-engine",
@@ -252,11 +251,14 @@ dependencies = [
  "signal-hook 0.4.4",
  "similar",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "toml",
  "tracing",
  "tracing-indicatif",
  "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-rust",
 ]
 
 [[package]]

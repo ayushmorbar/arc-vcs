@@ -1,6 +1,6 @@
 //! CLI library for arc — Atomic Replayable Changes.
 //!
-//! This crate ties together [`arc_core`], [`arc_lang`], and [`arc_net`] into
+//! This crate ties together micro-crates such as [`arc_lang`] and [`arc_net`] into
 //! a complete version-control tool.  The public surface is intentionally
 //! small: the `[[bin]]` target (`arc`) drives everything through
 //! [`clap`]-powered subcommands.
@@ -32,6 +32,10 @@ pub mod graph_render;
 pub mod interop;
 /// Progress UI primitives for spinners and staged sync pipelines.
 pub mod progress;
+/// Shared operation-stage taxonomy and SLO timing for sync workflows.
+pub mod ops;
+/// Semantic policy gate and lens resolver used by ingress checks.
+pub mod policy_gate;
 /// Top-level repository operations and VCS commands.
 pub mod repo;
 /// Semantic text diff rendering: Sesame alignment, intent annotation, and

@@ -13,7 +13,7 @@ indent_size              = 4
 # ── Rust ──────────────────────────────────────────────────────────────────────
 [*.rs]
 indent_style             = space
-indent_size              = 4
+indent_size = 4
 max_line_length          = 100   # mirrors max_width = 100 in rustfmt.toml
 # trim_trailing_whitespace inherited as true — rustfmt handles it correctly
 

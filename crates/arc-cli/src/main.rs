@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 use arc_cli::progress::{PipelineStage, Progress};
-use arc_core::ops::{OperationStage, SloTimer};
+use arc_cli::ops::{OperationStage, SloTimer};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use inquire::Text;

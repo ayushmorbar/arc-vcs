@@ -4,11 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_algebra_types::Blake3Hash;
 use arc_algebra_types::SpacetimeCoordinate;
+use arc_algebra_types::Atom;
 use arc_change::Change;
-use arc_core::algebra::Atom;
-use arc_core::algebra::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
 use arc_net::sync::client::NativeSyncClient;
 use arc_net::sync::protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes};
+use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
 use arc_store_view::View;
 
 use super::core::*;

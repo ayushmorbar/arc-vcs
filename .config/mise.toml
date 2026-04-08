@@ -1,0 +1,8 @@
+[tasks."check:test"]
+run = "cargo test --workspace"
+
+[tasks."check:clippy"]
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks."check:format"]
+run = "cargo fmt --all -- --check"

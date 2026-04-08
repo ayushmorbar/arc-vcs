@@ -42,8 +42,8 @@ use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction
 use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use arc_core::algebra::policy::PolicyError;
-use arc_core::algebra::resolver::{
+use crate::policy_gate::PolicyError;
+use crate::policy_gate::{
     AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
 };
 
@@ -1538,7 +1538,7 @@ impl Repository {
             })
             .collect::<Vec<_>>();
 
-        let local_ast = arc_core::algebra::policy::Ast {
+        let local_ast = crate::policy_gate::Ast {
             local_rust_sources: collect_rust_sources(&self.work_root),
             expected_api_signatures,
             foreign_rust_sources: Vec::new(),
@@ -5123,7 +5123,7 @@ fn change_ids_to_hashes(input: &std::collections::BTreeSet<ChangeId>) -> HashSet
     input.iter().copied().map(Blake3Hash::from).collect()
 }
 
-/// Prefix used by `arc-core::algebra::apply` to project conflict atoms.
+/// Prefix used by `arc-algebra::apply` to project conflict atoms.
 const ARC_CONFLICT_REF_PREFIX: &[u8] = b"ARC_CONFLICT_REF:";
 
 type ConflictProjection = (Vec<Blake3Hash>, Vec<Blake3Hash>);

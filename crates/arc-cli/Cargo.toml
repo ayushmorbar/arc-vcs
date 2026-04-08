@@ -32,9 +32,11 @@ arc-store-types = { path = "../arc-store-types" }
 arc-store-view = { path = "../arc-store-view" }
 arc-lang = { path = "../arc-lang" }
 arc-net = { path = "../arc-net" }
-arc-core = { path = "../arc-core" }
 arc-daemon = { path = "../arc-daemon" }
 arc-git-bridge = { path = "../arc-git-bridge" }
+tree-sitter = "0.26.8"
+tree-sitter-rust = "0.24.2"
+thiserror = "2.0.18"
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 clap = { version = "4.6", features = ["derive", "color", "help"] }
 clap_complete = "4.6"
