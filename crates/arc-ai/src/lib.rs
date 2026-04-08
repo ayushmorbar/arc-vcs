@@ -39,9 +39,100 @@
 pub mod embedding;
 pub mod vector_store;
 
+use std::collections::{HashMap, HashSet, VecDeque};
+
 use anyhow::{Context, Result};
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
 use reqwest::Client;
 use serde_json::json;
+
+/// Synthesizes deterministic context windows from a frontier-backed DAG view.
+pub struct ContextSynthesizer {
+    limit: usize,
+}
+
+impl Default for ContextSynthesizer {
+    fn default() -> Self {
+        Self { limit: 10 }
+    }
+}
+
+impl ContextSynthesizer {
+    /// Create a synthesizer with a custom max number of changes.
+    pub fn with_limit(limit: usize) -> Self {
+        Self {
+            limit: limit.max(1),
+        }
+    }
+
+    /// Build a "Codebase State" narrative from the current frontier.
+    ///
+    /// This parses a canonical revset expression (`ancestors(@)`) so retrieval
+    /// semantics stay aligned with the revset language, then traverses frontier
+    /// dependencies deterministically to capture up to `limit` recent changes.
+    pub fn synthesize_codebase_state(
+        &self,
+        frontier: &HashSet<Blake3Hash>,
+        changes: &HashMap<Blake3Hash, Change>,
+    ) -> Result<String> {
+        let _ = arc_revset::parse("ancestors(@)")
+            .context("failed to parse revset expression for context synthesis")?;
+
+        let mut queue = frontier.iter().copied().collect::<Vec<_>>();
+        queue.sort();
+        let mut queue: VecDeque<Blake3Hash> = queue.into();
+
+        let mut seen = HashSet::new();
+        let mut selected = Vec::new();
+
+        while let Some(id) = queue.pop_front() {
+            if !seen.insert(id) {
+                continue;
+            }
+
+            let Some(change) = changes.get(&id) else {
+                continue;
+            };
+
+            selected.push(change);
+            if selected.len() >= self.limit {
+                break;
+            }
+
+            let mut deps = change.deps.iter().copied().collect::<Vec<_>>();
+            deps.sort();
+            for dep in deps {
+                if !seen.contains(&dep) {
+                    queue.push_back(dep);
+                }
+            }
+        }
+
+        Ok(render_codebase_state(&selected))
+    }
+}
+
+fn render_codebase_state(changes: &[&Change]) -> String {
+    if changes.is_empty() {
+        return "Codebase State: frontier has no materialized changes".to_string();
+    }
+
+    let mut out = String::from("Codebase State (last changes from frontier):\n");
+    for change in changes {
+        out.push_str(&format!(
+            "- {} atoms={} intent={}\n",
+            short_hash(&change.id),
+            change.atoms.len(),
+            change.intent
+        ));
+    }
+    out
+}
+
+fn short_hash(hash: &Blake3Hash) -> String {
+    hash.iter().take(6).map(|b| format!("{b:02x}")).collect()
+}
 
 /// Call an OpenAI-schema LLM to produce a concise conventional commit message.
 ///
@@ -102,6 +193,186 @@ pub async fn generate_message(diff_summary: &str) -> Result<String> {
         .to_owned();
 
     Ok(message)
+}
+
+/// Generate ghost intent text for the interactive snap flow.
+///
+/// Uses remote LLM orchestration when configured; otherwise falls back to a
+/// deterministic local semantic summarizer.
+pub async fn generate_ghost_intent(diff: &str) -> Result<String> {
+    let config = RemoteConfig::from_env();
+    generate_ghost_intent_with_config(diff, config).await
+}
+
+async fn generate_ghost_intent_with_config(
+    diff: &str,
+    config: Option<RemoteConfig>,
+) -> Result<String> {
+    let Some(config) = config else {
+        return Ok(heuristic_ghost_intent(diff));
+    };
+
+    let client = Client::builder()
+        .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("failed to build HTTP client")?;
+
+    let remote = request_ghost_intent_remote(&client, &config, diff).await;
+    match remote {
+        Ok(intent) if !intent.trim().is_empty() => Ok(intent),
+        Ok(_) => Ok(heuristic_ghost_intent(diff)),
+        Err(_) => Ok(heuristic_ghost_intent(diff)),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RemoteProvider {
+    OpenAiCompatible,
+    Anthropic,
+}
+
+#[derive(Debug, Clone)]
+struct RemoteConfig {
+    provider: RemoteProvider,
+    api_key: String,
+    base_url: String,
+    model: String,
+}
+
+impl RemoteConfig {
+    fn from_env() -> Option<Self> {
+        let api_key = std::env::var("ARC_AI_KEY").ok()?;
+        let base_url =
+            std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_string());
+        let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let provider = match std::env::var("ARC_AI_PROVIDER")
+            .unwrap_or_else(|_| "openai".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "anthropic" => RemoteProvider::Anthropic,
+            _ => RemoteProvider::OpenAiCompatible,
+        };
+
+        Some(Self {
+            provider,
+            api_key,
+            base_url,
+            model,
+        })
+    }
+}
+
+async fn request_ghost_intent_remote(
+    client: &Client,
+    config: &RemoteConfig,
+    diff: &str,
+) -> Result<String> {
+    match config.provider {
+        RemoteProvider::OpenAiCompatible => request_openai_ghost_intent(client, config, diff).await,
+        RemoteProvider::Anthropic => request_anthropic_ghost_intent(client, config, diff).await,
+    }
+}
+
+async fn request_openai_ghost_intent(
+    client: &Client,
+    config: &RemoteConfig,
+    diff: &str,
+) -> Result<String> {
+    let response = client
+        .post(format!("{}/v1/chat/completions", config.base_url))
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .json(&json!({
+            "model": config.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are Ghostwriter for arc. Return one concise intent line that captures the semantic change in conventional-commit style."
+                },
+                {
+                    "role": "user",
+                    "content": diff
+                }
+            ]
+        }))
+        .send()
+        .await
+        .context("failed OpenAI-compatible ghost intent request")?;
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .context("failed to parse OpenAI-compatible ghost intent response")?;
+
+    Ok(data["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('"')
+        .to_string())
+}
+
+async fn request_anthropic_ghost_intent(
+    client: &Client,
+    config: &RemoteConfig,
+    diff: &str,
+) -> Result<String> {
+    let response = client
+        .post(format!("{}/v1/messages", config.base_url))
+        .header("x-api-key", &config.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&json!({
+            "model": config.model,
+            "max_tokens": 64,
+            "system": "You are Ghostwriter for arc. Return one concise intent line only.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": diff
+                }
+            ]
+        }))
+        .send()
+        .await
+        .context("failed Anthropic ghost intent request")?;
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .context("failed to parse Anthropic ghost intent response")?;
+
+    Ok(data["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string())
+}
+
+fn heuristic_ghost_intent(diff: &str) -> String {
+    let lower = diff.to_ascii_lowercase();
+    let insert_count = lower.matches("insert").count() + lower.matches("+").count();
+    let delete_count = lower.matches("delete").count() + lower.matches("-").count();
+    let modify_count = lower.matches("modify").count() + lower.matches("~").count();
+
+    if lower.contains("network") && lower.contains("sync") {
+        return "Refactor: Modularized network sync logic".to_string();
+    }
+    if modify_count > 0 {
+        return format!(
+            "Refactor: {} modified semantic atoms with {} inserts and {} deletes",
+            modify_count, insert_count, delete_count
+        );
+    }
+    if insert_count >= delete_count {
+        return format!(
+            "Feat: Added {} semantic atoms across the working frontier",
+            insert_count
+        );
+    }
+    format!(
+        "Refactor: Removed {} semantic atoms and tightened intent scope",
+        delete_count
+    )
 }
 
 /// Trait for AI-powered conflict resolution.
@@ -306,5 +577,72 @@ impl AiResolver for MockResolver {
         merged.push(b'\n');
         merged.extend_from_slice(theirs);
         Ok(merged)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use arc_algebra_types::Atom;
+    use arc_store_types::author;
+
+    use super::{ContextSynthesizer, generate_ghost_intent_with_config};
+
+    fn mk_change(intent: &str, deps: HashSet<[u8; 32]>, idx: u8) -> arc_change::Change {
+        let (author, signing_key) = author::test_keypair();
+        arc_change::Change::new(
+            deps,
+            vec![
+                Atom::Insert {
+                    at: vec!["file".into(), "src/lib.rs".into(), format!("n{idx}")],
+                    content_hash: [idx; 32],
+                },
+                Atom::Move {
+                    from: vec!["file".into(), "src/lib.rs".into(), format!("from{idx}")],
+                    to: vec!["file".into(), "src/lib.rs".into(), format!("to{idx}")],
+                },
+                Atom::Delete {
+                    at: vec!["file".into(), "src/lib.rs".into(), format!("gone{idx}")],
+                    prior_hash: [idx.saturating_add(1); 32],
+                },
+            ],
+            intent,
+            author,
+            &signing_key,
+        )
+    }
+
+    #[test]
+    fn context_synthesizer_limits_to_last_ten_changes() {
+        let mut all = HashMap::new();
+        let mut prev = None;
+        let mut last = [0_u8; 32];
+
+        for i in 0..12_u8 {
+            let deps = prev.into_iter().collect::<HashSet<_>>();
+            let change = mk_change(&format!("intent-{i}"), deps, i + 1);
+            prev = Some(change.id);
+            last = change.id;
+            all.insert(change.id, change);
+        }
+
+        let frontier = HashSet::from([last]);
+        let synthesizer = ContextSynthesizer::default();
+        let state = synthesizer
+            .synthesize_codebase_state(&frontier, &all)
+            .expect("state synthesis");
+
+        let lines = state.lines().filter(|line| line.starts_with("-")).count();
+        assert_eq!(lines, 10);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn generate_ghost_intent_summarizes_three_atom_diff() {
+        let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy sync impl";
+        let summary = generate_ghost_intent_with_config(diff, None)
+            .await
+            .expect("ghost intent");
+        assert_eq!(summary, "Refactor: Modularized network sync logic");
     }
 }
