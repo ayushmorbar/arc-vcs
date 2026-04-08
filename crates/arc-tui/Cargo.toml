@@ -1,0 +1,27 @@
+[package]
+name = "arc-tui"
+version = "0.1.0-beta.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Bento-Box terminal UI surfaces for arc"
+
+[lib]
+name = "arc_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "arc-tui"
+path = "src/main.rs"
+
+[dependencies]
+arc-ux = { path = "../arc-ux" }
+arc-store-graph = { path = "../arc-store-graph" }
+arc-store-view = { path = "../arc-store-view" }
+arc-algebra-types = { path = "../arc-algebra-types" }
+
+anyhow = "1.0.102"
+ratatui = "0.30.0"
+tuirealm = "1.9.2"
+crossterm = "0.29.0"
+tui-textarea = { version = "0.7.0", default-features = false, features = ["tuirs-no-backend"] }
+tokio = { version = "1.51.0", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
