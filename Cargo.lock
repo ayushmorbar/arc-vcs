@@ -496,14 +496,13 @@ dependencies = [
  "anyhow",
  "arc-algebra-types",
  "arc-change",
- "arc-content-hash-derive",
  "arc-store-graph",
  "arc-store-types",
+ "arc-store-view",
  "blake3",
  "pest",
  "pest_derive",
  "serde",
- "tracing",
 ]
 
 [[package]]

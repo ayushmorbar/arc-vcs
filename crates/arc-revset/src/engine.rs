@@ -4,10 +4,8 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow, bail};
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
-use arc_content_hash_derive::demono;
 use arc_store_graph::ChangeGraph;
 use arc_store_types::newtypes::ChangeId;
-use tracing::instrument;
 
 use crate::parser::RevsetExpression;
 
@@ -107,7 +105,6 @@ where
 }
 
 /// Compile a revset AST with explicit support for metadata-backed ref functions.
-#[demono]
 pub fn compile_change_ids_with_refs<'a, F, R>(
     expr: &RevsetExpression,
     graph: Arc<ChangeGraph>,
@@ -287,7 +284,6 @@ fn expect_two_args<'a>(
     }
 }
 
-#[instrument(skip_all)]
 fn eval_as_head_set<F, R>(
     expr: &RevsetExpression,
     graph: Arc<ChangeGraph>,
