@@ -1,4 +1,7 @@
 use arc_ux::OutputEvent;
+use arc_change::Change;
+
+use crate::diff::generator::SemanticDiff;
 
 #[derive(Debug, Clone)]
 pub struct ChangeEntry {
@@ -7,6 +10,8 @@ pub struct ChangeEntry {
     pub author: String,
     pub signature: String,
     pub hash: String,
+    pub change: Change,
+    pub diff: Option<SemanticDiff>,
 }
 
 #[derive(Debug)]
@@ -15,6 +20,7 @@ pub struct AppState {
     pub selected: usize,
     pub status_line: String,
     pub running: bool,
+    pub show_diff: bool,
 }
 
 impl AppState {
@@ -24,6 +30,7 @@ impl AppState {
             selected: 0,
             status_line: "up/down navigate | d diff | q quit".to_string(),
             running: true,
+            show_diff: false,
         }
     }
 
@@ -47,6 +54,10 @@ impl AppState {
 
     pub fn selected_change(&self) -> Option<&ChangeEntry> {
         self.changes.get(self.selected)
+    }
+
+    pub fn selected_diff(&self) -> Option<&SemanticDiff> {
+        self.selected_change().and_then(|change| change.diff.as_ref())
     }
 
     pub fn apply_output_event(&mut self, event: OutputEvent) {
@@ -107,8 +118,18 @@ fn output_event_eq(a: &OutputEvent, b: &OutputEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use arc_change::Change;
+    use arc_store_types::author;
+
     use super::{AppState, ChangeEntry};
     use arc_ux::OutputEvent;
+
+    fn sample_change() -> Change {
+        let (author, signing_key) = author::test_keypair();
+        Change::new(HashSet::new(), vec![], "sample", author, &signing_key)
+    }
 
     fn sample_changes() -> Vec<ChangeEntry> {
         vec![
@@ -118,6 +139,8 @@ mod tests {
                 author: "alice".to_string(),
                 signature: "ok".to_string(),
                 hash: "h1".to_string(),
+                change: sample_change(),
+                diff: None,
             },
             ChangeEntry {
                 id_short: "abc0002".to_string(),
@@ -125,6 +148,8 @@ mod tests {
                 author: "bob".to_string(),
                 signature: "ok".to_string(),
                 hash: "h2".to_string(),
+                change: sample_change(),
+                diff: None,
             },
         ]
     }

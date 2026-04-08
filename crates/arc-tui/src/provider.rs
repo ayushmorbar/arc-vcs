@@ -1,3 +1,10 @@
+use std::collections::HashSet;
+
+use arc_algebra_types::Atom;
+use arc_change::Change;
+use arc_store_types::author;
+
+use crate::diff::generator::{DiffGenerator, InMemoryBlobStore};
 use crate::model::ChangeEntry;
 
 pub trait ChangeProvider {
@@ -8,42 +15,46 @@ pub struct MockProvider;
 
 impl ChangeProvider for MockProvider {
     fn list_changes(&self) -> Vec<ChangeEntry> {
-        vec![
-            ChangeEntry {
-                id_short: "a1f03d9".to_string(),
-                summary: "refactor semantic frontier traversal".to_string(),
-                author: "alice@arc".to_string(),
+        let mut store = InMemoryBlobStore::default();
+        let insert_hash = store.insert_blob(b"fn new_feature() {\n    println!(\"hello\");\n}\n");
+        let delete_hash = store.insert_blob(b"fn legacy() {\n    unreachable!();\n}\n");
+        let modify_new_hash = store.insert_blob(b"let retries = 3;\n");
+
+        let (author, signing_key) = author::test_keypair();
+        let mock_change = Change::new(
+            HashSet::new(),
+            vec![
+                Atom::Insert {
+                    at: vec!["file".into(), "src/lib.rs".into(), "new_feature".into()],
+                    content_hash: insert_hash,
+                },
+                Atom::Delete {
+                    at: vec!["file".into(), "src/lib.rs".into(), "legacy".into()],
+                    prior_hash: delete_hash,
+                },
+                Atom::Insert {
+                    at: vec!["file".into(), "src/lib.rs".into(), "legacy".into()],
+                    content_hash: modify_new_hash,
+                },
+            ],
+            "mock semantic diff",
+            author,
+            &signing_key,
+        );
+
+        let mut generator = DiffGenerator::new(&store);
+        let diff = generator.generate(&mock_change).ok();
+
+        (0..5)
+            .map(|idx| ChangeEntry {
+                id_short: format!("mock{idx:03}"),
+                summary: format!("semantic change #{idx}"),
+                author: "mock@arc".to_string(),
                 signature: "ed25519:verified".to_string(),
-                hash: "3d6f6f3e0df6a5a4a5f0f4a6a0731ebf803f5c45b2278c4f12a0a7f57b6f0001".to_string(),
-            },
-            ChangeEntry {
-                id_short: "b9c11aa".to_string(),
-                summary: "tighten sync envelope validation".to_string(),
-                author: "bob@arc".to_string(),
-                signature: "ed25519:verified".to_string(),
-                hash: "6c4a90de83fcb53c8e0da0f4df48df40226e2f5d7e6e5be67842fbe4b7cc0002".to_string(),
-            },
-            ChangeEntry {
-                id_short: "c7e4ff0".to_string(),
-                summary: "index snapshot metadata in redb".to_string(),
-                author: "carol@arc".to_string(),
-                signature: "ed25519:verified".to_string(),
-                hash: "fce9a4d9c1fd9dd9c0d2d9f7f16a5b810f6a38a7c4a5c268fe6fabf76f730003".to_string(),
-            },
-            ChangeEntry {
-                id_short: "d24aa31".to_string(),
-                summary: "normalize renderer capability probing".to_string(),
-                author: "dana@arc".to_string(),
-                signature: "ed25519:verified".to_string(),
-                hash: "91b3c59f452f20c5585f3390b63f95d3295bca0bd6ca7c376f8f0ab910260004".to_string(),
-            },
-            ChangeEntry {
-                id_short: "e0fbc89".to_string(),
-                summary: "stabilize bento event bridge".to_string(),
-                author: "eve@arc".to_string(),
-                signature: "ed25519:verified".to_string(),
-                hash: "f8e718896ec5136ba0a179eea8d688161e68fcc57f6cecd7f0fcb7187d3e0005".to_string(),
-            },
-        ]
+                hash: format!("{:064x}", idx + 1),
+                change: mock_change.clone(),
+                diff: diff.clone(),
+            })
+            .collect()
     }
 }

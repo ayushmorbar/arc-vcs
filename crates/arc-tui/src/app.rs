@@ -13,6 +13,8 @@ use arc_ux::OutputEvent;
 
 use crate::components::dag_explorer::DagExplorer;
 use crate::components::detail_panel::DetailPanel;
+use crate::components::diff_view::DiffView;
+use crate::components::side_by_side_diff::SideBySideDiff;
 use crate::components::status_bar::StatusBar;
 use crate::layout::split_bento;
 use crate::model::{AppState, Message};
@@ -26,6 +28,7 @@ enum RealmView {
 pub struct App {
     state: AppState,
     dag: DagExplorer,
+    diff: SideBySideDiff,
     backend_events: mpsc::Receiver<OutputEvent>,
     realm: Application<RealmView, Message, NoUserEvent>,
 }
@@ -45,6 +48,7 @@ impl App {
         Self {
             state: AppState::new(provider.list_changes()),
             dag: DagExplorer::new(),
+            diff: SideBySideDiff::default(),
             backend_events,
             realm: Application::init(EventListenerCfg::default()),
         }
@@ -67,8 +71,25 @@ impl App {
             terminal
                 .draw(|frame| {
                     let bento = split_bento(frame.area());
-                    self.dag.render(frame, bento.dag, &self.state);
-                    DetailPanel::render(frame, bento.detail, &self.state);
+
+                    if self.state.show_diff {
+                        let diff_area = ratatui::layout::Rect {
+                            x: bento.dag.x,
+                            y: bento.dag.y,
+                            width: bento.dag.width + bento.detail.width,
+                            height: bento.dag.height,
+                        };
+
+                        if let Some(diff) = self.state.selected_diff() {
+                            DiffView::render(frame, diff_area, diff, &self.diff);
+                        } else {
+                            DetailPanel::render(frame, diff_area, &self.state);
+                        }
+                    } else {
+                        self.dag.render(frame, bento.dag, &self.state);
+                        DetailPanel::render(frame, bento.detail, &self.state);
+                    }
+
                     StatusBar::render(frame, bento.status, &self.state);
                 })
                 .context("failed to draw frame")?;
@@ -96,8 +117,20 @@ impl App {
         if let CEvent::Key(key) = input {
             match key.code {
                 KeyCode::Char('q') => self.handle_message(Message::Quit),
-                KeyCode::Down => self.handle_message(Message::MoveDown),
-                KeyCode::Up => self.handle_message(Message::MoveUp),
+                KeyCode::Down => {
+                    if self.state.show_diff {
+                        self.diff.scroll_down();
+                    } else {
+                        self.handle_message(Message::MoveDown);
+                    }
+                }
+                KeyCode::Up => {
+                    if self.state.show_diff {
+                        self.diff.scroll_up();
+                    } else {
+                        self.handle_message(Message::MoveUp);
+                    }
+                }
                 KeyCode::Char('d') => self.handle_message(Message::OpenDiff),
                 _ => {}
             }
@@ -111,7 +144,12 @@ impl App {
             Message::MoveUp => self.state.select_prev(),
             Message::MoveDown => self.state.select_next(),
             Message::OpenDiff => {
-                self.state.status_line = "diff action placeholder".to_string();
+                self.state.show_diff = !self.state.show_diff;
+                self.state.status_line = if self.state.show_diff {
+                    "DiffView on | up/down scroll | d back | q quit".to_string()
+                } else {
+                    "up/down navigate | d diff | q quit".to_string()
+                };
             }
             Message::Backend(event) => self.state.apply_output_event(event),
         }

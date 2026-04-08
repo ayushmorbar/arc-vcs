@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Bento-Box terminal UI surfaces for arc"
 
+[features]
+default = []
+semantic-tree-sitter = ["dep:tree-sitter", "dep:tree-sitter-rust"]
+
 [lib]
 name = "arc_tui"
 path = "src/lib.rs"
@@ -18,10 +22,18 @@ arc-ux = { path = "../arc-ux" }
 arc-store-graph = { path = "../arc-store-graph" }
 arc-store-view = { path = "../arc-store-view" }
 arc-algebra-types = { path = "../arc-algebra-types" }
+arc-algebra = { path = "../arc-algebra" }
+arc-change = { path = "../arc-change" }
+arc-store-types = { path = "../arc-store-types" }
 
 anyhow = "1.0.102"
+blake3 = "1.8.4"
 ratatui = "0.30.0"
 tuirealm = "1.9.2"
 crossterm = "0.29.0"
 tui-textarea = { version = "0.7.0", default-features = false, features = ["tuirs-no-backend"] }
+tree-sitter = { version = "0.26.8", optional = true }
+tree-sitter-rust = { version = "0.24.2", optional = true }
+ratatui-image = { version = "10.0.6", default-features = false, features = ["crossterm"] }
+ignore = "0.4.25"
 tokio = { version = "1.51.0", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }

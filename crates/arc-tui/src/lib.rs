@@ -3,6 +3,7 @@
 pub mod app;
 pub mod bridge;
 pub mod components;
+pub mod diff;
 pub mod layout;
 pub mod model;
 pub mod provider;
