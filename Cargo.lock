@@ -577,9 +577,11 @@ name = "arc-store-view"
 version = "0.1.0-beta.6"
 dependencies = [
  "anyhow",
+ "arc-algebra",
  "arc-algebra-types",
  "arc-change",
  "arc-fs-ops",
+ "arc-store-cas",
  "arc-store-graph",
  "arc-store-types",
  "bincode",

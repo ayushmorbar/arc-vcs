@@ -22,6 +22,8 @@ pub mod oplog;
 pub mod synthesis;
 /// Process-scoped tempfile registry for signal-time cleanup.
 pub mod tempfile;
+/// Virtual filesystem boundary for CAS-backed projections.
+pub mod vfs;
 /// Crash-consistent persistence of mutable `View` pointers.
 pub mod view;
 
@@ -30,6 +32,7 @@ pub use lock::*;
 pub use oplog::*;
 pub use synthesis::*;
 pub use tempfile::*;
+pub use vfs::*;
 pub use view::*;
 
 /// Errors produced by persistent view serialization and filesystem access.

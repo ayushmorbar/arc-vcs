@@ -7,9 +7,12 @@
 use std::io::Read;
 use std::path::Path;
 
+use anyhow::Result;
+
 use arc_algebra_types::SpacetimeCoordinate;
 
-use crate::git_types::GitOid;
+/// Stable scalar object id type for VFS projections.
+pub type GitOid = [u8; 20];
 
 /// Virtualized metadata returned from a VFS-backed path view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +30,7 @@ pub struct VfsMetadata {
 /// Virtual filesystem abstraction for projecting CAS objects into working views.
 pub trait Vfs {
     /// Project a CAS object into a concrete path.
-    fn materialize(&self, oid: &GitOid, path: &Path) -> Result<(), crate::error::Error>;
+    fn materialize(&self, oid: &GitOid, path: &Path) -> Result<()>;
 
     /// Stream content directly from CAS without forcing disk materialization.
     fn read_at_oid(&self, oid: &GitOid) -> Box<dyn Read>;
@@ -37,11 +40,8 @@ pub trait Vfs {
     /// VFS implementations must intercept mounted path resolution and route
     /// reads for `Mount` atoms directly to the CAS backend represented by
     /// `coord`, without requiring intermediate working-copy materialization.
-    fn resolve_mount(
-        &self,
-        coord: &SpacetimeCoordinate,
-    ) -> Result<Box<dyn Read>, crate::error::Error>;
+    fn resolve_mount(&self, coord: &SpacetimeCoordinate) -> Result<Box<dyn Read>>;
 
     /// Read virtual metadata from the projected namespace.
-    fn stat(&self, path: &Path) -> Result<VfsMetadata, crate::error::Error>;
+    fn stat(&self, path: &Path) -> Result<VfsMetadata>;
 }

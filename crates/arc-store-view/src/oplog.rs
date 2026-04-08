@@ -15,6 +15,57 @@ use crate::lock::{LockFile, LockMarker};
 /// Maximum number of optimistic publish retries before returning an error.
 pub const MAX_RETRY_ATTEMPTS: usize = 16;
 
+/// Causality boundary for operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Causality {
+    /// Operation has not been broadcast and can be compacted locally.
+    Local,
+    /// Operation has been broadcast and is immutable.
+    NetworkStable,
+}
+
+/// User intent represented in the operation log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpAction {
+    /// Snapshot working-copy changes.
+    Snap,
+    /// Revert prior state.
+    Revert,
+    /// Merge two or more heads.
+    Merge,
+    /// Squash a contiguous range.
+    Squash,
+}
+
+/// Single operation record in metadata-oplog projections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpRecord {
+    /// Unique operation id.
+    pub id: String,
+    /// User action for this record.
+    pub action: OpAction,
+    /// Causality boundary class.
+    pub causality: Causality,
+    /// Unix epoch seconds.
+    pub timestamp: i64,
+    /// Resulting graph state after applying the operation.
+    pub target_oid: [u8; 20],
+    /// Optional machine-generated or human-authored intent summary.
+    pub intent_summary: Option<String>,
+}
+
+/// Build a lightweight auto-generated intent summary from parsed symbols.
+pub fn auto_intent_summary(symbols: &[String]) -> String {
+    let descriptor = if symbols.is_empty() {
+        "workspace".to_string()
+    } else {
+        symbols.join(", ")
+    };
+    format!(
+        "[auto-snap] Structural changes to {descriptor} detected via tree-sitter."
+    )
+}
+
 /// Human or AI actor attribution for an operation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
