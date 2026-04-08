@@ -400,6 +400,19 @@ pub struct ObjectStore {
     read_policy: CasReadPolicy,
 }
 
+/// Stable boundary for local CAS implementations used by higher layers.
+pub trait CasStorage {
+    /// Persist bytes under a caller-supplied content hash.
+    fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError>;
+    /// Read bytes by content hash.
+    fn read_object(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError>;
+    /// Stream a blob into CAS without buffering the full payload.
+    fn write_blob_stream(&self, reader: &mut dyn Read) -> Result<(Blake3Hash, u64), CasError>;
+}
+
+/// Canonical local filesystem CAS implementation.
+pub type LocalCas = ObjectStore;
+
 impl ObjectStore {
     /// Create a new `ObjectStore` rooted at `root/.arc`.
     pub fn new(root: impl AsRef<Path>) -> Self {
@@ -478,7 +491,10 @@ impl ObjectStore {
     ///
     /// Returns the BLAKE3 content hash and total number of bytes written.
     #[instrument(skip_all)]
-    pub fn write_blob_stream<R: Read>(&self, reader: &mut R) -> Result<(Blake3Hash, u64), CasError> {
+    pub fn write_blob_stream<R: Read + ?Sized>(
+        &self,
+        reader: &mut R,
+    ) -> Result<(Blake3Hash, u64), CasError> {
         let blobs_dir = self.root.join("blobs");
         create_dir_all_retry(&blobs_dir)?;
 
@@ -624,6 +640,20 @@ impl ObjectStore {
     #[instrument(skip_all)]
     pub fn read_change_bytes(&self, id: ChangeId) -> Result<CasBytes, CasError> {
         self.read_object(&id.0)
+    }
+}
+
+impl CasStorage for ObjectStore {
+    fn write_object(&self, hash: &Blake3Hash, bytes: &[u8]) -> Result<Blake3Hash, CasError> {
+        ObjectStore::write_object(self, hash, bytes)
+    }
+
+    fn read_object(&self, hash: &Blake3Hash) -> Result<CasBytes, CasError> {
+        ObjectStore::read_object(self, hash)
+    }
+
+    fn write_blob_stream(&self, reader: &mut dyn Read) -> Result<(Blake3Hash, u64), CasError> {
+        ObjectStore::write_blob_stream(self, reader)
     }
 }
 
