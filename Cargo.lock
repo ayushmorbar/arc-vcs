@@ -477,12 +477,10 @@ dependencies = [
  "arc-algebra-types",
  "arc-change",
  "arc-store-types",
- "bytes",
  "ed25519-dalek",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
- "tracing",
 ]
 
 [[package]]
