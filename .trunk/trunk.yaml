@@ -1,44 +1,156 @@
-# This file controls the behavior of Trunk: https://docs.trunk.io/cli
-# To learn more about the format of this file, see https://docs.trunk.io/reference/trunk-yaml
+# Trunk Code Quality — canonical quality gate for arc-vcs
+# Docs:      https://docs.trunk.io/cli
+# Reference: https://docs.trunk.io/reference/trunk-yaml
+# Plugins:   https://docs.trunk.io/plugins
+# Upgrade:   trunk upgrade
+
 version: 0.1
+
 cli:
+  # Pin the launcher so CI is reproducible; bump via `trunk upgrade`
   version: 1.25.0
-# Trunk provides extensibility via plugins. (https://docs.trunk.io/plugins)
+
+# ── Plugins ───────────────────────────────────────────────────────────────────
+# The trunk plugin repo ships linter definitions, default configs, and version
+# support matrices. Always pin to a specific tag — never use a mutable ref.
 plugins:
   sources:
     - id: trunk
       ref: v1.7.6
       uri: https://github.com/trunk-io/plugins
+
+# ── Runtimes ──────────────────────────────────────────────────────────────────
+# Runtimes are needed by Node-, Python-, and Go-backed linters.
+# arc-vcs itself is Rust; these runtimes exist solely to run tooling.
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
+#
+# Versions pinned to stable LTS as of March 2026:
+#   Node 22  — LTS "Jod" (LTS until April 2027)
+#   Python 3.12 — stable; 3.10 is EOL October 2026
+#   Go 1.24  — current stable (1.21 is EOL)
 runtimes:
   enabled:
-    - go@1.21.0
     - node@22.16.0
-    - python@3.10.8
-# This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
+    - python@3.12.7
+    - go@1.24.2
+
+# ── Linters ───────────────────────────────────────────────────────────────────
+# Organised by concern. Each tool has a one-line rationale.
+# Run `trunk check --all` locally to validate, `trunk upgrade` to bump versions.
 lint:
+  # Tools that must never touch generated artifacts
+  ignore:
+    - linters: [ALL]
+      paths:
+        - docs/generated/**   # cargo doc and CLI help — machine-produced
+        - target/**           # Rust build artifacts
+        - .trunk/**           # Trunk's own cache
+        - "**/*.lock"         # lockfiles are not authored
+
   enabled:
-    - actionlint@1.7.12
-    - checkov@3.2.517
-    - clippy@1.65.0
-    - codespell@2.4.2
-    - git-diff-check
-    - hadolint@2.14.0
-    - markdownlint@0.48.0
+    # ── Rust ─────────────────────────────────────────────────────────────────
+    # Version MUST match the `channel` in rust-toolchain.toml exactly.
+    # Trunk uses this to invoke the correct toolchain component.
+    # As of March 2026, Rust stable is ~1.85.x; update both together.
+    - clippy@1.85.0
+    - rustfmt@1.85.0
+
+    # Dependency license, advisory (RustSec), banned-crate, and duplicate
+    # scanning. Critical for a cryptographic VCS with a large crate graph.
+    # Requires deny.toml at repo root.
+    - cargo-deny@0.19.0
+
+    # ── Security / Secrets ───────────────────────────────────────────────────
+    # Git-history and live-diff secret scanning with verified-credential mode.
+    - trufflehog@3.94.2
+
+    # Supply-chain: scans Cargo.lock (and any future lock files) against OSV.
+    # Preferred over checkov for a pure Rust repo — checkov targets IaC.
     - osv-scanner@2.3.5
-    - oxipng@10.1.0
-    - prettier@3.8.1
-    - rustfmt@1.65.0
+
+    # ── CI / Actions ─────────────────────────────────────────────────────────
+    # Static analysis for .github/workflows — catches expression injections,
+    # undefined contexts, and invalid event triggers before they reach GitHub.
+    - actionlint@1.7.12
+
+    # ── Shell ────────────────────────────────────────────────────────────────
+    # Lint and format scripts/ and any inline shell in CI workflows.
     - shellcheck@0.11.0
     - shfmt@3.6.0
-    - svgo@4.0.1
+
+    # ── Markup & Config ──────────────────────────────────────────────────────
+    # Markdown structure linting — enforces docs/src/ conventions.
+    - markdownlint@0.48.0
+
+    # Prose linting — enforces references/style-guide.md rules and
+    # references/terminology.md vocabulary. Required by doc-structure.md §Validation.
+    - vale@3.9.3
+
+    # TOML formatting — covers Cargo.toml, .cargo/config.toml, taplo.toml.
     - taplo@0.10.0
-    - trufflehog@3.94.2
+
+    # YAML linting — covers .github/workflows/, .trunk/trunk.yaml, book.toml-adjacent.
     - yamllint@1.38.0
+
+    # Opinionated formatter for Markdown, YAML, TOML, JSON, and shell scripts
+    # not covered by dedicated formatters above.
+    - prettier@3.8.1
+
+    # ── Image / Asset Optimisation ───────────────────────────────────────────
+    # Lossless PNG compression — keeps docs/src/ assets lean.
+    - oxipng@10.1.0
+
+    # SVG optimisation for diagrams exported from design tools.
+    - svgo@4.0.1
+
+    # ── Spelling ─────────────────────────────────────────────────────────────
+    # Codespell catches common misspellings across all text files.
+    # Vale handles style; codespell handles dictionary errors.
+    - codespell@2.4.2
+
+    # ── Git Hygiene ──────────────────────────────────────────────────────────
+    # Blocks commits with unresolved conflict markers or carriage returns.
+    - git-diff-check
+
+    # ── Docker (conditional) ─────────────────────────────────────────────────
+    # Keep if a Dockerfile exists in the repo; remove if not.
+    # Lints for common Dockerfile anti-patterns and outdated base images.
+    - hadolint@2.14.0
+
+  # Thresholds: surface everything as an error in CI; locally use warn for
+  # non-blocking tools so DX is not destroyed on WIP branches.
+  definitions:
+    - name: vale
+      # Vale warnings are advisory (style preferences); errors are blockers
+      # (banned terms, required structure). Align with .vale.ini severity levels.
+      threshold: high
+
+# ── Actions ───────────────────────────────────────────────────────────────────
+# Hooks that run automatically — the local enforcement layer.
+#
+# trunk-fmt-pre-commit:  Auto-formats staged files on every commit.
+#                        Zero-friction — it formats, not blocks. Keeps history clean.
+# trunk-check-pre-push:  Runs the full lint stack before `git push`.
+#                        The final local gate before code hits CI.
+#                        Disable only on hotfix branches with `--no-verify`.
+# trunk-announce:        Disabled — suppresses upgrade nag banners in CI logs.
+# trunk-upgrade-available: Notifies when linter or plugin versions can be bumped.
+#                          Pairs with the `trunk upgrade` workflow below.
 actions:
   disabled:
     - trunk-announce
-    - trunk-check-pre-push
-    - trunk-fmt-pre-commit
   enabled:
     - trunk-upgrade-available
+    - trunk-fmt-pre-commit
+    - trunk-check-pre-push
+
+# ── Upgrade cadence ───────────────────────────────────────────────────────────
+# Run `trunk upgrade` monthly or when trunk-upgrade-available fires.
+# For Rust tools (clippy, rustfmt, cargo-deny), bump in lockstep with
+# rust-toolchain.toml. Never bump clippy/rustfmt independently of the toolchain.
+#
+# Workflow:
+#   1. trunk upgrade
+#   2. cargo test && just docs
+#   3. Review Clippy lint additions in the Rust release notes
+#   4. Commit .trunk/trunk.yaml and rust-toolchain.toml together
