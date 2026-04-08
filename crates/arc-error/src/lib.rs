@@ -351,6 +351,6 @@ mod tests {
             .expect_err("must fail");
         let rendered = err.to_string();
         assert!(rendered.contains("outer"));
-        assert!(rendered.contains("inner"));
+        assert_eq!(err.probable_cause().to_string(), "inner");
     }
 }

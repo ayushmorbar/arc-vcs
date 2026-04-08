@@ -4,8 +4,6 @@ on:
   release:
     types: [published]
 
-permissions: read-all
-
 jobs:
   preflight-release-guards:
     name: preflight-release-guards
@@ -14,7 +12,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
         with:
           persist-credentials: false
           ref: ${{ github.ref }}
@@ -23,7 +21,7 @@ jobs:
         run: bash scripts/ci/enforce-unique-tag.sh
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # stable
         with:
           toolchain: stable
 
@@ -40,6 +38,8 @@ jobs:
 
   build-release:
     needs: [preflight-release-guards]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -52,12 +52,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
         with:
           persist-credentials: false
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # stable
         with:
           toolchain: stable
           target: ${{ matrix.target }}

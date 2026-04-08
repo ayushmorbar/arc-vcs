@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: arc-purity-guard
+        name: arc crate purity guard
+        entry: bash scripts/check-purity.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]

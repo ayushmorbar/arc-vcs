@@ -5,33 +5,92 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
-
-permissions:
-  contents: read
+  release:
+    types: [published]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  nix-flake-check:
+    name: nix-flake-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@90bb610b90bf290cad97484ba341453bd1cbefea # v19
+
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Flake checks
+        run: nix flake check
+
+  purity-guard:
+    name: purity-guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+
+      - name: Install pre-commit
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pre-commit==4.3.0
+
+      - name: Run purity guard pre-commit hook
+        run: pre-commit run arc-purity-guard --all-files
+
+      - name: Run purity guard script
+        run: bash scripts/check-purity.sh
+
   test-lint-verify:
     name: test-lint-verify
     runs-on: ubuntu-latest
+    needs: [nix-flake-check, purity-guard]
     timeout-minutes: 20
+    permissions:
+      contents: read
     env:
       toolchain: stable # <-- Ensures $toolchain is available to all steps
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
           components: clippy,rustfmt
 
       - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01
+        uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01 # v2.x
+
+      - name: Install nextest
+        uses: taiki-e/install-action@cf39a74df4a72510be4e5b63348d61067f11e64a # v2
+        with:
+          tool: cargo-nextest
 
       - name: Format check
         run: cargo fmt --all --check
@@ -56,6 +115,9 @@ jobs:
       - name: Enforce architecture layering
         run: bash scripts/ci/enforce-layering.sh
 
+      - name: Enforce crate purity tiers
+        run: bash scripts/check-purity.sh
+
       - name: Detect architecture drift
         run: bash scripts/ci/detect-arch-drift.sh
 
@@ -63,7 +125,7 @@ jobs:
         run: bash scripts/ci/lint-reports.sh
 
       - name: Install cargo-diet
-        run: cargo install cargo-diet --locked
+        run: cargo install cargo-diet --locked --version 0.1.1
 
       - name: Package size guardrails
         run: |
@@ -73,12 +135,118 @@ jobs:
             crates/arc-daemon:250KB \
             crates/arc-git-bridge:300KB
 
-      - name: Workspace tests
-        run: cargo test --workspace --all-targets --locked
+      - name: Workspace tests (nextest)
+        run: cargo nextest run --workspace --all-targets --no-fail-fast --locked
 
-      # CI-safe policy verification via tests (no .arc bootstrap required)
+      - name: Workspace doctests
+        run: cargo test --workspace --doc --locked
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: WASM compatibility check
+        run: cargo check -p arc-algebra --target wasm32-unknown-unknown
+
       - name: Policy regression tests
         run: |
-          cargo test -p arc-cli workspace_policy_audit_current_workspace -- --nocapture
-          cargo test -p arc-cli governance_audit_current_workspace -- --nocapture
-          cargo test -p arc-cli tooling_audit_current_workspace -- --nocapture
+          cargo nextest run -p arc-cli --locked -E 'test(workspace_policy_audit_current_workspace) | test(governance_audit_current_workspace) | test(tooling_audit_current_workspace)'
+
+  miri-arc-algebra:
+    name: miri-arc-algebra
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
+
+      - name: Setup nightly + miri
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: nightly
+          components: miri
+
+      - name: Setup Miri sysroot
+        run: cargo +nightly miri setup
+
+      - name: Run Miri on arc-algebra
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+        run: cargo +nightly miri test -p arc-algebra --lib
+
+  semantic-changelog:
+    name: semantic-changelog
+    runs-on: ubuntu-latest
+    needs: [test-lint-verify]
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Generate semantic changelog
+        env:
+          BASE_REF: ${{ github.event.before || 'HEAD~1' }}
+          HEAD_REF: ${{ github.sha }}
+        run: bash scripts/ci/generate-semantic-changelog.sh "$BASE_REF" "$HEAD_REF" "CHANGELOG.semantic.md"
+
+      - name: Upload semantic changelog
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: semantic-changelog
+          path: CHANGELOG.semantic.md
+
+  release-artifacts:
+    name: release-artifacts
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'release' }}
+    permissions:
+      contents: read
+    outputs:
+      subjects: ${{ steps.subjects.outputs.subjects }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+
+      - name: Build release artifacts
+        run: |
+          cargo build -p arc-cli --release --locked
+          mkdir -p dist
+          cp target/release/arc dist/arc-x86_64-unknown-linux-gnu
+          tar -czf dist/arc-x86_64-unknown-linux-gnu.tar.gz -C dist arc-x86_64-unknown-linux-gnu
+
+      - name: Build release subject list
+        id: subjects
+        uses: slsa-framework/slsa-github-generator/actions/generator/generic/create-base64-subjects-from-file@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
+        with:
+          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-artifacts
+          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
+
+  provenance:
+    if: ${{ github.event_name == 'release' }}
+    needs: [release-artifacts]
+    permissions:
+      actions: read
+      id-token: write
+      contents: read
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
+    with:
+      base64-subjects: ${{ needs.release-artifacts.outputs.subjects }}
