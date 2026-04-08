@@ -190,10 +190,19 @@ impl ChangeGraph {
     pub fn tip_ids(&self) -> BTreeSet<ChangeId> {
         let mut tips = BTreeSet::new();
         for &hash in self.nodes.keys() {
+            if self.nodes.get(&hash).is_some_and(|n| n.is_ghost) {
+                continue;
+            }
             let is_tip = self
                 .reverse_edges
                 .get(&hash)
-                .is_none_or(|children| children.is_empty());
+                .is_none_or(|children| {
+                    children.iter().all(|child| {
+                        self.nodes
+                            .get(child)
+                            .is_some_and(|node| node.is_ghost)
+                    })
+                });
             if is_tip {
                 tips.insert(ChangeId::from(hash));
             }

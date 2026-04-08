@@ -1,9 +1,42 @@
 use std::collections::{HashMap, HashSet};
 
 use arc_algebra_types::Atom as SemanticAtom;
+use serde_json::json;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 use super::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
+
+impl PolicyError {
+    /// Convert a policy error into an MCP-friendly structured payload.
+    pub fn to_mcp_payload(&self) -> serde_json::Value {
+        match self {
+            PolicyError::SignatureMismatch {
+                broken_functions,
+                old_signature,
+                new_signature,
+            } => json!({
+                "type": "SignatureMismatch",
+                "broken_functions": broken_functions,
+                "old_signature": old_signature,
+                "new_signature": new_signature,
+            }),
+            PolicyError::MissingDependency { dependency } => json!({
+                "type": "MissingDependency",
+                "dependency": dependency,
+            }),
+            PolicyError::ReadConfig { path, source } => json!({
+                "type": "ReadConfig",
+                "path": path,
+                "error": source.to_string(),
+            }),
+            PolicyError::ParseConfig { path, source } => json!({
+                "type": "ParseConfig",
+                "path": path,
+                "error": source.to_string(),
+            }),
+        }
+    }
+}
 
 /// Rust query for exported function boundary extraction.
 pub const RUST_BOUNDARY_QUERY: &str = r#"

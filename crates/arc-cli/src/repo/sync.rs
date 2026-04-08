@@ -1,13 +1,50 @@
 use std::collections::HashMap;
 use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use arc_algebra_types::Blake3Hash;
 use arc_algebra_types::SpacetimeCoordinate;
 use arc_core::algebra::Atom;
 use arc_core::algebra::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
+use arc_store_view::View;
 
 use super::core::*;
 
 impl Repository {
+    fn persist_policy_error_payload(
+        &self,
+        error: &PolicyError,
+        mount_path: &str,
+        view_name: &str,
+        view_heads: &[String],
+    ) -> anyhow::Result<()> {
+        let created_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let payload = serde_json::json!({
+            "mount_path": mount_path,
+            "view_name": view_name,
+            "view_heads": view_heads,
+            "created_at": created_at,
+            "error": error.to_mcp_payload(),
+        });
+        let path = self
+            .shared_root
+            .join(".arc")
+            .join("ai")
+            .join("last_policy_error.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| anyhow::anyhow!("failed to create AI metadata dir: {e}"))?;
+        }
+        let json = serde_json::to_vec_pretty(&payload)
+            .map_err(|e| anyhow::anyhow!("failed to encode policy MCP payload: {e}"))?;
+        fs::write(&path, json)
+            .map_err(|e| anyhow::anyhow!("failed to persist policy MCP payload: {e}"))?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------
     // Remotes
     // ------------------------------------------------------------------
@@ -58,6 +95,14 @@ impl Repository {
         let view_name = self.current_view_name()?;
         self.hydrate(&view_name)?;
         let state = self.materialize(&view_name)?;
+        let current_view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let mut view_heads: Vec<String> = current_view
+            .heads
+            .iter()
+            .map(|h: &Blake3Hash| h.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .collect();
+        view_heads.sort();
         let policy_path = self.shared_root.join(".arc").join("arc.policy.json");
         let policy = ArcPolicy::load_from_path(&policy_path).map_err(|e| {
             anyhow::anyhow!("policy load failed before sync gate evaluation: {e}")
@@ -126,9 +171,9 @@ impl Repository {
                 }
             };
 
-            evaluator
-                .evaluate_delta_impact(&local_ast, &incoming_atoms)
-                .map_err(|e| match e {
+            if let Err(e) = evaluator.evaluate_delta_impact(&local_ast, &incoming_atoms) {
+                let _ = self.persist_policy_error_payload(&e, path, &view_name, &view_heads);
+                return Err(match e {
                     PolicyError::SignatureMismatch {
                         broken_functions,
                         old_signature,
@@ -152,7 +197,8 @@ impl Repository {
                         path,
                         other
                     ),
-                })?;
+                });
+            }
 
             match spec {
                 MountSpec::Coordinate(coord) => {

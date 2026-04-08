@@ -42,6 +42,10 @@ use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction
 use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use arc_core::algebra::policy::PolicyError;
+use arc_core::algebra::resolver::{
+    AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
+};
 
 use crate::store_compat::{ObjectStoreChangeExt, apply_change};
 
@@ -1376,6 +1380,219 @@ impl Repository {
     // AI Provenance — approve_pending_ai / snap_ai
     // ------------------------------------------------------------------
 
+    /// Resolve the last persisted policy-gate mismatch into a local Ghost Node.
+    ///
+    /// Reads `.arc/ai/last_policy_error.json`, synthesizes a lens through the
+    /// policy resolver pipeline, verifies it against the semantic perimeter,
+    /// then stages a pending AI change for human sponsorship.
+    pub fn resolve_last_policy_error_with_ai(&mut self) -> anyhow::Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct SignatureMismatchPayload {
+            broken_functions: Vec<String>,
+            old_signature: String,
+            new_signature: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct PersistedPolicyPayload {
+            mount_path: String,
+            view_name: String,
+            view_heads: Vec<String>,
+            created_at: u64,
+            error: SignatureMismatchPayload,
+        }
+
+        if has_pending_ai(&self.shared_root) {
+            anyhow::bail!(
+                "An AI change is already pending approval. \
+                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+            );
+        }
+
+        let path = self
+            .shared_root
+            .join(".arc")
+            .join("ai")
+            .join("last_policy_error.json");
+        if !path.exists() {
+            return Ok(false);
+        }
+
+        let bytes = fs::read(&path)
+            .map_err(|e| anyhow::anyhow!("failed to read last policy error payload: {e}"))?;
+        let raw_payload: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| anyhow::anyhow!("invalid policy error payload JSON: {e}"))?;
+        let error_kind = raw_payload
+            .get("error")
+            .and_then(|e| e.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if error_kind != "SignatureMismatch" {
+            return Ok(false);
+        }
+        let payload: PersistedPolicyPayload = serde_json::from_value(raw_payload)
+            .map_err(|e| anyhow::anyhow!("invalid signature-mismatch payload JSON: {e}"))?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Payloads older than one hour are considered stale and ignored.
+        if now.saturating_sub(payload.created_at) > 3600 {
+            let _ = fs::remove_file(&path);
+            return Ok(false);
+        }
+
+        let current_view_name = self.current_view_name()?;
+        let current_view = View::load(&self.shared_root, &current_view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{current_view_name}': {e}"))?;
+        let mut current_heads: Vec<String> = current_view
+            .heads
+            .iter()
+            .map(|h| h.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .collect();
+        current_heads.sort();
+
+        let mut payload_heads = payload.view_heads.clone();
+        payload_heads.sort();
+        if payload.view_name != current_view_name || payload_heads != current_heads {
+            let _ = fs::remove_file(&path);
+            return Ok(false);
+        }
+
+        let policy_error = PolicyError::SignatureMismatch {
+            broken_functions: payload.error.broken_functions,
+            old_signature: payload.error.old_signature,
+            new_signature: payload.error.new_signature,
+        };
+
+        fn parse_signature_map(serialized: &str) -> HashMap<String, String> {
+            serialized
+                .split(';')
+                .filter_map(|entry| {
+                    let trimmed = entry.trim();
+                    if trimmed.is_empty() {
+                        return None;
+                    }
+                    let (name, sig) = trimmed.split_once(':')?;
+                    Some((name.trim().to_string(), sig.trim().to_string()))
+                })
+                .collect()
+        }
+
+        fn collect_rust_sources(root: &Path) -> Vec<String> {
+            fn walk(dir: &Path, out: &mut Vec<String>) {
+                let Ok(entries) = fs::read_dir(dir) else {
+                    return;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n == ".arc")
+                    {
+                        continue;
+                    }
+                    if path.is_dir() {
+                        walk(&path, out);
+                    } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
+                        && let Ok(src) = fs::read_to_string(&path)
+                    {
+                        out.push(src);
+                    }
+                }
+            }
+
+            let mut out = Vec::new();
+            walk(root, &mut out);
+            out
+        }
+
+        let PolicyError::SignatureMismatch {
+            broken_functions,
+            old_signature,
+            new_signature,
+        } = &policy_error
+        else {
+            return Ok(false);
+        };
+
+        let expected_api_signatures = parse_signature_map(old_signature);
+        let new_signature_map = parse_signature_map(new_signature);
+        let incoming_atoms = broken_functions
+            .iter()
+            .map(|name| {
+                let sig = new_signature_map
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| "() -> ()".to_string());
+                Atom::SemanticsPreserving {
+                    at: vec!["file".to_string(), "incoming.rs".to_string(), name.clone()],
+                    description: format!("fn {}{} {{}}", name, sig),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let local_ast = arc_core::algebra::policy::Ast {
+            local_rust_sources: collect_rust_sources(&self.work_root),
+            expected_api_signatures,
+            foreign_rust_sources: Vec::new(),
+        };
+
+        let resolver = MockAiResolver;
+        let lens_atoms = resolver
+            .synthesize_lens(&policy_error)
+            .map_err(|e| anyhow::anyhow!("AI lens synthesis failed: {e}"))?;
+
+        let evaluator = default_evaluator();
+        verify_lens(&evaluator, &local_ast, &incoming_atoms, &lens_atoms)
+            .map_err(|e| anyhow::anyhow!("AI lens verification failed: {e}"))?;
+
+        let model = "mcp-lens".to_string();
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+
+        let affected_files = lens_atoms
+            .iter()
+            .filter_map(|atom| match atom {
+                Atom::Insert { at, .. }
+                | Atom::Delete { at, .. }
+                | Atom::SemanticsPreserving { at, .. }
+                | Atom::Conflict { at, .. }
+                    if at.len() >= 2 && at[0] == "file" =>
+                {
+                    Some(PathBuf::from(&at[1]))
+                }
+                Atom::Move { to, .. } if to.len() >= 2 && to[0] == "file" => {
+                    Some(PathBuf::from(&to[1]))
+                }
+                Atom::Blob { path, .. } | Atom::Mount { path, .. } | Atom::Directory { path }
+                    if path.len() >= 2 && path[0] == "file" =>
+                {
+                    Some(PathBuf::from(&path[1]))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let pending = PendingAiChange::new_resolve(
+            model,
+            format!(
+                "AI lens for policy signature mismatch at {}",
+                payload.mount_path
+            ),
+            affected_files,
+            lens_atoms,
+            view.heads.iter().copied().collect(),
+        );
+        save_pending_ai(&self.shared_root, &pending)?;
+        let _ = fs::remove_file(&path);
+        Ok(true)
+    }
+
     /// Finalise a pending AI change: construct `Author::AI`, sign with the
     /// human's key, write to CAS, advance the view head, and clean up.
     ///
@@ -1385,6 +1602,16 @@ impl Repository {
         &mut self,
         human_author: &Author,
         signing_key: &ed25519_dalek::SigningKey,
+    ) -> anyhow::Result<Blake3Hash> {
+        self.approve_pending_ai_with_hash(human_author, signing_key, None)
+    }
+
+    /// Approve a pending AI change and optionally assert the resulting hash prefix.
+    pub fn approve_pending_ai_with_hash(
+        &mut self,
+        human_author: &Author,
+        signing_key: &ed25519_dalek::SigningKey,
+        expected_hash_prefix: Option<&str>,
     ) -> anyhow::Result<Blake3Hash> {
         let pending = load_pending_ai(&self.shared_root).ok_or_else(|| {
             anyhow::anyhow!("no pending AI change — '.arc/ai/pending.json' not found")
@@ -1397,6 +1624,12 @@ impl Repository {
             }
         };
 
+        if signing_key.verifying_key().to_bytes() != human_key {
+            anyhow::bail!(
+                "human sponsorship validation failed: signing key does not match active human identity"
+            );
+        }
+
         let ai_author = Author::AI {
             model: pending.model.clone(),
             human_sponsor: human_key,
@@ -1406,13 +1639,28 @@ impl Repository {
             PendingKind::Resolve => {
                 // Atoms and deps were pre-staged by resolve_conflict().
                 let deps: HashSet<Blake3Hash> = pending.staged_deps.iter().cloned().collect();
-                let change = Change::new(
+                let change = Change::new_with_metadata(
                     deps,
                     pending.staged_atoms.clone(),
                     &pending.intent,
                     ai_author,
+                    arc_change::AuthorType::AI {
+                        confidence: 0.85,
+                        human_sponsor: Some(human_key),
+                    },
+                    false,
                     signing_key,
                 );
+                if let Some(prefix) = expected_hash_prefix {
+                    let hex: String = change.id.iter().map(|b| format!("{b:02x}")).collect();
+                    if !hex.starts_with(prefix) {
+                        anyhow::bail!(
+                            "approved change hash mismatch: expected prefix '{}' but got '{}'",
+                            prefix,
+                            hex
+                        );
+                    }
+                }
                 self.store
                     .write_change(&change)
                     .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
@@ -1438,6 +1686,11 @@ impl Repository {
                 change.id
             }
             PendingKind::Generate => {
+                if expected_hash_prefix.is_some() {
+                    anyhow::bail!(
+                        "hash pre-validation is not supported for generate approvals; rerun without <hash>"
+                    );
+                }
                 // Diff the working directory and snap with Author::AI.
                 self.snap_ai(&pending.intent, &ai_author, signing_key)?
                     .ok_or_else(|| {
@@ -1470,11 +1723,20 @@ impl Repository {
         let mut view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         self.write_blob_atoms(&raw_atoms)?;
-        let change = Change::new(
+        let author_type = match author {
+            Author::AI { human_sponsor, .. } => arc_change::AuthorType::AI {
+                confidence: 0.8,
+                human_sponsor: Some(*human_sponsor),
+            },
+            _ => arc_change::AuthorType::Human,
+        };
+        let change = Change::new_with_metadata(
             view.heads.clone(),
             raw_atoms,
             message,
             author.clone(),
+            author_type,
+            false,
             signing_key,
         );
         self.store

@@ -24,6 +24,8 @@
 pub use arc_ai as ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
+/// DAG node compatibility surface (including ghost-node metadata re-exports).
+pub mod dag;
 /// Spacetime engine: algebraic history rewriting (squash, diffedit).
 pub mod engine;
 /// Error types for this crate.

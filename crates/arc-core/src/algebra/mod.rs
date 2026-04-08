@@ -6,6 +6,8 @@ pub use arc_algebra::sparse;
 pub mod policy;
 /// tree-sitter-based delta-impact evaluator.
 pub mod evaluator;
+/// AI adapter resolver pipeline for policy errors.
+pub mod resolver;
 
 use crate::store::cas::ObjectStore;
 use arc_algebra_types::Blake3Hash as AlgebraBlake3Hash;

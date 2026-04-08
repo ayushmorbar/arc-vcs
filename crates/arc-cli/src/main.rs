@@ -679,7 +679,10 @@ enum AiAction {
     ///
     /// Constructs Author::AI { model, human_sponsor } signed by the active
     /// human identity key, commits the change to CAS, and advances the view.
-    Approve,
+    Approve {
+        /// Optional expected hash (or prefix) of the sponsored node.
+        hash: Option<String>,
+    },
     /// Generate code using an AI agent and apply it as a Ghost Node.
     ///
     /// Queries the local intent vector index for context, calls the LLM, and
@@ -1588,6 +1591,18 @@ fn run_cli() -> anyhow::Result<()> {
                 let (author, signing_key) = load_identity()?;
                 repo.set_identity(author, signing_key);
 
+                match repo.resolve_last_policy_error_with_ai() {
+                    Ok(true) => {
+                        println!(
+                            "[arc] Policy mismatch converted into a Lensed Ghost Node. \
+                             Review changes then run 'arc ai approve <hash>'."
+                        );
+                        return Ok(());
+                    }
+                    Ok(false) => {}
+                    Err(err) => return Err(err),
+                }
+
                 let cfg = load_merged_config(std::path::Path::new("."))?;
                 let merge_tool_resolution = if let Some(tool) = cfg.merge.tool.as_deref() {
                     eprintln!("[arc] Using merge tool '{}' for conflict resolution.", tool);
@@ -1681,10 +1696,11 @@ fn run_cli() -> anyhow::Result<()> {
                     );
                 }
             }
-            AiAction::Approve => {
+            AiAction::Approve { hash } => {
                 let mut repo = Repository::open(".")?;
                 let (author, signing_key) = load_identity()?;
-                let id = repo.approve_pending_ai(&author, &signing_key)?;
+                let id =
+                    repo.approve_pending_ai_with_hash(&author, &signing_key, hash.as_deref())?;
                 let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
                 println!("Approved and committed AI change → {hex}");
             }

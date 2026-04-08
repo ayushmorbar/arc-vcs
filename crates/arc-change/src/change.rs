@@ -6,6 +6,41 @@ use serde::{Deserialize, Serialize};
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_store_types::author::{Author, PublicKeyBytes, Signature};
 
+/// High-level author classification for ghost-node governance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthorType {
+    /// Human-authored node.
+    Human,
+    /// AI-authored node with confidence score and optional sponsor key.
+    AI {
+        /// Model-reported confidence score.
+        confidence: f32,
+        /// Optional sponsoring public key once approved.
+        human_sponsor: Option<PublicKeyBytes>,
+    },
+}
+
+impl PartialEq for AuthorType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AuthorType::Human, AuthorType::Human) => true,
+            (
+                AuthorType::AI {
+                    confidence: a,
+                    human_sponsor: as_,
+                },
+                AuthorType::AI {
+                    confidence: b,
+                    human_sponsor: bs,
+                },
+            ) => a.to_bits() == b.to_bits() && as_ == bs,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for AuthorType {}
+
 /// An atomic, replayable change — the fundamental unit in arc.
 ///
 /// A `Change` bundles one or more [`Atom`]s into a single semantic operation
@@ -59,6 +94,16 @@ pub struct Change {
     /// identity of the Change.
     #[serde(default)]
     pub collapsed_from: Option<Blake3Hash>,
+    /// High-level author type used by ghost-node governance flows.
+    #[serde(default = "default_human_author_type")]
+    pub author_type: AuthorType,
+    /// Whether this node is provisional (ghost) and excluded from default frontiers.
+    #[serde(default)]
+    pub is_ghost: bool,
+}
+
+fn default_human_author_type() -> AuthorType {
+    AuthorType::Human
 }
 
 impl Change {
@@ -96,6 +141,27 @@ impl Change {
         author: Author,
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Self {
+        Self::new_with_metadata(
+            deps,
+            atoms,
+            intent,
+            author,
+            AuthorType::Human,
+            false,
+            signing_key,
+        )
+    }
+
+    /// Create a new `Change` with explicit ghost-node governance metadata.
+    pub fn new_with_metadata(
+        deps: HashSet<Blake3Hash>,
+        atoms: Vec<Atom>,
+        intent: impl Into<String>,
+        author: Author,
+        author_type: AuthorType,
+        is_ghost: bool,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Self {
         let intent = intent.into();
         let id = Self::compute_id(&deps, &atoms, &intent, &author);
         let sig: ed25519_dalek::Signature = signing_key.sign(&id);
@@ -107,6 +173,8 @@ impl Change {
             author,
             signature: Signature(sig.to_bytes()),
             collapsed_from: None,
+            author_type,
+            is_ghost,
         }
     }
 
@@ -135,6 +203,8 @@ impl Change {
                 author,
                 signature: original.signature.clone(),
                 collapsed_from: original.collapsed_from,
+                author_type: original.author_type.clone(),
+                is_ghost: original.is_ghost,
             };
         }
 
@@ -147,6 +217,8 @@ impl Change {
             author,
             signature: Signature(sig.to_bytes()),
             collapsed_from: original.collapsed_from,
+            author_type: original.author_type.clone(),
+            is_ghost: original.is_ghost,
         }
     }
 
@@ -199,6 +271,8 @@ impl Change {
             author,
             signature: Signature(sig.to_bytes()),
             collapsed_from: Some(original_id),
+            author_type: AuthorType::Human,
+            is_ghost: false,
         }
     }
 
