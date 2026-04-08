@@ -9,6 +9,8 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

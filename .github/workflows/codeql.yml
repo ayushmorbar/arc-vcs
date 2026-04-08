@@ -13,6 +13,8 @@ on:
     - cron: "32 3 * * 6"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -26,9 +28,9 @@ jobs:
       matrix:
         include:
           - language: actions
-            build-mode: none
+            build-mode: manual
           - language: rust
-            build-mode: none
+            build-mode: manual
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
@@ -40,6 +42,10 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+
+      - name: Build workspace for CodeQL
+        if: ${{ matrix.language == 'rust' }}
+        run: cargo build --workspace --locked
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@c10b8064de6f491fea524254123dbe5e09572f13 # v3.x
