@@ -17,11 +17,175 @@ use super::backoff::QuadraticBackoff;
 use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
 use super::endpoint::SyncEndpoint;
 use super::protocol::{
-    HandshakeRequest, HandshakeResponse, SyncCapability, negotiate_capabilities,
+    CasWireBlock, HandshakeRequest, HandshakeResponse, NetError, SyncCapability, SyncProtocol,
+    negotiate_capabilities,
 };
 
 const HANDSHAKE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const PAYLOAD_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_ATTEMPTS: usize = 4;
+
+/// Native sync client used by CLI orchestration.
+#[derive(Debug, Clone)]
+pub struct NativeSyncClient {
+    endpoint: String,
+    auth_token: Option<String>,
+}
+
+impl NativeSyncClient {
+    /// Create a new native sync client targeting `endpoint`.
+    pub fn new(endpoint: String, auth_token: Option<String>) -> Self {
+        Self {
+            endpoint,
+            auth_token,
+        }
+    }
+
+    async fn open_framed(&self) -> Result<Framed<TcpStream, ArcSyncCodec>, NetError> {
+        let endpoint = SyncEndpoint::parse(&self.endpoint)
+            .map_err(|e| NetError::Protocol(format!("invalid native sync endpoint: {e}")))?;
+        let socket = connect_with_retry(&endpoint)
+            .await
+            .map_err(|e| NetError::Protocol(e.to_string()))?;
+        Ok(Framed::new(socket, ArcSyncCodec::new()))
+    }
+
+    async fn handshake(
+        &self,
+        framed: &mut Framed<TcpStream, ArcSyncCodec>,
+        frontier: Vec<[u8; 32]>,
+    ) -> Result<HandshakeResponse, NetError> {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: choose_auth_token(self.auth_token.clone()),
+            view_heads: HashMap::new(),
+            required_capabilities: vec![
+                SyncCapability::PayloadStreamV1,
+                SyncCapability::TypedChangeId,
+            ],
+            optional_capabilities: vec![SyncCapability::KeepAlive],
+            frontier,
+        };
+
+        let payload = Bytes::from(
+            bincode::serialize(&request).map_err(|e| NetError::Serialization(e.to_string()))?,
+        );
+        framed
+            .send(SyncFrame::new(MessageType::Handshake, payload))
+            .await
+            .map_err(NetError::from)?;
+
+        let response_frame = timeout(HANDSHAKE_RESPONSE_TIMEOUT, framed.next())
+            .await
+            .map_err(|_| NetError::Protocol("timed out waiting for handshake response".to_string()))?
+            .ok_or_else(|| NetError::Protocol("connection closed before handshake response".to_string()))?
+            .map_err(NetError::from)?;
+
+        if response_frame.message_type != MessageType::Handshake {
+            return Err(NetError::Protocol(
+                "expected handshake response frame".to_string(),
+            ));
+        }
+
+        let response: HandshakeResponse = bincode::deserialize(&response_frame.payload)
+            .map_err(|e| NetError::Serialization(e.to_string()))?;
+        if response.status != 0 {
+            return Err(NetError::Protocol(format!(
+                "native sync handshake failed with status {}",
+                response.status
+            )));
+        }
+
+        Ok(response)
+    }
+}
+
+#[async_trait::async_trait]
+impl SyncProtocol for NativeSyncClient {
+    async fn exchange_frontiers(
+        &self,
+        local_frontier: Vec<blake3::Hash>,
+    ) -> Result<Vec<blake3::Hash>, NetError> {
+        let mut framed = self.open_framed().await?;
+        let response = self
+            .handshake(
+                &mut framed,
+                local_frontier.iter().map(|h| *h.as_bytes()).collect(),
+            )
+            .await?;
+        Ok(response
+            .remote_frontier
+            .into_iter()
+            .map(blake3::Hash::from)
+            .collect())
+    }
+
+    async fn fetch_cas_blocks(&self, missing_hashes: &[blake3::Hash]) -> Result<Vec<u8>, NetError> {
+        let mut framed = self.open_framed().await?;
+        let _ = self.handshake(&mut framed, Vec::new()).await?;
+
+        let request: Vec<[u8; 32]> = missing_hashes.iter().map(|h| *h.as_bytes()).collect();
+        let payload = Bytes::from(
+            bincode::serialize(&request).map_err(|e| NetError::Serialization(e.to_string()))?,
+        );
+        framed
+            .send(SyncFrame::new(MessageType::HaveWant, payload))
+            .await
+            .map_err(NetError::from)?;
+
+        let requested: std::collections::HashSet<[u8; 32]> = request.iter().copied().collect();
+        let mut remaining = requested.clone();
+        let mut blocks = Vec::new();
+
+        while let Some(frame_result) = timeout(PAYLOAD_FRAME_TIMEOUT, framed.next())
+            .await
+            .map_err(|_| NetError::Protocol("timed out waiting for CAS payload frame".to_string()))?
+        {
+            let frame = frame_result.map_err(NetError::from)?;
+            if frame.message_type == MessageType::KeepAlive {
+                continue;
+            }
+            if frame.message_type != MessageType::PayloadStream {
+                return Err(NetError::Protocol(
+                    "unexpected frame while reading CAS blocks".to_string(),
+                ));
+            }
+            if frame.payload.is_empty() {
+                break;
+            }
+
+            let block: CasWireBlock = bincode::deserialize(&frame.payload)
+                .map_err(|e| NetError::Serialization(e.to_string()))?;
+            if !requested.contains(&block.hash) {
+                return Err(NetError::Protocol(
+                    "peer returned CAS block not present in request".to_string(),
+                ));
+            }
+            let computed = blake3::hash(&block.bytes);
+            if computed.as_bytes() != &block.hash {
+                return Err(NetError::HashVerification(ChangeId::from(block.hash).to_hex()));
+            }
+            remaining.remove(&block.hash);
+            blocks.push(block);
+        }
+
+        if !remaining.is_empty() {
+            let mut missing: Vec<String> = remaining
+                .into_iter()
+                .map(|hash| ChangeId::from(hash).to_hex())
+                .collect();
+            missing.sort();
+            return Err(NetError::Protocol(format!(
+                "peer omitted {} requested CAS block(s): {}",
+                missing.len(),
+                missing.join(", ")
+            )));
+        }
+
+        bincode::serialize(&blocks).map_err(|e| NetError::Serialization(e.to_string()))
+    }
+}
 
 /// Perform a native handshake against a remote arc sync endpoint.
 #[instrument(skip_all)]
@@ -64,6 +228,7 @@ pub(crate) async fn sync_remote_from_repo(
             SyncCapability::TypedChangeId,
         ],
         optional_capabilities: vec![SyncCapability::KeepAlive, SyncCapability::ProgressSideband],
+        frontier: Vec::new(),
     };
     let payload = Bytes::from(
         bincode::serialize(&request).context("failed to encode handshake request payload")?,

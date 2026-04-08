@@ -1889,7 +1889,7 @@ fn run_cli() -> anyhow::Result<()> {
             let timer = SloTimer::from_env("arc.sync");
 
             pipeline.start_stage(PipelineStage::Discover);
-            let repo = match timer.stage(OperationStage::Discover, || Repository::open(".")) {
+            let mut repo = match timer.stage(OperationStage::Discover, || Repository::open(".")) {
                 Ok(repo) => {
                     pipeline.finish_stage(PipelineStage::Discover);
                     repo
@@ -1901,14 +1901,13 @@ fn run_cli() -> anyhow::Result<()> {
             };
 
             pipeline.start_stage(PipelineStage::Negotiate);
-            let (heads, token) = match timer.stage(OperationStage::Negotiate, || {
-                let heads = collect_local_view_heads(&repo)?;
+            let token = match timer.stage(OperationStage::Negotiate, || {
                 let token = resolve_sync_token()?;
-                Ok::<_, anyhow::Error>((heads, token))
+                Ok::<_, anyhow::Error>(token)
             }) {
-                Ok(parts) => {
+                Ok(token) => {
                     pipeline.finish_stage(PipelineStage::Negotiate);
-                    parts
+                    token
                 }
                 Err(err) => {
                     pipeline.fail_stage(PipelineStage::Negotiate, "Negotiating with remote failed");
@@ -1917,15 +1916,12 @@ fn run_cli() -> anyhow::Result<()> {
             };
 
             pipeline.start_stage(PipelineStage::Transfer);
-            let response = match timer.stage(OperationStage::Transfer, || {
-                let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(arc_net::sync::client::sync_remote_with_token(
-                    &address, heads, token,
-                ))
+            let imported_count = match timer.stage(OperationStage::Transfer, || {
+                repo.sync_native_with_semantic_gate(&address, token)
             }) {
-                Ok(response) => {
+                Ok(count) => {
                     pipeline.finish_stage(PipelineStage::Transfer);
-                    response
+                    count
                 }
                 Err(err) => {
                     pipeline.fail_stage(PipelineStage::Transfer, "Transferring blobs failed");
@@ -1934,14 +1930,14 @@ fn run_cli() -> anyhow::Result<()> {
             };
 
             pipeline.start_stage(PipelineStage::Materialize);
-            let status = timer.stage(OperationStage::Materialize, || response.status);
+            timer.stage(OperationStage::Materialize, || imported_count);
             pipeline.finish_stage(PipelineStage::Materialize);
 
             pipeline.start_stage(PipelineStage::Finalize);
             timer.stage(OperationStage::Finalize, || {
                 println!(
-                    "[arc] Native sync handshake successful. Server status: {}",
-                    status
+                    "[arc] Native sync completed. Imported {} verified change block(s).",
+                    imported_count
                 );
             });
             pipeline.finish_stage(PipelineStage::Finalize);
@@ -3790,21 +3786,6 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-fn collect_local_view_heads(
-    repo: &Repository,
-) -> anyhow::Result<std::collections::HashMap<String, ChangeId>> {
-    let mut heads = std::collections::HashMap::new();
-    for view_name in repo.list_views()? {
-        let view = View::load(&repo.shared_root, &view_name)
-            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let Some(head) = view.heads.iter().min().copied() else {
-            continue;
-        };
-        heads.insert(view_name, ChangeId::from(head));
-    }
-    Ok(heads)
 }
 
 /// Parse a 64-character hex string into a [`Blake3Hash`].

@@ -1,9 +1,61 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use arc_change::Change;
+use arc_store_cas::ObjectStore;
 use arc_store_types::newtypes::ChangeId;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::instrument;
+
+/// Native transport errors emitted by the sync protocol surface.
+#[derive(Debug, Error)]
+pub enum NetError {
+    /// I/O operation failed.
+    #[error("I/O failure: {0}")]
+    Io(#[from] std::io::Error),
+    /// Underlying CAS operation failed.
+    #[error("CAS operation failed: {0}")]
+    Cas(#[from] arc_store_cas::cas::CasError),
+    /// Codec/serialization operation failed.
+    #[error("serialization failure: {0}")]
+    Serialization(String),
+    /// A requested hash did not match downloaded payload bytes.
+    #[error("hash verification failed for {0}")]
+    HashVerification(String),
+    /// Peer protocol contract was violated.
+    #[error("protocol violation: {0}")]
+    Protocol(String),
+}
+
+impl From<anyhow::Error> for NetError {
+    fn from(value: anyhow::Error) -> Self {
+        NetError::Protocol(value.to_string())
+    }
+}
+
+/// Wire representation of one CAS block transferred during sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CasWireBlock {
+    /// Content-addressed hash for `bytes`.
+    pub hash: [u8; 32],
+    /// Serialized immutable CAS bytes.
+    pub bytes: Vec<u8>,
+}
+
+/// Native sync protocol abstraction used by CLI sync orchestration.
+#[async_trait]
+pub trait SyncProtocol {
+    /// Exchange caller frontier with peer and return peer frontier.
+    async fn exchange_frontiers(
+        &self,
+        local_frontier: Vec<blake3::Hash>,
+    ) -> Result<Vec<blake3::Hash>, NetError>;
+
+    /// Fetch immutable CAS blocks for the requested hashes.
+    async fn fetch_cas_blocks(&self, missing_hashes: &[blake3::Hash]) -> Result<Vec<u8>, NetError>;
+}
 
 /// Negotiable transport capabilities for native arc sync.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
@@ -45,6 +97,9 @@ pub struct HandshakeRequest {
     /// Capabilities preferred by the caller but not mandatory.
     #[serde(default)]
     pub optional_capabilities: Vec<SyncCapability>,
+    /// Frontier vector supplied by the caller.
+    #[serde(default)]
+    pub frontier: Vec<[u8; 32]>,
 }
 
 impl fmt::Debug for HandshakeRequest {
@@ -79,6 +134,9 @@ pub struct HandshakeResponse {
     /// Change ids the server needs from the client.
     #[serde(default, alias = "required_hashes")]
     pub required_changes: Vec<ChangeId>,
+    /// Frontier vector exposed by the responder.
+    #[serde(default)]
+    pub remote_frontier: Vec<[u8; 32]>,
 }
 
 const fn default_min_version() -> u32 {
@@ -117,6 +175,82 @@ pub fn negotiate_capabilities(
     (negotiated, rejected_required)
 }
 
+/// Compute hashes reachable from `remote_frontier` but absent from
+/// `local_frontier` by traversing the local DAG closure.
+#[instrument(skip_all)]
+pub fn compute_missing_hashes(
+    store: &ObjectStore,
+    local_frontier: &[blake3::Hash],
+    remote_frontier: &[blake3::Hash],
+) -> Result<Vec<blake3::Hash>, NetError> {
+    let local = reachable_set(store, local_frontier)?;
+    let mut missing = Vec::new();
+    let mut queued: HashSet<[u8; 32]> = HashSet::new();
+    let mut stack: Vec<[u8; 32]> = remote_frontier.iter().map(|h| *h.as_bytes()).collect();
+
+    while let Some(current) = stack.pop() {
+        if !queued.insert(current) {
+            continue;
+        }
+        if local.contains(&current) {
+            continue;
+        }
+
+        let id = ChangeId::from(current);
+        let raw = match store.read_change_bytes(id) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                missing.push(blake3::Hash::from(current));
+                continue;
+            }
+        };
+        let change: Change = bincode::deserialize(raw.as_ref())
+            .map_err(|e| NetError::Serialization(e.to_string()))?;
+        if change.id != current {
+            return Err(NetError::Protocol(format!(
+                "change id mismatch while traversing missing closure: expected {}, found {}",
+                id.to_hex(),
+                ChangeId::from(change.id).to_hex()
+            )));
+        }
+
+        missing.push(blake3::Hash::from(current));
+        stack.extend(change.deps.iter().copied());
+    }
+
+    missing.reverse();
+    Ok(missing)
+}
+
+fn reachable_set(store: &ObjectStore, frontier: &[blake3::Hash]) -> Result<HashSet<[u8; 32]>, NetError> {
+    let mut seen = HashSet::new();
+    let mut stack: Vec<[u8; 32]> = frontier.iter().map(|h| *h.as_bytes()).collect();
+
+    while let Some(current) = stack.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+
+        let id = ChangeId::from(current);
+        let raw = match store.read_change_bytes(id) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let change: Change = bincode::deserialize(raw.as_ref())
+            .map_err(|e| NetError::Serialization(e.to_string()))?;
+        if change.id != current {
+            return Err(NetError::Protocol(format!(
+                "change id mismatch while traversing frontier closure: expected {}, found {}",
+                id.to_hex(),
+                ChangeId::from(change.id).to_hex()
+            )));
+        }
+        stack.extend(change.deps.iter().copied());
+    }
+
+    Ok(seen)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +264,7 @@ mod tests {
             view_heads: HashMap::new(),
             required_capabilities: vec![SyncCapability::PayloadStreamV1],
             optional_capabilities: vec![],
+            frontier: Vec::new(),
         };
 
         let rendered = format!("{request:?}");

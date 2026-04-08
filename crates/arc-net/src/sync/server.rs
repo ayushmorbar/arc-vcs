@@ -18,13 +18,14 @@ use tracing::instrument;
 
 use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
 use super::protocol::{
-    HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
+    CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
     negotiate_capabilities,
 };
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 256;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PAYLOAD_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+const HAVE_WANT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_PAYLOAD_FRAMES: usize = 4096;
 const MAX_TOTAL_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 
@@ -105,6 +106,7 @@ async fn handle_connection(
         negotiated_capabilities,
         rejected_required_capabilities,
         required_changes: required_changes.clone(),
+        remote_frontier: compute_local_frontier(&repo_path),
     };
     let payload = Bytes::from(
         bincode::serialize(&response).context("failed to encode handshake response payload")?,
@@ -123,10 +125,80 @@ async fn handle_connection(
     }
 
     if response.status == 0 {
+        maybe_stream_requested_blocks(&mut framed, &repo_path).await?;
+    }
+
+    if response.status == 0 {
         ensure_dependency_closure_present(&repo_path, request.view_heads.values().copied())?;
         persist_view_heads(&repo_path, &request.view_heads)?;
     }
 
+    Ok(())
+}
+
+fn compute_local_frontier(repo_path: &std::path::Path) -> Vec<[u8; 32]> {
+    let mut heads = std::collections::BTreeSet::new();
+    if let Ok(entries) = std::fs::read_dir(repo_path.join(".arc").join("views")) {
+        for entry in entries.flatten() {
+            if !entry.path().is_file() {
+                continue;
+            }
+            if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str())
+                && let Ok(view) = View::load(repo_path, stem)
+            {
+                for head in view.heads {
+                    heads.insert(head);
+                }
+            }
+        }
+    }
+    heads.into_iter().collect()
+}
+
+async fn maybe_stream_requested_blocks(
+    framed: &mut Framed<TcpStream, ArcSyncCodec>,
+    repo_path: &std::path::Path,
+) -> Result<()> {
+    let Some(frame_result) = (match timeout(HAVE_WANT_TIMEOUT, framed.next()).await {
+        Ok(value) => value,
+        Err(_) => return Ok(()),
+    }) else {
+        return Ok(());
+    };
+    let frame = frame_result.context("failed to decode have/want frame")?;
+    if frame.message_type == MessageType::KeepAlive {
+        return Ok(());
+    }
+    if frame.message_type != MessageType::HaveWant {
+        return Ok(());
+    }
+
+    let requested: Vec<[u8; 32]> = bincode::deserialize(&frame.payload)
+        .context("failed to decode have/want request payload")?;
+    let store = ObjectStore::new(repo_path);
+
+    for hash in requested {
+        let id = ChangeId::from(hash);
+        let bytes = store
+            .read_change_bytes(id)
+            .with_context(|| format!("failed to read requested CAS block {}", id.to_hex()))?;
+        let block = CasWireBlock {
+            hash,
+            bytes: bytes.to_vec(),
+        };
+        let payload = Bytes::from(
+            bincode::serialize(&block).context("failed to encode cas wire block")?,
+        );
+        framed
+            .send(SyncFrame::new(MessageType::PayloadStream, payload))
+            .await
+            .context("failed to send CAS payload frame")?;
+    }
+
+    framed
+        .send(SyncFrame::new(MessageType::PayloadStream, Bytes::new()))
+        .await
+        .context("failed to send CAS payload EOF frame")?;
     Ok(())
 }
 

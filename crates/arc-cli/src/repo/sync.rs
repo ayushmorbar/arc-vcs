@@ -4,8 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_algebra_types::Blake3Hash;
 use arc_algebra_types::SpacetimeCoordinate;
+use arc_change::Change;
 use arc_core::algebra::Atom;
 use arc_core::algebra::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
+use arc_net::sync::client::NativeSyncClient;
+use arc_net::sync::protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes};
 use arc_store_view::View;
 
 use super::core::*;
@@ -43,6 +46,129 @@ impl Repository {
         fs::write(&path, json)
             .map_err(|e| anyhow::anyhow!("failed to persist policy MCP payload: {e}"))?;
         Ok(())
+    }
+
+    /// Perform native transport sync and enforce semantic policy before any
+    /// incoming change is written into local CAS/graph state.
+    pub fn sync_native_with_semantic_gate(
+        &mut self,
+        address: &str,
+        auth_token: Option<String>,
+    ) -> anyhow::Result<usize> {
+        let view_name = self.current_view_name()?;
+        self.hydrate(&view_name)?;
+        let current_view = View::load(&self.shared_root, &view_name)
+            .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
+        let local_frontier: Vec<blake3::Hash> = current_view
+            .heads
+            .iter()
+            .copied()
+            .map(blake3::Hash::from)
+            .collect();
+
+        let mut view_heads: Vec<String> = current_view
+            .heads
+            .iter()
+            .map(|h: &Blake3Hash| h.iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .collect();
+        view_heads.sort();
+
+        let policy_path = self.shared_root.join(".arc").join("arc.policy.json");
+        let policy = ArcPolicy::load_from_path(&policy_path)
+            .map_err(|e| anyhow::anyhow!("policy load failed before native sync: {e}"))?;
+        let evaluator = policy.default_evaluator();
+        let local_ast = Ast::default();
+
+        let client = NativeSyncClient::new(address.to_string(), auth_token);
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("failed to start async runtime: {e}"))?;
+        let remote_frontier = runtime
+            .block_on(client.exchange_frontiers(local_frontier.clone()))
+            .map_err(|e| anyhow::anyhow!("frontier exchange failed: {e}"))?;
+
+        let missing_hashes = compute_missing_hashes(&self.store, &local_frontier, &remote_frontier)
+            .map_err(|e| anyhow::anyhow!("failed to compute missing frontier closure: {e}"))?;
+
+        if missing_hashes.is_empty() {
+            return Ok(0);
+        }
+
+        let packed_blocks = runtime
+            .block_on(client.fetch_cas_blocks(&missing_hashes))
+            .map_err(|e| anyhow::anyhow!("CAS transfer failed: {e}"))?;
+
+        // Keep all downloaded blocks transient until semantic policy accepts
+        // the complete incoming delta.
+        let blocks: Vec<CasWireBlock> = bincode::deserialize(&packed_blocks)
+            .map_err(|e| anyhow::anyhow!("failed to decode downloaded CAS blocks: {e}"))?;
+        let mut decoded_changes = Vec::with_capacity(blocks.len());
+
+        for block in &blocks {
+            let computed = blake3::hash(&block.bytes);
+            if computed.as_bytes() != &block.hash {
+                return Err(anyhow::anyhow!(
+                    "downloaded CAS block hash mismatch for {}",
+                    arc_store_types::newtypes::ChangeId::from(block.hash).to_hex()
+                ));
+            }
+
+            let change: Change = bincode::deserialize(&block.bytes)
+                .map_err(|e| anyhow::anyhow!("failed to decode downloaded change: {e}"))?;
+            if change.id != block.hash {
+                return Err(anyhow::anyhow!(
+                    "downloaded change id mismatch for {}",
+                    arc_store_types::newtypes::ChangeId::from(block.hash).to_hex()
+                ));
+            }
+            if !change.verify_signature() {
+                return Err(anyhow::anyhow!(
+                    "downloaded change failed cryptographic verification for {}",
+                    arc_store_types::newtypes::ChangeId::from(change.id).to_hex()
+                ));
+            }
+            decoded_changes.push(change);
+        }
+
+        let mut incoming_atoms = Vec::new();
+        for change in &decoded_changes {
+            incoming_atoms.extend(change.atoms.clone());
+        }
+
+        if let Err(error) = evaluator.evaluate_delta_impact(&local_ast, &incoming_atoms) {
+            let _ = self.persist_policy_error_payload(&error, address, &view_name, &view_heads);
+            return Err(match error {
+                PolicyError::SignatureMismatch {
+                    broken_functions,
+                    old_signature,
+                    new_signature,
+                } => anyhow::anyhow!(
+                    "policy gate rejected incoming sync delta from '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
+                     Transient CAS buffer dropped. Run 'arc ai resolve' to generate a Lensed Ghost Node.",
+                    address,
+                    broken_functions.join(", "),
+                    old_signature,
+                    new_signature
+                ),
+                other => anyhow::anyhow!(
+                    "policy gate rejected incoming sync delta from '{}': {}. \
+                     Transient CAS buffer dropped. Run 'arc ai resolve'.",
+                    address,
+                    other
+                ),
+            });
+        }
+
+        for (block, change) in blocks.iter().zip(decoded_changes.iter()) {
+            self.store
+                .write_change_bytes(arc_store_types::newtypes::ChangeId::from(block.hash), &block.bytes)
+                .map_err(|e| anyhow::anyhow!("failed to persist downloaded CAS block: {e}"))?;
+            self.graph_add_change(change.clone());
+        }
+
+        let remote_heads: std::collections::HashSet<Blake3Hash> =
+            remote_frontier.iter().map(|h| *h.as_bytes()).collect();
+        self.merge_heads(&remote_heads)?;
+        Ok(blocks.len())
     }
 
     // ------------------------------------------------------------------
