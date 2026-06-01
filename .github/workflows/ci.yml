@@ -30,10 +30,10 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@90bb610b90bf290cad97484ba341453bd1cbefea # v19
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       - name: Enable Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
       - name: Flake checks
         run: nix flake check
@@ -90,7 +90,7 @@ jobs:
         uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01 # v2.x
 
       - name: Install nextest
-        uses: taiki-e/install-action@cf39a74df4a72510be4e5b63348d61067f11e64a # v2
+        uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4 # v2
         with:
           tool: cargo-nextest
 
@@ -199,7 +199,7 @@ jobs:
         run: bash scripts/ci/generate-semantic-changelog.sh "$BASE_REF" "$HEAD_REF" "CHANGELOG.semantic.md"
 
       - name: Upload semantic changelog
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: semantic-changelog
           path: CHANGELOG.semantic.md
@@ -237,7 +237,7 @@ jobs:
           path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts
           path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
