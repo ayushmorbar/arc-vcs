@@ -5,8 +5,6 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions: {}
@@ -203,52 +201,3 @@ jobs:
         with:
           name: semantic-changelog
           path: CHANGELOG.semantic.md
-
-  release-artifacts:
-    name: release-artifacts
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'release' }}
-    permissions:
-      contents: read
-    outputs:
-      subjects: ${{ steps.subjects.outputs.subjects }}
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4.x
-        with:
-          persist-credentials: false
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
-        with:
-          toolchain: stable
-
-      - name: Build release artifacts
-        run: |
-          cargo build -p arc-cli --release --locked
-          mkdir -p dist
-          cp target/release/arc dist/arc-x86_64-unknown-linux-gnu
-          tar -czf dist/arc-x86_64-unknown-linux-gnu.tar.gz -C dist arc-x86_64-unknown-linux-gnu
-
-      - name: Build release subject list
-        id: subjects
-        uses: slsa-framework/slsa-github-generator/actions/generator/generic/create-base64-subjects-from-file@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
-        with:
-          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
-
-      - name: Upload release artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-artifacts
-          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
-
-  provenance:
-    if: ${{ github.event_name == 'release' }}
-    needs: [release-artifacts]
-    permissions:
-      actions: read
-      id-token: write
-      contents: read
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
-    with:
-      base64-subjects: ${{ needs.release-artifacts.outputs.subjects }}
