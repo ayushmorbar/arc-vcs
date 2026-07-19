@@ -60,6 +60,7 @@ mod tests {
         assert_eq!(mode_from_executable("arc-daemon"), InvocationMode::Daemon);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn dispatches_sync_mode_from_windows_exe_stem() {
         assert_eq!(mode_from_executable(r"C:\\bin\\arc-sync.exe"), InvocationMode::Sync);

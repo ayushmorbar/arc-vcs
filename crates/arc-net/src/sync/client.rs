@@ -451,7 +451,7 @@ mod tests {
         let client_store = ObjectStore::new(client_root.path());
         let change_bytes = bincode::serialize(&change).expect("change serialize should succeed");
         client_store
-            .write_object(&change.id, &change_bytes)
+            .write_change_bytes(arc_store_types::newtypes::ChangeId::from(change.id), &change_bytes)
             .expect("client CAS write should succeed");
         View::new("main", HashSet::from([change.id]))
             .save(client_root.path())
@@ -479,7 +479,7 @@ mod tests {
         let server_store = ObjectStore::new(server_root.path());
         let mut loaded = None;
         for _ in 0..50 {
-            if let Ok(change_bytes) = server_store.read_object(&change.id)
+            if let Ok(change_bytes) = server_store.read_change_bytes(arc_store_types::newtypes::ChangeId::from(change.id))
                 && let Ok(change_on_server) = bincode::deserialize::<Change>(&change_bytes)
             {
                 loaded = Some(change_on_server);

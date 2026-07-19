@@ -145,9 +145,6 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
                 }
                 Atom::Delete { at, prior_hash } => {
                     let path = node_path_to_string(at);
-                    if paired_deletes.get(&path).is_some_and(|hashes| !hashes.is_empty()) {
-                        continue;
-                    }
 
                     let before_text = self.decode_hash(prior_hash);
                     let after_text = String::new();

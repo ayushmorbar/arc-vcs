@@ -22,8 +22,12 @@ pub struct GovernanceAuditReport {
 
 const REQUIRED_WORKFLOWS: [&str; 3] = ["ci.yml", "docs.yml", "release.yml"];
 const REQUIRED_DEPENDABOT_ECOSYSTEMS: [&str; 2] = ["cargo", "github-actions"];
-const ALLOWED_TAGGED_ACTIONS: [&str; 3] =
-    ["actions/upload-pages-artifact", "actions/deploy-pages", "Swatinem/rust-cache"];
+const ALLOWED_TAGGED_ACTIONS: [&str; 4] = [
+    "actions/upload-pages-artifact",
+    "actions/deploy-pages",
+    "Swatinem/rust-cache",
+    "slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml",
+];
 
 /// Audit repository GitHub governance files in read-only mode.
 #[instrument(skip(frontier, synthesis_snapshots))]
@@ -154,13 +158,19 @@ fn is_yaml_file(path: &Path) -> bool {
 
 fn parse_uses_line(line: &str) -> Option<&str> {
     let trimmed = line.trim();
-    if let Some(rest) = trimmed.strip_prefix("- uses:") {
-        return Some(rest.trim());
-    }
-    if let Some(rest) = trimmed.strip_prefix("uses:") {
-        return Some(rest.trim());
-    }
-    None
+    let rest = if let Some(r) = trimmed.strip_prefix("- uses:") {
+        r.trim()
+    } else if let Some(r) = trimmed.strip_prefix("uses:") {
+        r.trim()
+    } else {
+        return None;
+    };
+    // Strip trailing "# tag" comment (e.g. "abc123... # v7.0.0" → "abc123...")
+    let rest = match rest.find('#') {
+        Some(pos) => rest[..pos].trim_end(),
+        None => rest,
+    };
+    Some(rest)
 }
 
 fn is_pinned_action_ref(value: &str) -> bool {
