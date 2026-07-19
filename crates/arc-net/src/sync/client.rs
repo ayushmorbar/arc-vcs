@@ -479,7 +479,8 @@ mod tests {
         let server_store = ObjectStore::new(server_root.path());
         let mut loaded = None;
         for _ in 0..50 {
-            if let Ok(change_bytes) = server_store.read_change_bytes(arc_store_types::newtypes::ChangeId::from(change.id))
+            if let Ok(change_bytes) =
+                server_store.read_change_bytes(arc_store_types::newtypes::ChangeId::from(change.id))
                 && let Ok(change_on_server) = bincode::deserialize::<Change>(&change_bytes)
             {
                 loaded = Some(change_on_server);
