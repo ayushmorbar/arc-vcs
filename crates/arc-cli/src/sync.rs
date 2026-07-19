@@ -426,14 +426,10 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
     for change in &delta {
         for atom in &change.atoms {
             match atom {
-                Atom::Insert { content_hash, .. }
-                    if seen_blobs.insert(*content_hash) =>
-                {
+                Atom::Insert { content_hash, .. } if seen_blobs.insert(*content_hash) => {
                     blob_hashes.push(*content_hash);
                 }
-                Atom::Delete { prior_hash, .. }
-                    if seen_blobs.insert(*prior_hash) =>
-                {
+                Atom::Delete { prior_hash, .. } if seen_blobs.insert(*prior_hash) => {
                     blob_hashes.push(*prior_hash);
                 }
                 _ => {}
