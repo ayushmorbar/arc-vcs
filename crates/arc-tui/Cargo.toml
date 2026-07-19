@@ -28,14 +28,14 @@ arc-store-types = { path = "../arc-store-types" }
 arc-keyring = { path = "../arc-keyring" }
 arc-ai = { path = "../arc-ai" }
 
-anyhow = "1.0.102"
-blake3 = "1.8.4"
-ratatui = "0.30.0"
+anyhow = "1.0.103"
+blake3 = "1.8.5"
+ratatui = "0.30.2"
 tuirealm = "1.9.2"
 crossterm = "0.29.0"
 tui-textarea = { version = "0.7.0", default-features = false, features = ["tuirs-no-backend"] }
-tree-sitter = { version = "0.26.8", optional = true }
+tree-sitter = { version = "0.26.10", optional = true }
 tree-sitter-rust = { version = "0.24.2", optional = true }
 ratatui-image = { version = "10.0.6", default-features = false, features = ["crossterm"] }
 ignore = "0.4.25"
-tokio = { version = "1.51.0", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
+tokio = { version = "1.53.0", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }

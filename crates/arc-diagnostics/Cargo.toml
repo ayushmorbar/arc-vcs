@@ -6,9 +6,9 @@ license = "MIT OR Apache-2.0"
 description = "Structured diagnostics and actionable hints for arc"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+tracing-subscriber = { version = "0.3.24", features = ["json", "env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { version = "0.39.0", features = ["bundled"] }

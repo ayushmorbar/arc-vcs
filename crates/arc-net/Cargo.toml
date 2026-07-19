@@ -12,17 +12,17 @@ arc-network = { path = "../arc-network" }
 arc-store-cas = { path = "../arc-store-cas" }
 arc-store-types = { path = "../arc-store-types" }
 arc-store-view = { path = "../arc-store-view" }
-axum = "0.8.8"
-tokio = { version = "1.51.0", features = ["full"] }
+axum = "0.8.9"
+tokio = { version = "1.53.0", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
-anyhow = "1.0.102"
-blake3 = "1.8.3"
-serde_json = "1.0.149"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+anyhow = "1.0.103"
+blake3 = "1.8.5"
+serde_json = "1.0.150"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 async-trait = "0.1.89"
-tokio-util = { version = "0.7", features = ["codec"] }
-bytes = "1.11.1"
-bincode = "1.3.2"
+tokio-util = { version = "0.7.18", features = ["codec"] }
+bytes = "1.12.1"
+bincode = "1.3.3"
 futures-util = "0.3.32"
 tracing = "0.1.44"
 thiserror = "2.0.18"

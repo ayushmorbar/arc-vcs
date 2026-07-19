@@ -9,7 +9,7 @@ description = "Platform foundation crate for lockfile, tempfile, and atomic publ
 workspace = true
 
 [dependencies]
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 tracing = "0.1.44"
 
 [dev-dependencies]

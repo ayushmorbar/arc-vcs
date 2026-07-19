@@ -7,7 +7,7 @@ description = "Filesystem-backed policy discovery and parsing for arc"
 
 [dependencies]
 arc-policy = { path = "../arc-policy" }
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 thiserror = "2.0.18"
 ignore = "0.4.25"
 toml = "1.1.2"

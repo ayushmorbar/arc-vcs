@@ -6,17 +6,17 @@ license = "MIT OR Apache-2.0"
 description = "Encrypted identity keyring and sponsorship signing for arc"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-store-types = { path = "../arc-store-types" }
 argon2 = "0.5.3"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
 directories = "6.0.0"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core", "zeroize"] }
-rand = "0.10.0"
+rand = "0.10.2"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 thiserror = "2.0.18"
 zeroize = "1.8.2"
 

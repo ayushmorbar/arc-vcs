@@ -12,5 +12,5 @@ arc-store-cas = { path = "../arc-store-cas" }
 serde = { version = "1.0.228", features = ["derive"] }
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 blake3 = "1.8.4"
-bincode = "1.3.2"
+bincode = "1.3.3"
 arc-content-hash-derive = { path = "../arc-content-hash-derive" }

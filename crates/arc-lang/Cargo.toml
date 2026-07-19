@@ -8,9 +8,9 @@ description = "arc language plugins: tree-sitter AST diffing and source reconstr
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-store-cas = { path = "../arc-store-cas" }
-tree-sitter = "0.26.8"
+tree-sitter = "0.26.10"
 tree-sitter-rust = "0.24.2"
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 
 [dev-dependencies]
 tempfile = "3.27.0"
