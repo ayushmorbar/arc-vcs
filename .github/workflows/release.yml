@@ -76,6 +76,12 @@ jobs:
       - name: Build release binary
         run: bash scripts/ci/build-release.sh "${{ matrix.target }}"
 
+      - name: Smoke test (arc --version)
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [ -f arc ]; then ./arc --version; fi
+          if [ -f arc.exe ]; then ./arc.exe --version; fi
+
       - name: Create checksums
         run: |
           cd target/${{ matrix.target }}/release
