@@ -52,6 +52,11 @@ summarize EXPRESSION='all()':
     cargo nextest run --workspace --run-ignored all --no-fail-fast \
         --status-level none --final-status-level none -E {{ quote(EXPRESSION) }}
 
+# Coverage report via cargo-tarpaulin (requires: cargo install cargo-tarpaulin)
+# Fails if total line coverage < 80%
+coverage:
+    cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 80 --out stdout --skip-build
+
 # ── Linting & Formatting ──────────────────────────────────────────────────────
 
 # Fast compile check without running tests
