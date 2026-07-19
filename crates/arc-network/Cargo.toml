@@ -1,6 +1,6 @@
 [package]
 name = "arc-network"
-version = "2026.07.19"
+version = "2026.7.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "CRDT sync transport protocol and blob transfer client for arc"

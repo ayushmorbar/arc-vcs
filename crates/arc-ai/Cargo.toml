@@ -1,6 +1,6 @@
 [package]
 name = "arc-ai"
-version = "2026.07.19"
+version = "2026.7.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "AI orchestration, embeddings, and vector store for arc"
