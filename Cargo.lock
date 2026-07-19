@@ -138,7 +138,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arc-ai"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "arc-algebra"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "arc-algebra-types"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "blake3",
  "serde",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "arc-change"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "arc-algebra-types",
  "arc-content-hash-derive",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "arc-cli"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-ai",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "arc-content-hash-derive"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "arc-core"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-ai",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "arc-daemon"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "arc-diagnostics"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -356,11 +356,11 @@ dependencies = [
 
 [[package]]
 name = "arc-diff"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 
 [[package]]
 name = "arc-engine"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra",
@@ -379,14 +379,14 @@ dependencies = [
 
 [[package]]
 name = "arc-error"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "arc-fs-ops"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "dashmap 6.1.0",
  "tempfile",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "arc-git"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "bytes",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "arc-git-native"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "arc-core",
  "sha1 0.11.0",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "arc-lang"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -471,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "arc-net"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "arc-network"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -520,11 +520,11 @@ dependencies = [
 
 [[package]]
 name = "arc-policy"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 
 [[package]]
 name = "arc-revset"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "arc-store-cas"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "arc-store-graph"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra-types",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "arc-store-policy"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-policy",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "arc-store-types"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "bincode",
@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "arc-store-view"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "anyhow",
  "arc-algebra",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "arc-transaction"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 dependencies = [
  "arc-store-types",
  "serde",

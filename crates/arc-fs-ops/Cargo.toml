@@ -1,6 +1,6 @@
 [package]
 name = "arc-fs-ops"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Platform foundation crate for lockfile, tempfile, and atomic publish primitives"

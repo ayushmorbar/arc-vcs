@@ -1,6 +1,6 @@
 [package]
 name = "arc-store-view"
-version = "0.1.0-beta.6"
+version = "2026.07.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Crash-consistent persistence for arc mutable views and operation log"
