@@ -1,7 +1,6 @@
 //! Git object hashing primitives.
 
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use sha1::{Digest, Sha1};
 
@@ -84,7 +83,7 @@ impl fmt::Display for GitOid {
         let mut out = [0u8; 40];
         for (i, b) in self.0.iter().enumerate() {
             out[i * 2] = HEX[(b >> 4) as usize];
-            out[i * 2 + 1] = HEX[(b & 0x0f) as usize];
+            out[i * 2 + 1] = HEX[(b & 0x0F) as usize];
         }
 
         // Git OIDs are always lowercase ASCII hex.

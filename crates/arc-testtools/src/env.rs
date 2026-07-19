@@ -1,5 +1,7 @@
-use std::ffi::OsString;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::{
+    ffi::OsString,
+    sync::{Mutex, MutexGuard, OnceLock},
+};
 
 thread_local! {
     static ENV_GUARD_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

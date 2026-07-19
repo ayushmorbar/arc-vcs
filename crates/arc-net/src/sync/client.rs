@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::time::Duration;
+use std::{collections::HashMap, path::Path, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use arc_change::Change;
@@ -8,17 +6,21 @@ use arc_store_cas::ObjectStore;
 use arc_store_types::newtypes::ChangeId;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
-use tokio::time::{sleep, timeout};
+use tokio::{
+    net::TcpStream,
+    time::{sleep, timeout},
+};
 use tokio_util::codec::Framed;
 use tracing::instrument;
 
-use super::backoff::QuadraticBackoff;
-use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
-use super::endpoint::SyncEndpoint;
-use super::protocol::{
-    CasWireBlock, HandshakeRequest, HandshakeResponse, NetError, SyncCapability, SyncProtocol,
-    negotiate_capabilities,
+use super::{
+    backoff::QuadraticBackoff,
+    codec::{ArcSyncCodec, MessageType, SyncFrame},
+    endpoint::SyncEndpoint,
+    protocol::{
+        CasWireBlock, HandshakeRequest, HandshakeResponse, NetError, SyncCapability, SyncProtocol,
+        negotiate_capabilities,
+    },
 };
 
 const HANDSHAKE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -384,24 +386,24 @@ fn collect_required_closure(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-    use std::path::PathBuf;
-    use std::time::Duration;
+    use std::{
+        collections::{HashMap, HashSet},
+        path::PathBuf,
+        time::Duration,
+    };
 
     use arc_algebra_types::Atom;
     use arc_change::Change;
     use arc_store_cas::ObjectStore;
-    use arc_store_types::author::test_keypair;
-    use arc_store_types::newtypes::ChangeId;
+    use arc_store_types::{author::test_keypair, newtypes::ChangeId};
     use arc_store_view::View;
-    use tokio::net::TcpListener;
-    use tokio::time::sleep;
+    use tokio::{net::TcpListener, time::sleep};
 
-    use crate::sync::client::choose_auth_token_with_env;
-    use crate::sync::client::sync_remote;
-    use crate::sync::client::sync_remote_from_repo;
-    use crate::sync::endpoint::SyncEndpoint;
-    use crate::sync::server;
+    use crate::sync::{
+        client::{choose_auth_token_with_env, sync_remote, sync_remote_from_repo},
+        endpoint::SyncEndpoint,
+        server,
+    };
 
     #[test]
     fn sync_endpoint_parser_rejects_invalid_input() {

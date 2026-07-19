@@ -3,8 +3,10 @@
 //! This module is excluded from wasm builds and contains adapters that require
 //! host filesystem access or native threads.
 
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, params};

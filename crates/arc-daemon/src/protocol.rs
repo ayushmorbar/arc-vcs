@@ -1,6 +1,9 @@
+use std::{
+    io::Write,
+    sync::{Mutex, OnceLock},
+};
+
 use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::sync::{Mutex, OnceLock};
 
 /// Incoming JSON-RPC 2.0 request.
 #[derive(Debug, Deserialize)]

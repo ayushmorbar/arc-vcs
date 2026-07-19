@@ -1,57 +1,66 @@
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::process::Command;
-use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    fs,
+    path::{Component, Path, PathBuf},
+    process::Command,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context as _;
-use arc_net::ai::AiProvider;
-use arc_swap::ArcSwap;
-use serde::{Deserialize, Serialize};
-
-use crate::policy_gate::PolicyError;
-use crate::policy_gate::{
-    AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
+use arc_ai::{
+    AiResolver,
+    embedding::{EmbeddingProvider, HybridProvider},
+    vector_store::VectorStore,
 };
-use arc_ai::AiResolver;
-use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
-use arc_ai::vector_store::VectorStore;
-use arc_algebra::apply::{BlameState, MaterializedState};
-use arc_algebra::commute::commutes;
-use arc_algebra::sparse::SparseMatcher;
+use arc_algebra::{
+    apply::{BlameState, MaterializedState},
+    commute::commutes,
+    sparse::SparseMatcher,
+};
 use arc_algebra_types::{Atom, Blake3Hash, NodePath, SpacetimeCoordinate};
 use arc_change::Change;
 use arc_diagnostics::ResultExt;
 use arc_engine::mutator;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_net::ai::AiProvider;
 use arc_store_cas::ObjectStore;
-use arc_store_graph::ChangeGraph;
-use arc_store_graph::bisect::{
-    BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
-    load_state as load_bisect_state, save_state as save_bisect_state,
+use arc_store_graph::{
+    ChangeGraph,
+    bisect::{
+        BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
+        load_state as load_bisect_state, save_state as save_bisect_state,
+    },
 };
 use arc_store_policy::ArcIgnoreMatcher;
-use arc_store_types::author::{Author, PublicKeyBytes, load_identity};
-use arc_store_types::newtypes::{ChangeId, MutationId};
-use arc_store_types::refs::{
-    read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
-    read_tag_heads, read_tag_map,
+use arc_store_types::{
+    author::{Author, PublicKeyBytes, load_identity},
+    newtypes::{ChangeId, MutationId},
+    refs::{
+        read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
+        read_tag_heads, read_tag_map,
+    },
+    tag::Tag,
 };
-use arc_store_types::tag::Tag;
-use arc_store_view::View;
-use arc_store_view::checkpoint;
-use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
+use arc_store_view::{
+    View, checkpoint,
+    oplog::{OpLog, Operation, OperationAgent, RewriteTransaction},
+};
+use arc_swap::ArcSwap;
 use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use serde::{Deserialize, Serialize};
 
-use crate::store_compat::{ObjectStoreChangeExt, apply_change};
-
-use crate::ai_pending::{
-    PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
-    save_pending_ai,
+use crate::{
+    ai_pending::{
+        PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
+        save_pending_ai,
+    },
+    policy_gate::{
+        AiResolver as PolicyAiResolver, MockAiResolver, PolicyError, default_evaluator, verify_lens,
+    },
+    store_compat::{ObjectStoreChangeExt, apply_change},
 };
 
 /// Workspace manifest persisted at `<workspace>/.arc-workspace`.
@@ -905,8 +914,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1046,8 +1055,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1174,8 +1183,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1350,8 +1359,8 @@ impl Repository {
 
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval. \
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval. Run 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1554,7 +1563,8 @@ impl Repository {
 
         if signing_key.verifying_key().to_bytes() != human_key {
             anyhow::bail!(
-                "human sponsorship validation failed: signing key does not match active human identity"
+                "human sponsorship validation failed: signing key does not match active human \
+                 identity"
             );
         }
 
@@ -1610,7 +1620,8 @@ impl Repository {
             PendingKind::Generate => {
                 if expected_hash_prefix.is_some() {
                     anyhow::bail!(
-                        "hash pre-validation is not supported for generate approvals; rerun without <hash>"
+                        "hash pre-validation is not supported for generate approvals; rerun \
+                         without <hash>"
                     );
                 }
                 // Diff the working directory and snap with Author::AI.
@@ -1807,8 +1818,8 @@ impl Repository {
         self.merge_heads(&stash_view.heads).map_err(|e| {
             // Keep the stash alive so the user can resolve via `arc ai resolve`.
             anyhow::anyhow!(
-                "{e}\nConflict detected. Resolve via 'arc ai resolve'. \
-                 The stash '{stash_name}' has been kept."
+                "{e}\nConflict detected. Resolve via 'arc ai resolve'. The stash '{stash_name}' \
+                 has been kept."
             )
         })?;
 
@@ -2131,8 +2142,8 @@ impl Repository {
     /// The change must:
     /// - Exist in the CAS.
     /// - Have all of its dependencies already in the current view's ancestry.
-    /// - Commute with every change that is in the current view's ancestry but
-    ///   NOT in the cherry-pick source's ancestry (the "exclusive" set).
+    /// - Commute with every change that is in the current view's ancestry but NOT in the
+    ///   cherry-pick source's ancestry (the "exclusive" set).
     ///
     /// Because we reuse the original [`Change`] object (same hash, same atoms),
     /// no new CAS objects are written — the change is simply added to the
@@ -2262,10 +2273,9 @@ impl Repository {
                 .status()
                 .map_err(|e| {
                     anyhow::anyhow!(
-                        "Hook '{event}' failed to launch '{bin}': {e}. \
-                     Ensure the command is an executable in your PATH \
-                     (shell built-ins like 'echo' are not PATH executables \
-                     on Windows — use 'cmd /C echo ...' instead)."
+                        "Hook '{event}' failed to launch '{bin}': {e}. Ensure the command is an \
+                         executable in your PATH (shell built-ins like 'echo' are not PATH \
+                         executables on Windows — use 'cmd /C echo ...' instead)."
                     )
                 })?;
             if !status.success() {
@@ -2418,7 +2428,8 @@ impl Repository {
             let ancestors = self.graph.load().ancestors(&HashSet::from([*target]));
             if !ancestors.contains(&current) {
                 anyhow::bail!(
-                    "refusing non-fast-forward move of bookmark '{name}'; pass --allow-backwards to override"
+                    "refusing non-fast-forward move of bookmark '{name}'; pass --allow-backwards \
+                     to override"
                 );
             }
         }
@@ -2661,7 +2672,8 @@ impl Repository {
                         .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
                     // SAFETY: The CAS blob store is an append-only, content-addressed system.
                     // Files in .arc/blobs/ are named by their BLAKE3 hash and are strictly
-                    // immutable. No other process will ever truncate or modify this file while mapped.
+                    // immutable. No other process will ever truncate or modify this file while
+                    // mapped.
                     let mmap = unsafe { memmap2::Mmap::map(&blob_file) }
                         .map_err(|e| anyhow::anyhow!("mmap failed for '{}': {e}", filepath))?;
                     fs::write(&full, &mmap[..])
@@ -3134,7 +3146,8 @@ impl Repository {
             stack.push(op);
             self.save_redo_stack(&stack)?;
             anyhow::bail!(
-                "redo for rewrite operations is not yet supported safely; rerun the original command"
+                "redo for rewrite operations is not yet supported safely; rerun the original \
+                 command"
             );
         }
 
@@ -3423,10 +3436,9 @@ impl Repository {
     /// Update the sparse cone and rematerialize the working directory.
     ///
     /// * When `patterns` is empty the sparse filter is removed (full checkout).
-    /// * Otherwise, `.arc/sparse.json` is written and the working directory is
-    ///   projected so that only files under the given path prefixes exist on disk.
-    ///   Files that fall *outside* the new cone are physically removed so IDEs
-    ///   do not encounter stale, unmanaged files.
+    /// * Otherwise, `.arc/sparse.json` is written and the working directory is projected so that
+    ///   only files under the given path prefixes exist on disk. Files that fall *outside* the new
+    ///   cone are physically removed so IDEs do not encounter stale, unmanaged files.
     pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
         self.acquire_lock()?;
         let sparse_path = self.work_root.join(".arc").join("sparse.json");
@@ -3823,27 +3835,25 @@ impl Repository {
     ///
     /// # Algorithm
     ///
-    /// 1. Compute the `causally_stable` set across all views (intersection of
-    ///    per-view ancestry, identical to the computation in `gc()`).
+    /// 1. Compute the `causally_stable` set across all views (intersection of per-view ancestry,
+    ///    identical to the computation in `gc()`).
     /// 2. Bail if the stable set is trivially empty.
-    /// 3. Find the **stable tips** — stable changes that no other stable change
-    ///    depends on.  These are the most-recent stable points, forming the
-    ///    exact boundary between "safe to truncate" and "still live".
-    /// 4. Materialise the state at those stable tips — this snapshot becomes
-    ///    the content of the Genesis Change.
+    /// 3. Find the **stable tips** — stable changes that no other stable change depends on.  These
+    ///    are the most-recent stable points, forming the exact boundary between "safe to truncate"
+    ///    and "still live".
+    /// 4. Materialise the state at those stable tips — this snapshot becomes the content of the
+    ///    Genesis Change.
     /// 5. Convert every `MaterializedState` entry into an `Atom`:
     ///    - `["dir", ...]` path  → `Atom::Directory`
     ///    - content starting with `b"ARC_BLOB_REF:"` → `Atom::Blob`
     ///    - everything else → `Atom::Insert`
     /// 6. Create the Genesis `Change` with **empty deps** and write it to CAS.
-    /// 7. Persist the Epoch Map: every compacted ID → genesis ID.  The map is
-    ///    merged with any existing `.arc/epochs` so multiple compact rounds
-    ///    compose correctly.
-    /// 8. Update any `View` whose current head is in `causally_stable` to
-    ///    point at the Genesis Change instead.
-    /// 9. Physically delete the `.arc/store/` CAS objects for every compacted
-    ///    change (blob files in `.arc/blobs/` are **kept** because the Genesis
-    ///    `Atom::Blob` atoms still reference them).
+    /// 7. Persist the Epoch Map: every compacted ID → genesis ID.  The map is merged with any
+    ///    existing `.arc/epochs` so multiple compact rounds compose correctly.
+    /// 8. Update any `View` whose current head is in `causally_stable` to point at the Genesis
+    ///    Change instead.
+    /// 9. Physically delete the `.arc/store/` CAS objects for every compacted change (blob files in
+    ///    `.arc/blobs/` are **kept** because the Genesis `Atom::Blob` atoms still reference them).
     ///
     /// # Cryptographic Integrity
     ///
@@ -3887,8 +3897,8 @@ impl Repository {
 
         if causally_stable.is_empty() {
             anyhow::bail!(
-                "No stable history to compact — repository has no causally-stable changes. \
-                           Ensure every view has observed the same base history before compacting."
+                "No stable history to compact — repository has no causally-stable changes. Ensure \
+                 every view has observed the same base history before compacting."
             );
         }
 
@@ -4045,8 +4055,8 @@ impl Repository {
     ///
     /// Returns an error if:
     /// * The current view has more than one head (merge commit — ambiguous).
-    /// * The working directory contains no changes relative to the grandparent
-    ///   **and** no new message was supplied.
+    /// * The working directory contains no changes relative to the grandparent **and** no new
+    ///   message was supplied.
     pub fn amend(&mut self, message: Option<&str>) -> anyhow::Result<Blake3Hash> {
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;
@@ -4080,7 +4090,8 @@ impl Repository {
 
         if delta.is_empty() && message.is_none() {
             anyhow::bail!(
-                "nothing to amend — working directory matches the pre-amend state and no new message was supplied"
+                "nothing to amend — working directory matches the pre-amend state and no new \
+                 message was supplied"
             );
         }
 
@@ -4963,7 +4974,8 @@ fn conflict_projection_for_file(
     projections.sort_by_key(|(a, _)| *a);
     if projections.len() > 1 {
         anyhow::bail!(
-            "multiple conflict projections found for '{filepath}'; multi-conflict file rendering is not yet supported"
+            "multiple conflict projections found for '{filepath}'; multi-conflict file rendering \
+             is not yet supported"
         );
     }
 
@@ -5431,7 +5443,8 @@ fn validate_sparse_patterns(
         }
         if arcignore.matched_path_or_any_parents(normalized, true).is_ignore() {
             anyhow::bail!(
-                "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose a different sparse path",
+                "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose \
+                 a different sparse path",
                 pattern
             );
         }
@@ -7290,7 +7303,8 @@ mod tests {
         let atoms = repo.status().unwrap();
         assert!(
             atoms.is_empty(),
-            "status must return no false Delete atoms for files hidden by sparse cone; got: {atoms:?}"
+            "status must return no false Delete atoms for files hidden by sparse cone; got: \
+             {atoms:?}"
         );
     }
 
@@ -7469,10 +7483,10 @@ mod tests {
     /// `compact()` correctly:
     /// 1. Returns a new `genesis_id`.
     /// 2. Updates the view so its sole head is `genesis_id`.
-    /// 3. The in-memory graph after a fresh hydration has exactly one node
-    ///    (the Genesis Change) — all prior history is gone.
-    /// 4. The materialised state still contains a node whose content includes
-    ///    "fn c" — ie. the semantic snapshot is perfectly preserved.
+    /// 3. The in-memory graph after a fresh hydration has exactly one node (the Genesis Change) —
+    ///    all prior history is gone.
+    /// 4. The materialised state still contains a node whose content includes "fn c" — ie. the
+    ///    semantic snapshot is perfectly preserved.
     #[test]
     fn test_dag_compaction() {
         let dir = tempfile::tempdir().unwrap();

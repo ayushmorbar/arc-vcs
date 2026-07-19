@@ -1,13 +1,17 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use arc_algebra::BlobStore;
-use arc_algebra::apply::{MaterializedState, apply_change};
+use arc_algebra::{
+    BlobStore,
+    apply::{MaterializedState, apply_change},
+};
 use arc_algebra_types::{Atom, Blake3Hash, NodePath};
 use arc_change::Change;
 use arc_store_types::author;
 use ignore::gitignore::Gitignore;
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span, Text};
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span, Text},
+};
 #[cfg(feature = "semantic-tree-sitter")]
 use tree_sitter::Parser;
 

@@ -6,21 +6,18 @@
 //!
 //! # Protocol summary (Phase 39)
 //!
-//! * **Blob upload** — Before the sync POST, the caller streams each CAS blob
-//!   to `PUT {remote}/blobs/{hash}`.  The server verifies the BLAKE3 hash,
-//!   writes to a temp file, and atomically renames it into `.arc/blobs/`.
-//!   This decouples the data plane (blobs) from the control plane (DAG
-//!   metadata), preventing OOM on large binary-asset pushes.
+//! * **Blob upload** — Before the sync POST, the caller streams each CAS blob to `PUT
+//!   {remote}/blobs/{hash}`.  The server verifies the BLAKE3 hash, writes to a temp file, and
+//!   atomically renames it into `.arc/blobs/`. This decouples the data plane (blobs) from the
+//!   control plane (DAG metadata), preventing OOM on large binary-asset pushes.
 //!
-//! * **Push** — The caller then POSTs a [`DeltaPayload`] (Changes + view
-//!   heads, **no** inline blobs) to `POST {remote}/sync/{view_name}`.
-//!   The server calls [`verify_payload`] *before* any CAS write (zero-trust
-//!   ingress), runs Identity Collapsing if needed, advances its view, and
-//!   returns a [`SyncResponse`] containing the canonical view heads and a
-//!   `rewritten_map` of any collapsed Changes.
+//! * **Push** — The caller then POSTs a [`DeltaPayload`] (Changes + view heads, **no** inline
+//!   blobs) to `POST {remote}/sync/{view_name}`. The server calls [`verify_payload`] *before* any
+//!   CAS write (zero-trust ingress), runs Identity Collapsing if needed, advances its view, and
+//!   returns a [`SyncResponse`] containing the canonical view heads and a `rewritten_map` of any
+//!   collapsed Changes.
 //!
-//! * **Fetch blob** — `GET {remote}/blobs/{hex}` returns raw bytes for a
-//!   single CAS blob.
+//! * **Fetch blob** — `GET {remote}/blobs/{hex}` returns raw bytes for a single CAS blob.
 //!
 //! # Zero-trust ingress
 //!
@@ -43,6 +40,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, anyhow};
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
 use arc_keyring::ArcIdentity;
 use arc_store_cas::cas::CasStorage;
 use arc_store_types::Signature as ArcSignature;
@@ -51,9 +50,6 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-use arc_algebra_types::Blake3Hash;
-use arc_change::Change;
 
 const SIGNING_DOMAIN: &[u8] = b"arc-network:signed-sync:v1:";
 
@@ -260,8 +256,7 @@ impl NetworkClient {
     /// 2. Run Dual-Provenance Identity Collapsing for transient-author Changes.
     /// 3. Write all changes to its CAS (idempotent).
     /// 4. Advance its view: `new_heads = remote_heads ∪ payload.view_heads`.
-    /// 5. Return a [`SyncResponse`] with canonical view heads and any
-    ///    `rewritten_map` entries.
+    /// 5. Return a [`SyncResponse`] with canonical view heads and any `rewritten_map` entries.
     pub async fn push_payload(
         &self,
         remote_url: &str,
@@ -447,12 +442,13 @@ mod tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
 
-    use super::*;
     use arc_algebra_types::Blake3Hash as CasHash;
     use arc_change::Change;
     use arc_store_cas::cas::{CasBytes, CasError};
     use arc_store_types::author::test_keypair;
     use rand_core::OsRng;
+
+    use super::*;
 
     fn make_change(intent: &str) -> Change {
         let (author, key) = test_keypair();

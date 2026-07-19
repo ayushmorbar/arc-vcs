@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use arc_change::Change;
@@ -9,17 +7,20 @@ use arc_store_types::newtypes::ChangeId;
 use arc_store_view::View;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
-use tokio::time::timeout;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Semaphore,
+    time::timeout,
+};
 use tokio_util::codec::Framed;
 use tracing::instrument;
 
-use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
-use super::protocol::{
-    CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
-    negotiate_capabilities,
+use super::{
+    codec::{ArcSyncCodec, MessageType, SyncFrame},
+    protocol::{
+        CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
+        negotiate_capabilities,
+    },
 };
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 256;

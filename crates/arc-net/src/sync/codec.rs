@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn decoder_rejects_unknown_message_type() {
         let mut codec = ArcSyncCodec;
-        let mut src = BytesMut::from(&[0x7f, 0, 0, 0, 0][..]);
+        let mut src = BytesMut::from(&[0x7F, 0, 0, 0, 0][..]);
         let err = codec.decode(&mut src).expect_err("unknown type must error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }

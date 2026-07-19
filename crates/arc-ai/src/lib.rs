@@ -480,11 +480,10 @@ impl AiResolver for LlmResolver {
         let theirs_str = String::from_utf8_lossy(theirs);
 
         let prompt = format!(
-            "BASE (common ancestor):\n```\n{base_str}\n```\n\n\
-             OURS (intent: {intent_ours}):\n```\n{ours_str}\n```\n\n\
-             THEIRS (intent: {intent_theirs}):\n```\n{theirs_str}\n```\n\n\
-             Produce ONLY the resolved content inside a single code fence (``` ... ```). \
-             No explanation, no commentary."
+            "BASE (common ancestor):\n```\n{base_str}\n```\n\nOURS (intent: \
+             {intent_ours}):\n```\n{ours_str}\n```\n\nTHEIRS (intent: \
+             {intent_theirs}):\n```\n{theirs_str}\n```\n\nProduce ONLY the resolved content \
+             inside a single code fence (``` ... ```). No explanation, no commentary."
         );
 
         let client = reqwest::blocking::Client::builder()
@@ -600,7 +599,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn generate_ghost_intent_summarizes_three_atom_diff() {
-        let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy sync impl";
+        let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy \
+                    sync impl";
         let summary = generate_ghost_intent_with_config(diff, None).await.expect("ghost intent");
         assert_eq!(summary, "Refactor: Modularized network sync logic");
     }

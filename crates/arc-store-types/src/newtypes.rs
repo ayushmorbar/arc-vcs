@@ -1,9 +1,7 @@
-use alloc::format;
-use alloc::string::String;
-use core::fmt;
-
 #[cfg(feature = "std")]
 use alloc::string::ToString;
+use alloc::{format, string::String};
+use core::fmt;
 
 use serde::{Deserialize, Serialize};
 

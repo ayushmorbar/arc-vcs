@@ -46,8 +46,8 @@ pub enum SpacetimeError {
 /// # Guarantees
 ///
 /// - The squashed change carries the same `deps` as the original `target_id`.
-/// - Its atoms are the concatenation of all atoms from every change in the
-///   spine, in topological (application) order.
+/// - Its atoms are the concatenation of all atoms from every change in the spine, in topological
+///   (application) order.
 /// - The intent is `"Squash: {count} changes into {target_intent}"`.
 /// - The returned change is signed with `signer`.
 ///
@@ -182,7 +182,7 @@ mod tests {
         let (_dir, store) = make_store();
         let graph = ChangeGraph::new();
         let (author, signing_key) = test_keypair();
-        let nonexistent: Blake3Hash = [0xff; 32];
+        let nonexistent: Blake3Hash = [0xFF; 32];
         let heads: HashSet<Blake3Hash> = HashSet::new();
 
         let result = squash_into(&graph, &store, &heads, nonexistent, &(author, signing_key));

@@ -1,32 +1,35 @@
-use std::io;
-use std::sync::mpsc as std_mpsc;
-use std::time::Duration;
+use std::{io, sync::mpsc as std_mpsc, time::Duration};
 
 use anyhow::Context;
 use arc_keyring::{IdentityManager, KeyringSessionFacade};
 use arc_ux::OutputEvent;
-use crossterm::event::{self, Event as CEvent, KeyCode, KeyModifiers};
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+use crossterm::{
+    ExecutableCommand,
+    event::{self, Event as CEvent, KeyCode, KeyModifiers},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use crossterm::{ExecutableCommand, execute};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    widgets::{Block, Borders, Paragraph},
+};
 use tokio::sync::mpsc;
-use tuirealm::application::{Application, PollStrategy};
-use tuirealm::event::NoUserEvent;
-use tuirealm::listener::EventListenerCfg;
+use tuirealm::{
+    application::{Application, PollStrategy},
+    event::NoUserEvent,
+    listener::EventListenerCfg,
+};
 
-use crate::components::commit_input::CommitInput;
-use crate::components::dag_explorer::DagExplorer;
-use crate::components::detail_panel::DetailPanel;
-use crate::components::diff_view::DiffView;
-use crate::components::side_by_side_diff::SideBySideDiff;
-use crate::components::status_bar::StatusBar;
-use crate::layout::split_bento;
-use crate::model::{AppState, Message};
-use crate::provider::ChangeProvider;
+use crate::{
+    components::{
+        commit_input::CommitInput, dag_explorer::DagExplorer, detail_panel::DetailPanel,
+        diff_view::DiffView, side_by_side_diff::SideBySideDiff, status_bar::StatusBar,
+    },
+    layout::split_bento,
+    model::{AppState, Message},
+    provider::ChangeProvider,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum RealmView {
@@ -238,7 +241,8 @@ impl App {
             Message::OpenDiff => {
                 self.state.show_diff = !self.state.show_diff;
                 self.state.status_line = if self.state.show_diff {
-                    "Snap mode | Enter capture | Ctrl+V atom-select | Ctrl+T toggle atom | Ctrl+S sponsor | Esc back"
+                    "Snap mode | Enter capture | Ctrl+V atom-select | Ctrl+T toggle atom | Ctrl+S \
+                     sponsor | Esc back"
                         .to_string()
                 } else {
                     "up/down navigate | d diff | q quit".to_string()
@@ -361,7 +365,9 @@ fn sign_intent_metadata(payload: &[u8]) -> Result<String, String> {
         .active_alias()
         .map_err(|error| format!("identity session read failed: {error}"))?
         .ok_or_else(|| {
-            "No active identity loaded. Select/Generate Identity via 'arc auth login' before snapping.".to_string()
+            "No active identity loaded. Select/Generate Identity via 'arc auth login' before \
+             snapping."
+                .to_string()
         })?;
 
     let passphrase = std::env::var("ARC_KEYRING_PASSPHRASE").map_err(|_| {
@@ -395,7 +401,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
         out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
+        out.push(HEX[(b & 0x0F) as usize] as char);
     }
     out
 }

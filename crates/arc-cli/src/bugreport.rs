@@ -2,21 +2,20 @@
 //!
 //! Generates a JSON file containing:
 //! - OS / architecture / arc version metadata.
-//! - A structural dump of every node in the change graph: hash, parent edges,
-//!   author *type*, and a BLAKE3-hashed author display string.
-//! - The raw `intent` field is **omitted by default** to protect proprietary
-//!   information. Pass `include_raw_intent = true` (the `--include-raw-intent`
-//!   CLI flag) to include it.
-//! - A copy of the merged `[ui]` and `[merge]` config sections, which often
-//!   trigger edge-case panics and are safe to share.
+//! - A structural dump of every node in the change graph: hash, parent edges, author *type*, and a
+//!   BLAKE3-hashed author display string.
+//! - The raw `intent` field is **omitted by default** to protect proprietary information. Pass
+//!   `include_raw_intent = true` (the `--include-raw-intent` CLI flag) to include it.
+//! - A copy of the merged `[ui]` and `[merge]` config sections, which often trigger edge-case
+//!   panics and are safe to share.
 
 use std::io::Write;
 
+use arc_change::Change;
+use arc_store_types::author::Author;
 use serde::Serialize;
 
 use crate::repo::{Repository, load_merged_config};
-use arc_change::Change;
-use arc_store_types::author::Author;
 
 // ── wire-format types ────────────────────────────────────────────────────────
 

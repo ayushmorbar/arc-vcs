@@ -1,15 +1,19 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use arc_algebra_types::Blake3Hash;
 use arc_store_cas::cas::ObjectStore;
 use arc_swap::ArcSwap;
 use thiserror::Error;
 
-use crate::ops::{OperationStage, SloTimer};
-use crate::store::StoreError;
+use crate::{
+    ops::{OperationStage, SloTimer},
+    store::StoreError,
+};
 
 /// Public result type for repository facade operations.
 pub type ArcResult<T> = Result<T, ArcError>;

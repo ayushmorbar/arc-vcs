@@ -1,5 +1,4 @@
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use arc_store_types::newtypes::{ChangeId, SnapshotId};

@@ -1,15 +1,13 @@
 //! `arc generate` — agentic, context-aware code generation.
 //!
 //! Flow:
-//! 1. Read the target file (capped at [`FILE_CONTENT_BUDGET`] chars to stay
-//!    within any provider's context window — the architectural guardrail noted
-//!    in the Phase 42 plan).
-//! 2. Query the local intent vector store for the top-3 semantically similar
-//!    prior changes so the AI is grounded in this repository's conventions.
+//! 1. Read the target file (capped at [`FILE_CONTENT_BUDGET`] chars to stay within any provider's
+//!    context window — the architectural guardrail noted in the Phase 42 plan).
+//! 2. Query the local intent vector store for the top-3 semantically similar prior changes so the
+//!    AI is grounded in this repository's conventions.
 //! 3. Build a structured prompt and call `arc_ai::generate_code`.
 //! 4. Write the result back to the file.
-//! 5. Save a Ghost Node (`PendingAiChange { kind: Generate }`) to
-//!    `.arc/ai/pending.json`.
+//! 5. Save a Ghost Node (`PendingAiChange { kind: Generate }`) to `.arc/ai/pending.json`.
 //!
 //! The user reviews the diff, then runs `arc ai approve` to cryptographically
 //! sign and commit the change as `Author::AI { model, human_sponsor }`.
@@ -19,8 +17,10 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use arc_ai::extract_code_fence;
 
-use crate::ai_pending::{PendingAiChange, has_pending_ai, save_pending_ai};
-use crate::repo::Repository;
+use crate::{
+    ai_pending::{PendingAiChange, has_pending_ai, save_pending_ai},
+    repo::Repository,
+};
 
 /// Maximum characters of file content to include in the prompt.
 ///
@@ -36,9 +36,8 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
     // State Lock: refuse if another AI change is already staged.
     if has_pending_ai(&repo.shared_root) {
         anyhow::bail!(
-            "An AI change is already pending approval.\n\
-             Run 'arc ai approve' to sign and commit it, \
-             or delete '.arc/ai/pending.json' to discard it."
+            "An AI change is already pending approval.\nRun 'arc ai approve' to sign and commit \
+             it, or delete '.arc/ai/pending.json' to discard it."
         );
     }
 
@@ -103,8 +102,10 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
 /// embedding provider is unavailable.  This is a best-effort operation —
 /// `arc generate` still proceeds without context on failure.
 fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
-    use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
-    use arc_ai::vector_store::VectorStore;
+    use arc_ai::{
+        embedding::{EmbeddingProvider, HybridProvider},
+        vector_store::VectorStore,
+    };
 
     let db_path = repo.shared_root.join(".arc").join("ai").join("embeddings.db");
     if !db_path.exists() {

@@ -1,5 +1,4 @@
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use arc_store_types::newtypes::{ChangeId, SnapshotId};
@@ -107,7 +106,8 @@ fn ensure_pinned_actions(workflows_dir: &Path) -> anyhow::Result<usize> {
 
             if !is_pinned_action_ref(action_ref) {
                 anyhow::bail!(
-                    "workflow {} line {} uses disallowed action reference '{}'; expected @<40-hex-sha> (or approved v-tag for pages/cache actions)",
+                    "workflow {} line {} uses disallowed action reference '{}'; expected \
+                     @<40-hex-sha> (or approved v-tag for pages/cache actions)",
                     path.display(),
                     index + 1,
                     action_ref
@@ -203,7 +203,9 @@ mod tests {
         fs::write(github.join("CODEOWNERS"), "* @arc-vcs/maintainers\n").expect("write codeowners");
         fs::write(
             github.join("dependabot.yml"),
-            "version: 2\nupdates:\n- package-ecosystem: cargo\n  directory: '/'\n  schedule:\n    interval: weekly\n- package-ecosystem: github-actions\n  directory: '/'\n  schedule:\n    interval: weekly\n",
+            "version: 2\nupdates:\n- package-ecosystem: cargo\n  directory: '/'\n  schedule:\n    \
+             interval: weekly\n- package-ecosystem: github-actions\n  directory: '/'\n  \
+             schedule:\n    interval: weekly\n",
         )
         .expect("write dependabot");
 
@@ -212,7 +214,8 @@ mod tests {
             fs::write(
                 workflows.join(name),
                 format!(
-                    "name: test\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@{pinned}\n"
+                    "name: test\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - \
+                     uses: actions/checkout@{pinned}\n"
                 ),
             )
             .expect("write workflow");
@@ -253,7 +256,8 @@ mod tests {
         let docs_workflow = dir.path().join(".github").join("workflows").join("docs.yml");
         fs::write(
             docs_workflow,
-            "name: docs\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+            "name: docs\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: \
+             actions/checkout@v4\n",
         )
         .expect("rewrite docs workflow");
 

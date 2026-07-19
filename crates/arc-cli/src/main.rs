@@ -1,39 +1,49 @@
-use anyhow::Context as _;
-use arc_cli::ops::{OperationStage, SloTimer};
-use arc_cli::progress::{PipelineStage, Progress};
-use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::{CommandFactory, Parser, Subcommand};
-use inquire::Text;
-use std::collections::{BTreeSet, HashSet};
-use std::io::IsTerminal;
-use std::path::PathBuf;
-use std::sync::OnceLock;
-
-use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
-use arc_cli::governance::audit_github_governance;
-use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
-use arc_cli::interop::git::import_repo;
-use arc_cli::repo::{
-    ArcConfig, Repository, global_config_file_path, load_global_config_layer, load_merged_config,
-    local_config_file_path, save_global_config, save_local_config,
+use std::{
+    collections::{BTreeSet, HashSet},
+    io::IsTerminal,
+    path::PathBuf,
+    sync::OnceLock,
 };
-use arc_cli::sync::{fetch, pull};
-use arc_cli::tooling::audit_workspace_tooling;
-use arc_cli::workspace_policy::audit_workspace_policy;
+
+use anyhow::Context as _;
+use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
+use arc_cli::{
+    governance::audit_github_governance,
+    graph_render::{GraphDecorations, GraphRenderer, LogTemplate},
+    interop::git::import_repo,
+    ops::{OperationStage, SloTimer},
+    progress::{PipelineStage, Progress},
+    repo::{
+        ArcConfig, Repository, global_config_file_path, load_global_config_layer,
+        load_merged_config, local_config_file_path, save_global_config, save_local_config,
+    },
+    sync::{fetch, pull},
+    tooling::audit_workspace_tooling,
+    workspace_policy::audit_workspace_policy,
+};
 use arc_diagnostics::{ResultExt, init_tracing};
 use arc_net::ai::build_provider;
 use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
-use arc_store_types::author::{Author, load_identity, save_identity};
-use arc_store_types::newtypes::{ChangeId, SnapshotId};
-use arc_store_view::View;
-use arc_store_view::oplog::OperationAgent;
-use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
+use arc_store_types::{
+    author::{Author, load_identity, save_identity},
+    newtypes::{ChangeId, SnapshotId},
+};
+use arc_store_view::{
+    View,
+    oplog::OperationAgent,
+    synthesis::{SynthesisSnapshot, list_snapshot_ids},
+};
 use arc_ux::{
     HumanPlainRenderer, HumanRichRenderer, JsonRenderer, OutputEvent, RenderMode, Renderer,
     TerminalCapabilities, arc_error_to_report, detect_capabilities, hyperlink_for_hash,
     hyperlink_for_path,
 };
+use clap::{
+    CommandFactory, Parser, Subcommand,
+    builder::styling::{AnsiColor, Effects, Styles},
+};
 use comfy_table::{Cell, Color, Table, presets};
+use inquire::Text;
 use owo_colors::OwoColorize;
 
 static OUTPUT_PREFS: OnceLock<(bool, bool)> = OnceLock::new();
@@ -52,9 +62,8 @@ struct EphemeralSession {
 ///
 /// Priority:
 /// 1. `.arc/local/session.json` if it already exists (stable within a session).
-/// 2. Generate a fresh keypair whose `session_id` comes from the
-///    `ARC_EPHEMERAL_RUNNER` environment variable (or the OS process ID as a
-///    fallback), then persist it for subsequent commands.
+/// 2. Generate a fresh keypair whose `session_id` comes from the `ARC_EPHEMERAL_RUNNER` environment
+///    variable (or the OS process ID as a fallback), then persist it for subsequent commands.
 ///
 /// Global permanent identity (`~/.arc/identity.json`) is intentionally ignored
 /// when `ARC_EPHEMERAL_RUNNER` is set — the caller opted into ephemeral mode.
@@ -97,8 +106,7 @@ fn load_identity_with_ephemeral_fallback(
     } else {
         load_identity().map_err(|_| {
             anyhow::anyhow!(
-                "No cryptographic identity found. \
-                 Run 'arc auth generate' to create one, or set \
+                "No cryptographic identity found. Run 'arc auth generate' to create one, or set \
                  ARC_EPHEMERAL_RUNNER for CI/CD pipelines."
             )
         })
@@ -476,8 +484,7 @@ enum Command {
     /// Interactively edit the AST content of an existing change.
     ///
     /// Two-step workflow:
-    ///  1. `arc diffedit --prepare <change>` — check out the change's state
-    ///     to the working dir.
+    ///  1. `arc diffedit --prepare <change>` — check out the change's state to the working dir.
     ///  2. Edit files with any editor.
     ///  3. `arc diffedit --apply` — compute the diff and record the replacement.
     Diffedit {
@@ -1213,8 +1220,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 .map(|a| a.commit_count)
                                 .unwrap_or(0);
                             eprint!(
-                                "Detected Git repository with {count} commit{}. \
-                             Import history as arc Changes? [Y/n] ",
+                                "Detected Git repository with {count} commit{}. Import history as \
+                                 arc Changes? [Y/n] ",
                                 if count == 1 { "" } else { "s" }
                             );
                             use std::io::Write;
@@ -1256,9 +1263,9 @@ fn run_cli() -> anyhow::Result<()> {
                             let (git_name, git_email) = arc_git::read_git_user_config(target_path)
                                 .unwrap_or_else(|| ("arc user".into(), "".into()));
                             eprintln!(
-                                "No arc cryptographic identity found.\n\
-                             Generating Ed25519 keypair for {git_name} <{git_email}>\n\
-                             Press Enter to confirm, or Ctrl-C to abort."
+                                "No arc cryptographic identity found.\nGenerating Ed25519 keypair \
+                                 for {git_name} <{git_email}>\nPress Enter to confirm, or Ctrl-C \
+                                 to abort."
                             );
                             use std::io::Write;
                             let _ = std::io::stderr().flush();
@@ -1277,9 +1284,8 @@ fn run_cli() -> anyhow::Result<()> {
                     // --- Import ---
                     let n = import_repo(&target, &mut repo, &author, &signing_key)?;
                     println!(
-                        "Imported {n} change{} across all branches.\n\
-                     Note: Rust source files imported semantically; \
-                     other file types imported as blobs.",
+                        "Imported {n} change{} across all branches.\nNote: Rust source files \
+                         imported semantically; other file types imported as blobs.",
                         if n == 1 { "" } else { "s" }
                     );
                 }
@@ -1574,8 +1580,8 @@ fn run_cli() -> anyhow::Result<()> {
                     match repo.resolve_last_policy_error_with_ai() {
                         Ok(true) => {
                             println!(
-                                "[arc] Policy mismatch converted into a Lensed Ghost Node. \
-                             Review changes then run 'arc ai approve <hash>'."
+                                "[arc] Policy mismatch converted into a Lensed Ghost Node. Review \
+                                 changes then run 'arc ai approve <hash>'."
                             );
                             return Ok(());
                         }
@@ -1595,8 +1601,8 @@ fn run_cli() -> anyhow::Result<()> {
                         match result {
                             Ok(()) => {
                                 println!(
-                                    "[arc] Resolution staged as Ghost Node. \
-                                 Review changes then run 'arc ai approve'."
+                                    "[arc] Resolution staged as Ghost Node. Review changes then \
+                                     run 'arc ai approve'."
                                 );
                             }
                             Err(err) => {
@@ -1610,7 +1616,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 }
 
                                 eprintln!(
-                                    "[arc] Merge-tool resolution failed ({err_text}). Falling back to AI provider."
+                                    "[arc] Merge-tool resolution failed ({err_text}). Falling \
+                                     back to AI provider."
                                 );
                                 let provider_name =
                                     cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
@@ -1621,10 +1628,11 @@ fn run_cli() -> anyhow::Result<()> {
                                     .unwrap_or_else(|| "gpt-4o-mini".to_string());
                                 let endpoint = cfg.ai.endpoint.clone();
                                 let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
-                                anyhow::anyhow!(
-                                    "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
-                                )
-                            })?;
+                                    anyhow::anyhow!(
+                                        "ARC_AI_API_KEY is required for 'arc ai resolve' and is \
+                                         read only at runtime"
+                                    )
+                                })?;
 
                                 let provider =
                                     build_provider(provider_name, &model, endpoint, api_key)?;
@@ -1641,8 +1649,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 )?;
 
                                 println!(
-                                    "[arc] Resolution staged as Ghost Node. \
-                                 Review changes then run 'arc ai approve'."
+                                    "[arc] Resolution staged as Ghost Node. Review changes then \
+                                     run 'arc ai approve'."
                                 );
                             }
                         }
@@ -1653,10 +1661,11 @@ fn run_cli() -> anyhow::Result<()> {
                             cfg.ai.model.clone().unwrap_or_else(|| "gpt-4o-mini".to_string());
                         let endpoint = cfg.ai.endpoint.clone();
                         let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
-                        anyhow::anyhow!(
-                            "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
-                        )
-                    })?;
+                            anyhow::anyhow!(
+                                "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only \
+                                 at runtime"
+                            )
+                        })?;
 
                         let provider = build_provider(provider_name, &model, endpoint, api_key)?;
                         eprintln!(
@@ -1671,8 +1680,8 @@ fn run_cli() -> anyhow::Result<()> {
                         )?;
 
                         println!(
-                            "[arc] Resolution staged as Ghost Node. \
-                         Review changes then run 'arc ai approve'."
+                            "[arc] Resolution staged as Ghost Node. Review changes then run 'arc \
+                             ai approve'."
                         );
                     }
                 }
@@ -1734,7 +1743,8 @@ fn run_cli() -> anyhow::Result<()> {
                         snapshots.clone(),
                     )?;
                     println!(
-                        "Tooling policy verified: {} codespell rules, {} required mise tasks, nextest default timeout {}, ci terminate-after {}.",
+                        "Tooling policy verified: {} codespell rules, {} required mise tasks, \
+                         nextest default timeout {}, ci terminate-after {}.",
                         report.codespell_rules,
                         report.present_required_tasks.len(),
                         report.default_slow_timeout_period,
@@ -1756,7 +1766,8 @@ fn run_cli() -> anyhow::Result<()> {
                         snapshots.clone(),
                     )?;
                     println!(
-                        "Governance policy verified: {} required workflows, {} pinned action reference(s), dependabot ecosystems [{}].",
+                        "Governance policy verified: {} required workflows, {} pinned action \
+                         reference(s), dependabot ecosystems [{}].",
                         report.required_workflows.len(),
                         report.pinned_action_references,
                         report.dependabot_ecosystems.join(", ")
@@ -2426,10 +2437,11 @@ fn run_cli() -> anyhow::Result<()> {
                     let (author, signing_key) = load_identity()?;
                     repo.set_identity(author, signing_key);
                     let coord = SpacetimeCoordinate::from_uri(&coordinate).map_err(|e| {
-                    anyhow::anyhow!(
-                        "invalid coordinate '{coordinate}': {e} (expected arc://<namespace>/<repo>@<hash>)"
-                    )
-                })?;
+                        anyhow::anyhow!(
+                            "invalid coordinate '{coordinate}': {e} (expected \
+                             arc://<namespace>/<repo>@<hash>)"
+                        )
+                    })?;
                     let id = repo.mount_add(&path, coord)?;
                     repo.refresh_projection()?;
                     let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
@@ -2490,8 +2502,7 @@ fn run_cli() -> anyhow::Result<()> {
             },
             Command::Util { action } => match action {
                 UtilAction::Completion { shell } => {
-                    use clap_complete::Shell;
-                    use clap_complete::generate;
+                    use clap_complete::{Shell, generate};
                     use clap_complete_nushell::Nushell;
 
                     let mut cmd = Cli::command();
@@ -2780,8 +2791,8 @@ fn run_cli() -> anyhow::Result<()> {
             Command::Identity { name, email } => {
                 save_identity(&name, &email)?;
                 println!(
-                    "Identity configured: {name} <{email}> (Ed25519 keypair active)\n\
-                 Run 'arc auth whoami' to inspect your public key."
+                    "Identity configured: {name} <{email}> (Ed25519 keypair active)\nRun 'arc \
+                     auth whoami' to inspect your public key."
                 );
             }
             Command::Diff { semantic } => {
@@ -3530,11 +3541,10 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
                 cfg.colors.insert(name.to_string(), value.to_string());
             } else {
                 anyhow::bail!(
-                    "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, ui.pager, ui.editor, \
-                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                    "unknown config key '{key}'; known keys: user.name, user.email, ui.color, \
+                     ui.pager, ui.editor, ui.graph_style, ui.diff_formatter, \
+                     ui.conflict_marker_style, ui.progress_indicator, ui.greet, ui.movement.edit, \
+                     merge.tool, ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
                      template-aliases.<name>, colors.<name>"
@@ -3585,11 +3595,10 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
                 cfg.colors.remove(name);
             } else {
                 anyhow::bail!(
-                    "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, ui.pager, ui.editor, \
-                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                    "unknown config key '{key}'; known keys: user.name, user.email, ui.color, \
+                     ui.pager, ui.editor, ui.graph_style, ui.diff_formatter, \
+                     ui.conflict_marker_style, ui.progress_indicator, ui.greet, ui.movement.edit, \
+                     merge.tool, ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
                      template-aliases.<name>, colors.<name>"

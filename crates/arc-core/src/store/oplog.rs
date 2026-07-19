@@ -1,7 +1,8 @@
 //! Causality-aware operation log for local compaction and safe undo boundaries.
 
-use crate::git_types::GitOid;
 use serde::{Deserialize, Serialize};
+
+use crate::git_types::GitOid;
 
 /// Causality boundary for operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

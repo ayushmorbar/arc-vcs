@@ -94,9 +94,8 @@ pub fn synthesize_tree(mut entries: Vec<GitTreeEntry>) -> (Vec<u8>, GitOid) {
 mod tests {
     use std::str::FromStr;
 
-    use crate::hash::GitOid;
-
     use super::{GitTreeEntry, synthesize_tree};
+    use crate::hash::GitOid;
 
     fn oid(fill: u8) -> GitOid {
         GitOid::from_bytes([fill; 20])

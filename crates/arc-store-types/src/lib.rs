@@ -22,9 +22,8 @@
 //! ```
 //! use arc_store_types::newtypes::ChangeId;
 //!
-//! let id = ChangeId::from_hex(
-//!     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-//! ).expect("valid hex id");
+//! let id = ChangeId::from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+//!     .expect("valid hex id");
 //! assert_eq!(id.to_hex().len(), 64);
 //! ```
 

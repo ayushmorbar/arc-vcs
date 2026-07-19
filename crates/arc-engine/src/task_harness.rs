@@ -1,7 +1,9 @@
 //! Task registry harness for engine-side health checks and benchmarks.
 
-use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use anyhow::anyhow;
 

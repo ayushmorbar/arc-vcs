@@ -2,8 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use arc_algebra_types::Atom;
 use arc_change::Change;
-use arc_store_types::author::Author;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::{author::Author, newtypes::ChangeId};
 use owo_colors::OwoColorize;
 
 /// Renders a revision DAG into stable, line-oriented ASCII/Unicode output.
@@ -134,7 +133,8 @@ impl TemplateField {
             "badges" => Ok(Self::Badges),
             "" => Err("template contains an empty placeholder '{}'".to_string()),
             _ => Err(format!(
-                "unsupported template field '{name}'. Supported fields: id, id_short, author, intent, state_badges, ref_badges, badges"
+                "unsupported template field '{name}'. Supported fields: id, id_short, author, \
+                 intent, state_badges, ref_badges, badges"
             )),
         }
     }
@@ -516,8 +516,7 @@ mod tests {
 
     use arc_algebra_types::Atom;
     use arc_change::Change;
-    use arc_store_types::author::test_keypair;
-    use arc_store_types::newtypes::ChangeId;
+    use arc_store_types::{author::test_keypair, newtypes::ChangeId};
 
     use super::{GraphDecorations, GraphRenderer, LogTemplate};
 

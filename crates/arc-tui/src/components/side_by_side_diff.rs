@@ -1,5 +1,7 @@
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::{
+    layout::{Constraint, Layout, Rect},
+    widgets::{Block, Borders, Paragraph},
+};
 
 use crate::diff::generator::SemanticDiff;
 

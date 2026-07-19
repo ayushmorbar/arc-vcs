@@ -1,12 +1,9 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
+use std::{collections::HashSet, fs, path::Path};
 
 use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use arc_store_view::View;
 use gix_features::parallel;
 
@@ -162,15 +159,14 @@ impl Repository {
         let diffedit_lock = self.shared_root.join(".arc").join("diffedit_target");
         if diffedit_lock.exists() {
             anyhow::bail!(
-                "A diffedit is in progress. Run 'arc diffedit --apply' to finish, \
-                 or 'arc diffedit --abort' to cancel."
+                "A diffedit is in progress. Run 'arc diffedit --apply' to finish, or 'arc \
+                 diffedit --abort' to cancel."
             );
         }
         // State Lock: refuse to snap while an AI change is pending approval.
         if crate::ai_pending::has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is pending approval.\n\
-                 Run 'arc ai approve' to sign and commit it, \
+                "An AI change is pending approval.\nRun 'arc ai approve' to sign and commit it, \
                  or delete '.arc/ai/pending.json' to discard it."
             );
         }

@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::Path;
+use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::Context;
 use arc_store_types::newtypes::{ChangeId, SnapshotId};
@@ -167,14 +165,18 @@ mod tests {
 
         fs::write(
             config_dir.join("nextest.toml"),
-            "[profile.default]\nslow-timeout = { period = \"10s\" }\n\n[profile.ci]\nslow-timeout = { period = \"10s\", terminate-after = 4 }\n",
+            "[profile.default]\nslow-timeout = { period = \"10s\" }\n\n[profile.ci]\nslow-timeout \
+             = { period = \"10s\", terminate-after = 4 }\n",
         )
         .expect("write nextest");
         fs::write(config_dir.join("codespell-additional-dict"), "co-locate->colocate\n")
             .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
-            "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
+            "[tasks.\"check:test\"]\nrun = \"cargo test \
+             --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace \
+             --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all \
+             -- --check\"\n",
         )
         .expect("write mise");
 
@@ -213,7 +215,10 @@ mod tests {
             .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
-            "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
+            "[tasks.\"check:test\"]\nrun = \"cargo test \
+             --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace \
+             --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all \
+             -- --check\"\n",
         )
         .expect("write mise");
 

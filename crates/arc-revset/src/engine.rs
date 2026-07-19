@@ -1,5 +1,7 @@
-use std::collections::{BTreeSet, HashSet, VecDeque};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeSet, HashSet, VecDeque},
+    sync::Arc,
+};
 
 use anyhow::{Result, anyhow, bail};
 use arc_algebra_types::Blake3Hash;
@@ -94,7 +96,8 @@ where
 {
     let mut missing_refs = |name: &str| {
         bail!(
-            "revset function '{name}' requires reference resolver; use compile_change_ids_with_refs()"
+            "revset function '{name}' requires reference resolver; use \
+             compile_change_ids_with_refs()"
         )
     };
     compile_impl_change_ids(expr, graph, resolve_symbol, &mut missing_refs)
@@ -408,9 +411,8 @@ mod tests {
     use arc_algebra_types::Atom;
     use arc_store_types::author::test_keypair;
 
-    use crate::parser::parse;
-
     use super::*;
+    use crate::parser::parse;
 
     fn make_change(graph: &mut ChangeGraph, deps: HashSet<Blake3Hash>, label: &str) -> Blake3Hash {
         let (author, key) = test_keypair();

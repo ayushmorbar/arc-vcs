@@ -11,8 +11,7 @@
 //! Both guards are RAII resources:
 //!
 //! - If a guard is dropped before commit/release, its lock file is removed.
-//! - If a process exits unexpectedly, stale lock cleanup on next acquire
-//!   allows bounded recovery.
+//! - If a process exits unexpectedly, stale lock cleanup on next acquire allows bounded recovery.
 //!
 //! # Crash-consistency guarantees
 //!
@@ -24,12 +23,14 @@
 //!
 //! This prevents partial-state publication for mutable pointer files.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{ErrorKind, Read, Write},
+    path::{Path, PathBuf},
+    process::Command,
+    thread,
+    time::{Duration, SystemTime},
+};
 
 use tracing::{debug, instrument, warn};
 

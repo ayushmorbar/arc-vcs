@@ -2,9 +2,11 @@
 
 //! Structured diagnostics and actionable hints for arc commands.
 
-use std::error::Error as StdError;
-use std::fmt::{Display, Formatter};
-use std::sync::OnceLock;
+use std::{
+    error::Error as StdError,
+    fmt::{Display, Formatter},
+    sync::OnceLock,
+};
 
 use tracing_subscriber::EnvFilter;
 

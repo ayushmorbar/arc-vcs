@@ -35,11 +35,11 @@ pub fn commutes(a: &Change, b: &Change) -> bool {
 ///
 /// 1. **Explicit dep** — if `a ∈ b.deps` or `b ∈ a.deps`, return `None`.
 /// 2. **Disjoint atoms** — if any paths overlap, return `None`.
-/// 3. **Ghost conflict** — if a `Delete P` in one change and an `Insert P′`
-///    in the other share the same *terminal symbol* under the same parent
-///    namespace, return `None`.  (This prevents phantom resurrection bugs.)
-/// 4. **Move path rewriting** — rewrite `dep` sets and atom paths that cross
-///    a `Move` boundary, then re-sign both changes with `signer`.
+/// 3. **Ghost conflict** — if a `Delete P` in one change and an `Insert P′` in the other share the
+///    same *terminal symbol* under the same parent namespace, return `None`.  (This prevents
+///    phantom resurrection bugs.)
+/// 4. **Move path rewriting** — rewrite `dep` sets and atom paths that cross a `Move` boundary,
+///    then re-sign both changes with `signer`.
 ///
 /// When gates 1–3 all pass but no `Move` atoms are present, the changes
 /// commute trivially: return `Some((b.clone(), a.clone()))` with updated deps.
@@ -89,8 +89,8 @@ pub fn commute_pair(
 ///
 /// Two atoms ghost-conflict when:
 /// - One is `Delete { at: P }` and the other is `Insert { at: P′ }`
-/// - `P` and `P′` share the same parent prefix AND the same terminal segment
-///   (i.e. `P == P′` at the terminal level).
+/// - `P` and `P′` share the same parent prefix AND the same terminal segment (i.e. `P == P′` at the
+///   terminal level).
 ///
 /// This is strictly stronger than path overlap but weaker than full equality:
 /// it catches the case where deletion and resurrection of the *same symbol*

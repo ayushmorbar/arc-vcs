@@ -1,5 +1,6 @@
-use anyhow::{Context, Result, bail};
 use std::io::Read;
+
+use anyhow::{Context, Result, bail};
 
 use crate::{GitCommit, GitOid, GitTree, ObjKind, TreeEntry};
 

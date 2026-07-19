@@ -1,18 +1,20 @@
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec;
-use alloc::vec::Vec;
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context as _;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::Blake3Hash;
-use crate::newtypes::ChangeId;
-use crate::tag::Tag;
+use crate::{Blake3Hash, newtypes::ChangeId, tag::Tag};
 
 #[derive(Debug, Deserialize)]
 struct GenericRefFile {
@@ -261,9 +263,8 @@ fn collect_hashes_from_json(value: &Value, out: &mut Vec<ChangeId>) {
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::author::test_keypair;
-
     use super::*;
+    use crate::author::test_keypair;
 
     #[test]
     fn reads_tag_heads_from_arc_tags_dir() {

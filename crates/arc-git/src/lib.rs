@@ -28,8 +28,9 @@
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 
-use bytes::Bytes;
 use std::path::PathBuf;
+
+use bytes::Bytes;
 
 mod domain;
 mod ingress;
@@ -116,25 +117,27 @@ pub struct GitTree {
 }
 
 pub use domain::{oid_hex, parse_tree};
-pub use ingress::{
-    analyze_git_repo, extract_tree_to_memory, list_branch_heads, read_blob, read_git_user_config,
-    resolve_git_dir,
-};
-
 #[cfg(test)]
 pub(crate) use ingress::{
     TEST_BACKEND_AUTO, TEST_BACKEND_FORCE_MMAP_FAIL, TEST_BACKEND_LEGACY_ONLY,
     TEST_BACKEND_MMAP_ONLY, TEST_TRAVERSAL_AUTO, TEST_TRAVERSAL_COMMIT_GRAPH_ONLY,
     TEST_TRAVERSAL_LEGACY_ONLY, set_test_backend_override, set_test_traversal_override,
 };
+pub use ingress::{
+    analyze_git_repo, extract_tree_to_memory, list_branch_heads, read_blob, read_git_user_config,
+    resolve_git_dir,
+};
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::HashMap,
+        path::Path,
+        process::Command,
+        sync::{Mutex, MutexGuard, OnceLock},
+    };
+
     use super::*;
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::process::Command;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn backend_override_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -208,7 +211,7 @@ mod tests {
             git(&["commit", "-m", &format!("commit-{i}")], path);
         }
 
-        std::fs::write(path.join("binary.bin"), vec![0x00, 0xff, 0x10, 0x80, 0x01]).unwrap();
+        std::fs::write(path.join("binary.bin"), vec![0x00, 0xFF, 0x10, 0x80, 0x01]).unwrap();
         git(&["add", "."], path);
         git(&["commit", "-m", "binary"], path);
 
@@ -344,7 +347,7 @@ mod tests {
         extract_tree_to_memory(&git_dir, &tree, "", &mut files).unwrap();
         assert_eq!(
             files.get("binary.bin").unwrap(),
-            &vec![0x00, 0xff, 0x10, 0x80, 0x01],
+            &vec![0x00, 0xFF, 0x10, 0x80, 0x01],
             "binary payload must round-trip exactly through packed object decode"
         );
     }

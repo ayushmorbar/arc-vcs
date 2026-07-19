@@ -1,13 +1,14 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use arc_algebra_types::Blake3Hash;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::StoreError;
-use crate::lock::LockFile;
+use crate::{StoreError, lock::LockFile};
 
 /// A `View` is arc's replacement for a Git branch.
 ///

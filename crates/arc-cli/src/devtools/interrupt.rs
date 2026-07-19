@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::Context as _;
 
@@ -45,8 +47,7 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
 
     #[cfg(unix)]
     {
-        use signal_hook::consts::signal::SIGTERM;
-        use signal_hook::iterator::Signals;
+        use signal_hook::{consts::signal::SIGTERM, iterator::Signals};
 
         let mut signals =
             Signals::new([SIGTERM]).context("failed to register SIGTERM cleanup handler")?;

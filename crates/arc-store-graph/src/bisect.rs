@@ -1,17 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 // TODO(v0.2): Purity Fix — `std::fs` and `std::io` are heavy filesystem I/O in a
 // "graph" crate.  Extract bisect state persistence into a dedicated `arc-bisect-persist`
 // boundary crate and keep this crate's graph algorithms pure.
 use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+    io::Write,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-
 use arc_algebra_types::Blake3Hash;
 use arc_store_types::ChangeId;
+use serde::{Deserialize, Serialize};
 
 use crate::graph::ChangeGraph;
 
@@ -300,10 +301,11 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use arc_algebra_types::Atom;
     use arc_change::Change;
     use arc_store_types::author;
+
+    use super::*;
 
     fn make_change(deps: HashSet<Blake3Hash>, label: &str) -> Change {
         let (author, signing_key) = author::test_keypair();

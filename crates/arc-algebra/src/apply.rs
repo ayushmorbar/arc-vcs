@@ -9,8 +9,7 @@ use arc_store_types::Author;
 // predicate closures injected by the caller.
 use ignore::gitignore::Gitignore;
 
-use crate::BlobStore;
-use crate::sparse::SparseMatcher;
+use crate::{BlobStore, sparse::SparseMatcher};
 
 /// A materialized state is the result of replaying a sequence of changes
 /// onto an empty tree. Each key is an AST node path; each value is the
@@ -27,16 +26,15 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 ///
 /// # Replay Law
 ///
-/// - `Insert { at, content_hash }` reads the blob from the provided
-///   [`BlobStore`] boundary and writes it
-///   to the state at `at`.
-/// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is
-///   not consulted during application — it is used for inversion).
+/// - `Insert { at, content_hash }` reads the blob from the provided [`BlobStore`] boundary and
+///   writes it to the state at `at`.
+/// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is not consulted during
+///   application — it is used for inversion).
 /// - `Directory { path }` records a bare directory existence (empty value).
 /// - `Blob { path, hash }` stores an `ARC_BLOB_REF:` token with the blob hash.
 /// - `Mount { path, coordinate }` stores an `ARC_MOUNT:` token.
-/// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the
-///   serialized conflict payload.
+/// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the serialized conflict
+///   payload.
 /// - `Move` and `SemanticsPreserving` currently return an error.
 ///
 /// # AI Security Boundary
@@ -93,8 +91,8 @@ pub fn apply_change_scoped(
                     agent_ignore.matched_path_or_any_parents(checked_path, is_dir).is_ignore();
                 if is_sentinel || is_restricted {
                     return Err(format!(
-                        "Security Violation: AI is not permitted to modify \
-                         '{checked_path}' via .agentignore"
+                        "Security Violation: AI is not permitted to modify '{checked_path}' via \
+                         .agentignore"
                     ));
                 }
             }
@@ -348,7 +346,7 @@ mod tests {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
         let (author, signing_key) = author::test_keypair();
-        let hash = [0xab_u8; 32];
+        let hash = [0xAB_u8; 32];
 
         let change = Change::new(
             HashSet::new(),

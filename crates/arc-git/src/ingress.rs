@@ -1,15 +1,20 @@
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fs::File,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use memmap2::{Mmap, MmapOptions};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs::File;
-use std::path::{Path, PathBuf};
 
-use crate::domain::{
-    apply_delta, oid_hex, parse_commit, parse_git_user_config, parse_hex_oid, parse_obj_kind,
-    parse_ofs_delta_header, parse_pack_header, parse_tree, type_to_kind, zlib_decompress,
+use crate::{
+    GitAnalysis, GitCommit, GitOid, ObjKind, RawObject,
+    domain::{
+        apply_delta, oid_hex, parse_commit, parse_git_user_config, parse_hex_oid, parse_obj_kind,
+        parse_ofs_delta_header, parse_pack_header, parse_tree, type_to_kind, zlib_decompress,
+    },
 };
-use crate::{GitAnalysis, GitCommit, GitOid, ObjKind, RawObject};
 
 pub(crate) const TEST_TRAVERSAL_AUTO: u8 = 0;
 pub(crate) const TEST_TRAVERSAL_COMMIT_GRAPH_ONLY: u8 = 1;
@@ -385,7 +390,8 @@ impl CommitGraphIndex {
         let base_graph_count = *data.get(7).context("commit-graph missing base graph count")?;
         if base_graph_count != 0 {
             bail!(
-                "split commit-graph chains are not supported in arc-git fast path; fallback required"
+                "split commit-graph chains are not supported in arc-git fast path; fallback \
+                 required"
             );
         }
         if chunk_count == 0 {

@@ -6,13 +6,15 @@
 //! signed with the author's Ed25519 key, making supply-chain spoofing
 //! detectable without any external PKI.
 
+use alloc::string::String;
+
 use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
-use alloc::string::String;
-
-use crate::Blake3Hash;
-use crate::author::{Author, PublicKeyBytes, Signature};
+use crate::{
+    Blake3Hash,
+    author::{Author, PublicKeyBytes, Signature},
+};
 
 /// An immutable, cryptographically-signed pointer to a specific `Change`.
 ///

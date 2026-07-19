@@ -1,14 +1,15 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fs,
+    path::{Path, PathBuf},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result};
+use arc_store_types::newtypes::{ChangeId, MutationId, SnapshotId};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
-
-use arc_store_types::newtypes::{ChangeId, MutationId, SnapshotId};
 
 use crate::lock::{LockFile, LockMarker};
 

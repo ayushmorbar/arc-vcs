@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use arc_algebra_types::Atom as SemanticAtom;
 use thiserror::Error;
 
-use super::evaluator::TreeSitterEvaluator;
-use super::policy::{ArcPolicy, Ast, Evaluator, PolicyError};
+use super::{
+    evaluator::TreeSitterEvaluator,
+    policy::{ArcPolicy, Ast, Evaluator, PolicyError},
+};
 
 /// Errors returned by AI lens synthesis and validation.
 #[derive(Debug, Error)]

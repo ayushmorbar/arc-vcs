@@ -59,8 +59,8 @@ pub fn invert_atom(atom: &Atom, store: &impl BlobStore) -> Result<Atom, InvertEr
 ///
 /// The resulting change:
 /// - Contains each atom inverted in **reverse** order.
-/// - Depends on `change.id` (ensuring causal ordering: inversion is always
-///   applied *after* the original).
+/// - Depends on `change.id` (ensuring causal ordering: inversion is always applied *after* the
+///   original).
 /// - Is signed with `(author, signing_key)` (the rebaser's identity).
 /// - Sets `intent` to `"Revert: {original_intent}"`.
 pub fn invert_change(
@@ -146,7 +146,7 @@ mod tests {
     fn test_invert_missing_blob_returns_cas_missing() {
         let (_dir, store) = make_store();
         // Use a hash for a blob that was never written.
-        let ghost_hash = [0xde_u8; 32];
+        let ghost_hash = [0xDE_u8; 32];
 
         let atom = Atom::Insert { at: vec!["fn_foo".to_string()], content_hash: ghost_hash };
 

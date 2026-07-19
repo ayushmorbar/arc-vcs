@@ -3,13 +3,14 @@
 use anyhow::Context as _;
 use arc_algebra_types::Blake3Hash;
 use arc_store_types::newtypes::ChangeId;
-use arc_store_view::View;
-use arc_store_view::oplog::OpLog;
+use arc_store_view::{View, oplog::OpLog};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::json;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
-use tokio::time::{Duration, timeout};
+use tokio::{
+    io::{self, AsyncBufReadExt, BufReader},
+    time::{Duration, timeout},
+};
 
 use crate::protocol::{
     FileState, GetFileStatesParams, RpcRequest, RpcResponse, send_notification, send_response,

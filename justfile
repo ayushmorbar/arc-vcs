@@ -105,7 +105,7 @@ fmt:
 
 # Check formatting only (used in CI)
 fmt-check:
-    cargo +nightly fmt --all -- --check
+    cargo +stable fmt --all -- --check
 
 # ── Documentation ─────────────────────────────────────────────────────────────
 

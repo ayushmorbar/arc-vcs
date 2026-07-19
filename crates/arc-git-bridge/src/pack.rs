@@ -1,7 +1,6 @@
 use std::io::Write;
 
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
+use flate2::{Compression, write::ZlibEncoder};
 use sha1::{Digest, Sha1};
 
 /// Encode Git objects into a version-2 packfile.
@@ -30,14 +29,14 @@ pub fn encode_packfile(objects: &[(u8, &[u8])]) -> Vec<u8> {
 
 fn write_object_header(out: &mut Vec<u8>, obj_type: u8, size: usize) {
     let mut remaining = size >> 4;
-    let mut first = ((obj_type & 0x07) << 4) | ((size & 0x0f) as u8);
+    let mut first = ((obj_type & 0x07) << 4) | ((size & 0x0F) as u8);
     if remaining > 0 {
         first |= 0x80;
     }
     out.push(first);
 
     while remaining > 0 {
-        let mut next = (remaining & 0x7f) as u8;
+        let mut next = (remaining & 0x7F) as u8;
         remaining >>= 7;
         if remaining > 0 {
             next |= 0x80;

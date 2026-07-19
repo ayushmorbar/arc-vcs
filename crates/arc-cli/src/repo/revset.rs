@@ -1,19 +1,12 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{collections::BTreeSet, sync::Arc, time::Instant};
 
 use arc_change::Change;
 use arc_store_types::newtypes::ChangeId;
 
 use super::core::*;
 
-const SMARTLOG_NEIGHBORHOOD_REVSET: &str = "@ \
-| range(remote_branches(), @) \
-| range(bookmarks(), @) \
-| range(tags(), @) \
-| merge_base(remote_branches(), @) \
-| merge_base(bookmarks(), @) \
-| merge_base(tags(), @)";
+const SMARTLOG_NEIGHBORHOOD_REVSET: &str = "@ | range(remote_branches(), @) | range(bookmarks(), @) | range(tags(), @) | \
+     merge_base(remote_branches(), @) | merge_base(bookmarks(), @) | merge_base(tags(), @)";
 
 impl Repository {
     /// Return a Smartlog-style neighborhood around the current checkout.

@@ -1,7 +1,9 @@
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use arc_policy::{PolicyAtom, PolicyDomain, PolicyLattice, PolicyValue, SourceTrace, TrustLevel};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};

@@ -51,8 +51,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::QuadraticBackoff;
     use std::time::Duration;
+
+    use super::QuadraticBackoff;
 
     #[test]
     fn default_sequence_is_quadratic() {

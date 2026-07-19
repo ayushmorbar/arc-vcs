@@ -1,11 +1,13 @@
-use std::collections::VecDeque;
-use std::ffi::OsStr;
-use std::fs;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::VecDeque,
+    ffi::OsStr,
+    fs,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    thread,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use arc_algebra_types::Blake3Hash;
 use arc_store_types::newtypes::{BlobId, ChangeId};
@@ -886,9 +888,11 @@ fn sync_directory_if_supported(_parent: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use arc_store_types::newtypes::{BlobId, ChangeId};
     use std::sync::{Arc, Barrier};
+
+    use arc_store_types::newtypes::{BlobId, ChangeId};
+
+    use super::*;
 
     fn sample_object() -> (Blake3Hash, Vec<u8>) {
         let bytes = b"hello-cas".to_vec();
@@ -929,8 +933,8 @@ mod tests {
     fn test_object_path_layout() {
         let store = ObjectStore::new("/repo");
         let mut hash = [0u8; 32];
-        hash[0] = 0xab;
-        hash[1] = 0xcd;
+        hash[0] = 0xAB;
+        hash[1] = 0xCD;
 
         let path = store.object_path(&hash);
         let path_str = path.to_string_lossy().replace('\\', "/");

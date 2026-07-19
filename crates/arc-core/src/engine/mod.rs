@@ -6,5 +6,4 @@
 //!
 //! - [`spacetime::squash_into`] — fuse a contiguous linear spine into a target change.
 //! - [`mutator`] — rewrite-safe squash/reorder primitives with typed rewrite maps.
-pub use arc_engine::mutator;
-pub use arc_engine::spacetime;
+pub use arc_engine::{mutator, spacetime};

@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 use arc_change::Change;
 use arc_store_cas::ObjectStore;

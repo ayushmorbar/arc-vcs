@@ -1,15 +1,16 @@
-use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use crate::repo::Repository;
-use crate::store_compat::ObjectStoreChangeExt;
-use arc_algebra_types::Atom;
-use arc_algebra_types::Blake3Hash;
+use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
 use arc_keyring::{ArcIdentity, IdentityManager, KeyringSessionFacade};
 use arc_network::{DeltaPayload, NetworkClient, SyncResponse};
 use arc_store_view::View;
+
+use crate::{repo::Repository, store_compat::ObjectStoreChangeExt};
 
 /// Resolve `name_or_path` to a concrete URL or filesystem path.
 ///
@@ -269,12 +270,14 @@ pub fn pull(local: &mut Repository, remote_path: &str, view_name: &str) -> anyho
             Err(error) => {
                 if allow_unsigned_sync_fallback() {
                     eprintln!(
-                        "warning: signed pull unavailable ({error}); falling back to compatibility fetch"
+                        "warning: signed pull unavailable ({error}); falling back to \
+                         compatibility fetch"
                     );
                     fetch_http(local, &resolved, view_name)?
                 } else {
                     return Err(anyhow::anyhow!(
-                        "signed pull failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                        "signed pull failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to \
+                         permit compatibility fallback"
                     ));
                 }
             }
@@ -482,12 +485,14 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
         Err(error) => {
             if allow_unsigned_sync_fallback() {
                 eprintln!(
-                    "warning: signed push unavailable ({error}); falling back to compatibility transport"
+                    "warning: signed push unavailable ({error}); falling back to compatibility \
+                     transport"
                 );
                 post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?
             } else {
                 return Err(anyhow::anyhow!(
-                    "signed push failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                    "signed push failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to \
+                     permit compatibility fallback"
                 ));
             }
         }
@@ -689,8 +694,8 @@ fn validate_blob_sources_parallel(
 /// **Progress reporting** — uses a `MultiProgress` layout:
 /// - One persistent master bar showing total bytes / bytes-per-second.
 /// - Per-blob child bars (inserted above the master) for blobs that exceed
-///   [`HEAVY_BLOB_THRESHOLD`].  Each child bar clears itself on completion,
-///   keeping the terminal clean during bulk small-blob uploads.
+///   [`HEAVY_BLOB_THRESHOLD`].  Each child bar clears itself on completion, keeping the terminal
+///   clean during bulk small-blob uploads.
 fn upload_blobs(
     client: &reqwest::blocking::Client,
     remote_url: &str,
@@ -793,8 +798,8 @@ fn post_payload_with_retry(
                 // Hard-fail: the missing-blob list did not shrink after one
                 // re-upload cycle, indicating a persistent hash mismatch.
                 return Err(anyhow::anyhow!(
-                    "server persistently reports missing blobs after re-upload \
-                     (hash algorithm mismatch?) — aborting to prevent network flood"
+                    "server persistently reports missing blobs after re-upload (hash algorithm \
+                     mismatch?) — aborting to prevent network flood"
                 ));
             }
             already_retried = true;

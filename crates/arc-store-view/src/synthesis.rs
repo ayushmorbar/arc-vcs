@@ -1,11 +1,12 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use arc_store_types::newtypes::SnapshotId;
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::tempfile as temp_registry;
 

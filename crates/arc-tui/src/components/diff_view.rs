@@ -1,12 +1,16 @@
 use std::collections::HashSet;
 
-use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::{
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Paragraph},
+};
 use ratatui_image::picker::ProtocolType;
 
-use crate::components::side_by_side_diff::SideBySideDiff;
-use crate::diff::generator::{SemanticDiff, SemanticKind};
+use crate::{
+    components::side_by_side_diff::SideBySideDiff,
+    diff::generator::{SemanticDiff, SemanticKind},
+};
 
 pub struct DiffView;
 

@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
 use arc_change::Change;
-use arc_core::algebra::commute::commutes;
-use arc_core::algebra::{Atom, SpacetimeCoordinate};
+use arc_core::algebra::{Atom, SpacetimeCoordinate, commute::commutes};
 use arc_store_types::author;
 use proptest::prelude::*;
 

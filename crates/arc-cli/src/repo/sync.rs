@@ -1,17 +1,19 @@
-use std::collections::HashMap;
-use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
-use arc_algebra_types::Atom;
-use arc_algebra_types::Blake3Hash;
-use arc_algebra_types::SpacetimeCoordinate;
+use arc_algebra_types::{Atom, Blake3Hash, SpacetimeCoordinate};
 use arc_change::Change;
-use arc_net::sync::client::NativeSyncClient;
-use arc_net::sync::protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes};
+use arc_net::sync::{
+    client::NativeSyncClient,
+    protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes},
+};
 use arc_store_view::View;
 
 use super::core::*;
+use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
 
 impl Repository {
     fn persist_policy_error_payload(
@@ -132,16 +134,17 @@ impl Repository {
                     old_signature,
                     new_signature,
                 } => anyhow::anyhow!(
-                    "policy gate rejected incoming sync delta from '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
-                     Transient CAS buffer dropped. Run 'arc ai resolve' to generate a Lensed Ghost Node.",
+                    "policy gate rejected incoming sync delta from '{}': broken functions [{}]; \
+                     old signature [{}]; new signature [{}]. Transient CAS buffer dropped. Run \
+                     'arc ai resolve' to generate a Lensed Ghost Node.",
                     address,
                     broken_functions.join(", "),
                     old_signature,
                     new_signature
                 ),
                 other => anyhow::anyhow!(
-                    "policy gate rejected incoming sync delta from '{}': {}. \
-                     Transient CAS buffer dropped. Run 'arc ai resolve'.",
+                    "policy gate rejected incoming sync delta from '{}': {}. Transient CAS buffer \
+                     dropped. Run 'arc ai resolve'.",
                     address,
                     other
                 ),
@@ -204,10 +207,10 @@ impl Repository {
     /// Clone or update all mounted sub-repositories declared in the current view.
     ///
     /// For each `ARC_MOUNT:` token in the materialized state:
-    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository
-    ///   is initialised and the target view is fetched via the internal sync API.
-    /// * If `.arc/` already exists, the repository is opened and the view is
-    ///   fetched to pick up new changes before switching.
+    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository is initialised and
+    ///   the target view is fetched via the internal sync API.
+    /// * If `.arc/` already exists, the repository is opened and the view is fetched to pick up new
+    ///   changes before switching.
     ///
     /// A progress spinner is shown for the full sync pass.
     pub fn mount_sync(&mut self) -> anyhow::Result<()> {
@@ -292,16 +295,17 @@ impl Repository {
                         old_signature,
                         new_signature,
                     } => anyhow::anyhow!(
-                        "policy gate rejected incoming sync delta for mount '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
-                         Generate a Lensed Ghost Node and re-run sync.",
+                        "policy gate rejected incoming sync delta for mount '{}': broken \
+                         functions [{}]; old signature [{}]; new signature [{}]. Generate a \
+                         Lensed Ghost Node and re-run sync.",
                         path,
                         broken_functions.join(", "),
                         old_signature,
                         new_signature
                     ),
                     PolicyError::MissingDependency { dependency } => anyhow::anyhow!(
-                        "policy gate rejected incoming sync delta for mount '{}': missing dependency '{}'. \
-                         Reconcile the foreign DAG frontier before retrying sync.",
+                        "policy gate rejected incoming sync delta for mount '{}': missing \
+                         dependency '{}'. Reconcile the foreign DAG frontier before retrying sync.",
                         path,
                         dependency
                     ),

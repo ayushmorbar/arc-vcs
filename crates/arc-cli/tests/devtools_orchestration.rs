@@ -1,9 +1,12 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
-use arc_cli::devtools::interrupt::InterruptState;
-use arc_cli::devtools::multicall::normalize_invocation_args;
-use arc_cli::devtools::run_wrapper::run_with_telemetry;
+use arc_cli::devtools::{
+    interrupt::InterruptState, multicall::normalize_invocation_args,
+    run_wrapper::run_with_telemetry,
+};
 use arc_testtools::{EnvGuard, FixtureMode, FixtureOptions, FixtureOrchestrator};
 
 fn env_lock() -> &'static Mutex<()> {

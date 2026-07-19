@@ -1,6 +1,8 @@
-use std::io::{self, Write};
-use std::thread;
-use std::time::Duration;
+use std::{
+    io::{self, Write},
+    thread,
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use arc_ai::{LlmResolver, MockResolver};
@@ -48,7 +50,8 @@ pub fn run_tour() -> Result<()> {
         repo.switch_view("feature-b")?;
         std::fs::write(
             "math.rs",
-            "pub fn add(a: i32, b: i32) -> i32 {\n    println!(\"adding {a} and {b}\");\n    a + b\n}\n",
+            "pub fn add(a: i32, b: i32) -> i32 {\n    println!(\"adding {a} and {b}\");\n    a + \
+             b\n}\n",
         )?;
         if repo.snapshot()? {
             let _ = repo.finalize_snapshot("Add trace print")?;
@@ -60,15 +63,18 @@ pub fn run_tour() -> Result<()> {
         println!("\n[3/4] Conflict reveal...");
         thread::sleep(Duration::from_millis(700));
         println!(
-            "Uh oh. Two developers edited the same function. In Git, your file would be broken with <<<<<<< markers right now."
+            "Uh oh. Two developers edited the same function. In Git, your file would be broken \
+             with <<<<<<< markers right now."
         );
 
         let current_contents = std::fs::read_to_string("math.rs").unwrap_or_default();
         println!(
-            "\nCurrent file content:\n---------------------\n{current_contents}\n---------------------"
+            "\nCurrent file \
+             content:\n---------------------\n{current_contents}\n---------------------"
         );
         println!(
-            "In arc, conflicts are mathematical states, not broken text. Type 'arc resolve' to let the AI fix this."
+            "In arc, conflicts are mathematical states, not broken text. Type 'arc resolve' to \
+             let the AI fix this."
         );
 
         println!("\n[4/4] Your turn. Type 'arc resolve' and press Enter:");

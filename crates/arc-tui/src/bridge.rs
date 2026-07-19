@@ -16,8 +16,9 @@ impl BackendBridge {
 
 #[cfg(test)]
 mod tests {
-    use super::BackendBridge;
     use arc_ux::OutputEvent;
+
+    use super::BackendBridge;
 
     #[tokio::test]
     async fn receives_backend_events_from_channel() {

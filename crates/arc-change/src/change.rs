@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 
-use ed25519_dalek::Signer;
-use serde::{Deserialize, Serialize};
-
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_store_types::{Author, PublicKeyBytes, Signature};
+use ed25519_dalek::Signer;
+use serde::{Deserialize, Serialize};
 
 /// High-level author classification for ghost-node governance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,11 +50,11 @@ impl Eq for AuthorType {}
 /// # Verification (two-layer)
 ///
 /// [`Change::verify_signature`] performs two independent checks:
-/// 1. Re-hash the fields → assert the recomputed id equals `self.id`
-///    (detects any field tampering that left the signature byte-for-byte).
-/// 2. Verify the signature against `self.id` using the author's public key
-///    (detects `id`-substitution attacks where an attacker replaces the id
-///    bytes but cannot re-sign cleanly).
+/// 1. Re-hash the fields → assert the recomputed id equals `self.id` (detects any field tampering
+///    that left the signature byte-for-byte).
+/// 2. Verify the signature against `self.id` using the author's public key (detects
+///    `id`-substitution attacks where an attacker replaces the id bytes but cannot re-sign
+///    cleanly).
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
@@ -261,14 +260,14 @@ impl Change {
     /// Deterministic id derivation: `blake3(bincode(sorted_deps, atoms, intent, author))`.
     ///
     /// **Crypto invariants**:
-    /// - `intent` is included so an attacker cannot rewrite the commit message
-    ///   without changing the CAS address.
-    /// - `author` is included so the identity is content-addressed alongside
-    ///   the payload; substituting a different author changes the id.
-    /// - `deps` are sorted before hashing, so `HashSet` insertion order can
-    ///   never change the resulting id across machines or runs.
-    /// - `collapsed_from` and `signature` are intentionally excluded so
-    ///   provenance metadata never affects the content-addressed identity.
+    /// - `intent` is included so an attacker cannot rewrite the commit message without changing the
+    ///   CAS address.
+    /// - `author` is included so the identity is content-addressed alongside the payload;
+    ///   substituting a different author changes the id.
+    /// - `deps` are sorted before hashing, so `HashSet` insertion order can never change the
+    ///   resulting id across machines or runs.
+    /// - `collapsed_from` and `signature` are intentionally excluded so provenance metadata never
+    ///   affects the content-addressed identity.
     pub(crate) fn compute_id(
         deps: &HashSet<Blake3Hash>,
         atoms: &[Atom],
@@ -333,9 +332,10 @@ impl Change {
 mod tests {
     use std::collections::HashSet;
 
-    use super::*;
     use arc_algebra_types::Atom;
     use arc_store_types::author::test_keypair;
+
+    use super::*;
 
     #[test]
     fn test_cryptographic_provenance() {
@@ -364,7 +364,7 @@ mod tests {
         // --- Layer-1 tampering: replace an atom's content without re-signing ---
         let mut tampered_atom = change.clone();
         tampered_atom.atoms[0] =
-            Atom::Insert { at: vec!["fn_main".into()], content_hash: [0xde; 32] };
+            Atom::Insert { at: vec!["fn_main".into()], content_hash: [0xDE; 32] };
         assert!(
             !tampered_atom.verify_signature(),
             "tampered atom content must fail layer-1 content re-hash check"
@@ -490,7 +490,7 @@ mod tests {
 
         // Create a clone that has a `collapsed_from` pointer set.
         let mut with_link = base.clone();
-        with_link.collapsed_from = Some([0xab; 32]);
+        with_link.collapsed_from = Some([0xAB; 32]);
 
         // The id must be identical — collapsed_from is provenance metadata.
         assert_eq!(
@@ -502,7 +502,8 @@ mod tests {
         assert!(base.verify_signature(), "base Change must verify");
         assert!(
             with_link.verify_signature(),
-            "Change with collapsed_from set must still verify (provenance field is outside the hash)"
+            "Change with collapsed_from set must still verify (provenance field is outside the \
+             hash)"
         );
     }
 

@@ -1,7 +1,6 @@
 use std::time::Instant;
 
-use crate::devtools::interrupt::InterruptState;
-use crate::progress::Progress;
+use crate::{devtools::interrupt::InterruptState, progress::Progress};
 
 /// Execute CLI work with shared telemetry and progress lifecycle.
 pub fn run_with_telemetry<F>(mode: &str, interrupts: &InterruptState, run: F) -> anyhow::Result<()>

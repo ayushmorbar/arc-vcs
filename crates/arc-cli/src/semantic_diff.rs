@@ -8,26 +8,24 @@
 //! [`group_and_render`] re-projects atoms back into text and applies three
 //! techniques from recent diff-UX research:
 //!
-//! 1. **RefactoringMiner intent annotation** — [`Atom::Move`] and
-//!    [`Atom::SemanticsPreserving`] atoms are printed as labelled `≈ [Move]`
-//!    / `≈ [Refactor]` lines *before* the textual diff so reviewers grasp
-//!    intent first, rather than deciphering raw line noise.
+//! 1. **RefactoringMiner intent annotation** — [`Atom::Move`] and [`Atom::SemanticsPreserving`]
+//!    atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines *before* the textual diff so
+//!    reviewers grasp intent first, rather than deciphering raw line noise.
 //!
-//! 2. **Sesame syntactic alignment** — before running the line differ, rigid
-//!    newlines are injected at structural boundaries (`{`, `}`, `;`) so the
-//!    algorithm cannot misalign braces across logical code blocks.
+//! 2. **Sesame syntactic alignment** — before running the line differ, rigid newlines are injected
+//!    at structural boundaries (`{`, `}`, `;`) so the algorithm cannot misalign braces across
+//!    logical code blocks.
 //!
 //!    > **Note:** this heuristic operates on raw text and will also break
 //!    > occurrences inside string literals (e.g. `let s = " {";`).  A future
 //!    > enhancement will leverage tree-sitter byte-range information to
 //!    > restrict substitution to non-literal regions.
 //!
-//! 3. **BDiff-inspired inline sub-expression highlighting** — the `similar`
-//!    crate's `iter_inline_changes` identifies the exact changed sub-tokens
-//!    within each line; those tokens are highlighted with a colour-reversed
-//!    background while the surrounding unchanged text on the same line is
-//!    displayed in a plain foreground colour.  This replicates the Kuhn–
-//!    Munkres optimal-matching insight without a full graph solver.
+//! 3. **BDiff-inspired inline sub-expression highlighting** — the `similar` crate's
+//!    `iter_inline_changes` identifies the exact changed sub-tokens within each line; those tokens
+//!    are highlighted with a colour-reversed background while the surrounding unchanged text on the
+//!    same line is displayed in a plain foreground colour.  This replicates the Kuhn– Munkres
+//!    optimal-matching insight without a full graph solver.
 //!
 //! ## `arc diff --semantic` — Structural AST Diff (Macro view)
 //!
@@ -39,8 +37,10 @@
 //! **Recommended workflow:** use `--semantic` first to grasp architectural
 //! intent, then run plain `arc diff` to verify exact syntax and formatting.
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
 use anyhow::Result;
 use arc_algebra_types::Atom;
@@ -111,12 +111,11 @@ pub fn group_and_render(
 /// # Pipeline
 ///
 /// 1. **Header** — `diff --arc a/{path} b/{path}` (bold)
-/// 2. **Intent annotation** — Move / SemanticsPreserving atoms are named
-///    before the text hunks.
-/// 3. **Boilerplate collapse** — if every changed line is a `use`/`import`/
-///    `#include` directive, emit a single summary line instead of a full diff.
-/// 4. **Mega-file guard** — files whose combined old+new size exceeds 1 MB
-///    skip the inline LCS calculation to avoid a CPU lock.
+/// 2. **Intent annotation** — Move / SemanticsPreserving atoms are named before the text hunks.
+/// 3. **Boilerplate collapse** — if every changed line is a `use`/`import`/ `#include` directive,
+///    emit a single summary line instead of a full diff.
+/// 4. **Mega-file guard** — files whose combined old+new size exceeds 1 MB skip the inline LCS
+///    calculation to avoid a CPU lock.
 /// 5. **Sesame alignment** — inject structural newlines before running `TextDiff`.
 /// 6. **Inline sub-expression highlighting** via `similar::iter_inline_changes`.
 /// 7. **Summary footer** — `∑ +N -N ~N refactorings`.

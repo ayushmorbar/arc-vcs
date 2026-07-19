@@ -4,10 +4,8 @@ mod demono;
 extern crate proc_macro;
 
 use proc_macro_crate::{FoundCrate, crate_name};
-use quote::format_ident;
-use quote::quote;
-use syn::DeriveInput;
-use syn::parse_macro_input;
+use quote::{format_ident, quote};
+use syn::{DeriveInput, parse_macro_input};
 
 #[proc_macro_derive(ContentHash)]
 pub fn derive_content_hash(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

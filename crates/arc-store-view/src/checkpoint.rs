@@ -3,13 +3,10 @@
 //! These utilities use [`crate::lock::LockFile`] so checkpoint updates are
 //! atomic and durable with the same guarantees used by view/oplog writes.
 
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
+use std::{fs, io::ErrorKind, path::Path};
 
 use anyhow::{Context, Result};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::lock::LockFile;
 

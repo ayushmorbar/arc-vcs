@@ -139,8 +139,9 @@ pub enum EndpointParseError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn parses_plain_host_port() {

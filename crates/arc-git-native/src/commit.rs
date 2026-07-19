@@ -70,9 +70,8 @@ fn push_signature_line(out: &mut Vec<u8>, label: &[u8], sig: &GitSignature) {
 mod tests {
     use std::str::FromStr;
 
-    use crate::hash::GitOid;
-
     use super::{GitCommit, GitSignature, synthesize_commit};
+    use crate::hash::GitOid;
 
     #[test]
     fn standard_commit_matches_oracle_hash() {
