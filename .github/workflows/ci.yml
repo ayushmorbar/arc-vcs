@@ -42,7 +42,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just
+          tool: just@1.39.0
 
       - name: Check formatting
         run: just fmt-check
@@ -72,7 +72,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just
+          tool: just@1.39.0
 
       - name: Check compilation
         run: just check
@@ -99,7 +99,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just,cargo-nextest
+          tool: just@1.39.0,cargo-nextest@0.9.90
 
       - name: Run tests
         run: just test
@@ -126,7 +126,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just
+          tool: just@1.39.0
 
       - name: Run doctests
         run: just doc-tests
@@ -154,7 +154,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.90
 
       - name: Policy regression tests
         run: cargo nextest run --workspace --no-fail-fast -E 'test(workspace_policy)' -E 'test(enforce_policy)' -E 'test(policy_denies)' -E 'test(policy_gate)'
@@ -239,7 +239,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just,cargo-deny
+          tool: just@1.39.0,cargo-deny@0.18.2
 
       - name: Check advisories, licenses, bans, sources
         run: just audit
@@ -266,7 +266,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just,cargo-fuzz
+          tool: just@1.39.0,cargo-fuzz@0.15.2
 
       - name: Run fuzz smoke tests
         run: just fuzz-check
@@ -294,7 +294,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just
+          tool: just@1.39.0
 
       - name: Check compilation on beta
         run: just check
@@ -321,7 +321,7 @@ jobs:
 
       - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: just
+          tool: just@1.39.0
 
       - name: Check crates compile without default features
         run: just no-default-features
