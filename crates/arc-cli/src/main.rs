@@ -1024,7 +1024,6 @@ fn show_synthesis_snapshot(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 fn diagnostic_lines(error: &anyhow::Error) -> Vec<String> {
     use arc_diagnostics::ArcError;
