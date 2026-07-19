@@ -160,10 +160,9 @@ fn parse_uses_line(line: &str) -> Option<&str> {
     let trimmed = line.trim();
     let rest = if let Some(r) = trimmed.strip_prefix("- uses:") {
         r.trim()
-    } else if let Some(r) = trimmed.strip_prefix("uses:") {
-        r.trim()
     } else {
-        return None;
+        let r = trimmed.strip_prefix("uses:")?;
+        r.trim()
     };
     // Strip trailing "# tag" comment (e.g. "abc123... # v7.0.0" → "abc123...")
     let rest = match rest.find('#') {
