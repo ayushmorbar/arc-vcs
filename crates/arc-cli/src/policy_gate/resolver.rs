@@ -51,9 +51,7 @@ pub fn verify_lens(
     match evaluator.evaluate_delta_impact(local_ast, &transient.atoms) {
         Ok(()) => Ok(()),
         Err(PolicyError::SignatureMismatch { .. }) => Err(ResolverError::VerificationFailed),
-        Err(other) => Err(ResolverError::SynthesisFailed {
-            reason: other.to_string(),
-        }),
+        Err(other) => Err(ResolverError::SynthesisFailed { reason: other.to_string() }),
     }
 }
 
@@ -63,11 +61,11 @@ pub struct MockAiResolver;
 impl AiResolver for MockAiResolver {
     fn synthesize_lens(&self, error: &PolicyError) -> Result<Vec<SemanticAtom>, ResolverError> {
         let payload = error.to_mcp_payload();
-        let functions = payload
-            .get("broken_functions")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| ResolverError::SynthesisFailed {
-                reason: "missing broken_functions in MCP payload".to_string(),
+        let functions =
+            payload.get("broken_functions").and_then(|v| v.as_array()).ok_or_else(|| {
+                ResolverError::SynthesisFailed {
+                    reason: "missing broken_functions in MCP payload".to_string(),
+                }
             })?;
 
         let mut atoms = Vec::new();
@@ -86,11 +84,7 @@ impl AiResolver for MockAiResolver {
 
 /// Build an AST context from local and foreign Rust source buffers.
 pub fn ast_context(local_rust_sources: Vec<String>, foreign_rust_sources: Vec<String>) -> Ast {
-    Ast {
-        local_rust_sources,
-        expected_api_signatures: HashMap::new(),
-        foreign_rust_sources,
-    }
+    Ast { local_rust_sources, expected_api_signatures: HashMap::new(), foreign_rust_sources }
 }
 
 /// Build the default evaluator used by resolver verification loop.

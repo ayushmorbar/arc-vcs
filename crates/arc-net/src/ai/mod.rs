@@ -36,12 +36,7 @@ impl AnthropicProvider {
             .timeout(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self {
-            client,
-            model,
-            endpoint,
-            api_key,
-        }
+        Self { client, model, endpoint, api_key }
     }
 }
 
@@ -80,10 +75,8 @@ impl AiProvider for AnthropicProvider {
             .error_for_status()
             .with_context(|| format!("Anthropic endpoint returned error {}", self.endpoint))?;
 
-        let payload: serde_json::Value = response
-            .json()
-            .await
-            .context("failed to decode Anthropic response as JSON")?;
+        let payload: serde_json::Value =
+            response.json().await.context("failed to decode Anthropic response as JSON")?;
 
         let content = payload["content"]
             .as_array()
@@ -116,12 +109,7 @@ impl OpenAiCompatibleProvider {
             .timeout(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self {
-            client,
-            model,
-            endpoint,
-            api_key,
-        }
+        Self { client, model, endpoint, api_key }
     }
 }
 
@@ -158,23 +146,15 @@ impl AiProvider for OpenAiCompatibleProvider {
             .send()
             .await
             .with_context(|| {
-                format!(
-                    "failed to call OpenAI-compatible endpoint {}",
-                    self.endpoint
-                )
+                format!("failed to call OpenAI-compatible endpoint {}", self.endpoint)
             })?
             .error_for_status()
             .with_context(|| {
-                format!(
-                    "OpenAI-compatible endpoint returned error {}",
-                    self.endpoint
-                )
+                format!("OpenAI-compatible endpoint returned error {}", self.endpoint)
             })?;
 
-        let payload: serde_json::Value = response
-            .json()
-            .await
-            .context("failed to decode OpenAI-compatible response as JSON")?;
+        let payload: serde_json::Value =
+            response.json().await.context("failed to decode OpenAI-compatible response as JSON")?;
 
         let content = payload["choices"][0]["message"]["content"]
             .as_str()
@@ -197,16 +177,10 @@ pub fn build_provider(
     api_key: String,
 ) -> Result<Box<dyn AiProvider>> {
     match provider {
-        "anthropic" => Ok(Box::new(AnthropicProvider::new(
-            model.to_string(),
-            endpoint,
-            api_key,
-        ))),
-        "openai-compatible" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            model.to_string(),
-            endpoint,
-            api_key,
-        ))),
+        "anthropic" => Ok(Box::new(AnthropicProvider::new(model.to_string(), endpoint, api_key))),
+        "openai-compatible" => {
+            Ok(Box::new(OpenAiCompatibleProvider::new(model.to_string(), endpoint, api_key)))
+        }
         other => {
             bail!("unsupported ai.provider '{other}', expected 'anthropic' or 'openai-compatible'")
         }

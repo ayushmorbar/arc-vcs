@@ -21,10 +21,7 @@ pub struct OperationMetadata {
 impl OperationMetadata {
     /// Build metadata with explicit name and correlation id.
     pub fn new(name: impl Into<String>, correlation_id: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            correlation_id: correlation_id.into(),
-        }
+        Self { name: name.into(), correlation_id: correlation_id.into() }
     }
 }
 
@@ -49,12 +46,7 @@ impl<WOut, WErr> OperationContext<WOut, WErr> {
         report_format: Option<OperationReportFormat>,
         metadata: OperationMetadata,
     ) -> Self {
-        Self {
-            out,
-            err,
-            report_format,
-            metadata,
-        }
+        Self { out, err, report_format, metadata }
     }
 
     /// Transform context channels while preserving metadata and report format.

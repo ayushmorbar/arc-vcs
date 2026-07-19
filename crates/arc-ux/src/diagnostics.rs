@@ -13,13 +13,7 @@ pub fn arc_error_to_report(error: ArcError) -> Report {
     let help = "Inspect the cause chain below and retry with --json for machine-readable output"
         .to_string();
 
-    Report::new(ArcMietteDiagnostic {
-        message: msg,
-        arrow_chain: chain,
-        help,
-        code,
-        url,
-    })
+    Report::new(ArcMietteDiagnostic { message: msg, arrow_chain: chain, help, code, url })
 }
 
 /// Format code number as E0001-E1000.
@@ -41,11 +35,7 @@ fn build_arrow_chain(error: &dyn StdError) -> String {
         chain.push(source.to_string());
         current = source.source();
     }
-    if chain.is_empty() {
-        "no additional causes".to_string()
-    } else {
-        chain.join("\n  ╰─▶ ")
-    }
+    if chain.is_empty() { "no additional causes".to_string() } else { chain.join("\n  ╰─▶ ") }
 }
 
 #[derive(Debug)]

@@ -38,35 +38,28 @@ pub enum RevsetExpression {
 pub fn parse(input: &str) -> Result<RevsetExpression> {
     let mut pairs = RevsetParser::parse(Rule::query, input)?;
     let query = pairs.next().ok_or_else(|| anyhow!("expected query"))?;
-    let expression = query
-        .into_inner()
-        .next()
-        .ok_or_else(|| anyhow!("query has no expression"))?;
+    let expression = query.into_inner().next().ok_or_else(|| anyhow!("query has no expression"))?;
     build_expression(expression)
 }
 
 fn build_expression(pair: Pair<Rule>) -> Result<RevsetExpression> {
     match pair.as_rule() {
         Rule::expression => {
-            let inner = pair
-                .into_inner()
-                .next()
-                .ok_or_else(|| anyhow!("expression has no inner node"))?;
+            let inner =
+                pair.into_inner().next().ok_or_else(|| anyhow!("expression has no inner node"))?;
             build_expression(inner)
         }
         Rule::union => build_union(pair),
         Rule::intersection => build_intersection(pair),
         Rule::primary => {
-            let inner = pair
-                .into_inner()
-                .next()
-                .ok_or_else(|| anyhow!("primary has no inner node"))?;
+            let inner =
+                pair.into_inner().next().ok_or_else(|| anyhow!("primary has no inner node"))?;
             build_expression(inner)
         }
         Rule::function_call => build_function(pair),
-        Rule::string_literal => Ok(RevsetExpression::StringLiteral(unescape_string_literal(
-            pair.as_str(),
-        )?)),
+        Rule::string_literal => {
+            Ok(RevsetExpression::StringLiteral(unescape_string_literal(pair.as_str())?))
+        }
         Rule::symbol => Ok(RevsetExpression::Symbol(pair.as_str().to_string())),
         _ => bail!("unexpected parse rule: {:?}", pair.as_rule()),
     }
@@ -81,9 +74,8 @@ fn unescape_string_literal(raw: &str) -> Result<String> {
     let mut chars = raw[1..raw.len() - 1].chars();
     while let Some(ch) = chars.next() {
         if ch == '\\' {
-            let escaped = chars
-                .next()
-                .ok_or_else(|| anyhow!("unterminated escape in string literal"))?;
+            let escaped =
+                chars.next().ok_or_else(|| anyhow!("unterminated escape in string literal"))?;
             match escaped {
                 '\\' => out.push('\\'),
                 '"' => out.push('"'),
@@ -99,45 +91,29 @@ fn unescape_string_literal(raw: &str) -> Result<String> {
 
 fn build_union(pair: Pair<Rule>) -> Result<RevsetExpression> {
     let mut parts = pair.into_inner().map(build_expression);
-    let first = parts
-        .next()
-        .ok_or_else(|| anyhow!("union has no operands"))??;
-    parts.try_fold(first, |acc, next| {
-        Ok(RevsetExpression::Union(Box::new(acc), Box::new(next?)))
-    })
+    let first = parts.next().ok_or_else(|| anyhow!("union has no operands"))??;
+    parts.try_fold(first, |acc, next| Ok(RevsetExpression::Union(Box::new(acc), Box::new(next?))))
 }
 
 fn build_intersection(pair: Pair<Rule>) -> Result<RevsetExpression> {
     let mut parts = pair.into_inner().map(build_expression);
-    let first = parts
-        .next()
-        .ok_or_else(|| anyhow!("intersection has no operands"))??;
+    let first = parts.next().ok_or_else(|| anyhow!("intersection has no operands"))??;
     parts.try_fold(first, |acc, next| {
-        Ok(RevsetExpression::Intersection(
-            Box::new(acc),
-            Box::new(next?),
-        ))
+        Ok(RevsetExpression::Intersection(Box::new(acc), Box::new(next?)))
     })
 }
 
 fn build_function(pair: Pair<Rule>) -> Result<RevsetExpression> {
     let mut inner = pair.into_inner();
-    let name = inner
-        .next()
-        .ok_or_else(|| anyhow!("function call missing name"))?
-        .as_str()
-        .to_string();
+    let name =
+        inner.next().ok_or_else(|| anyhow!("function call missing name"))?.as_str().to_string();
 
     let args = match inner.next() {
-        Some(args_pair) if args_pair.as_rule() == Rule::args => args_pair
-            .into_inner()
-            .map(build_expression)
-            .collect::<Result<Vec<_>>>()?,
+        Some(args_pair) if args_pair.as_rule() == Rule::args => {
+            args_pair.into_inner().map(build_expression).collect::<Result<Vec<_>>>()?
+        }
         Some(other) => {
-            return Err(anyhow!(
-                "unexpected function inner rule: {:?}",
-                other.as_rule()
-            ));
+            return Err(anyhow!("unexpected function inner rule: {:?}", other.as_rule()));
         }
         None => Vec::new(),
     };

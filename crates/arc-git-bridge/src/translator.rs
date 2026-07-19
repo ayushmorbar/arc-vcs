@@ -38,10 +38,7 @@ impl GitOdb {
     pub fn pack_objects(&self) -> Vec<(u8, &[u8])> {
         let mut ordered: Vec<(&GitSha1, &(u8, Vec<u8>))> = self.objects.iter().collect();
         ordered.sort_by_key(|(id, _)| **id);
-        ordered
-            .into_iter()
-            .map(|(_, (kind, payload))| (*kind, payload.as_slice()))
-            .collect()
+        ordered.into_iter().map(|(_, (kind, payload))| (*kind, payload.as_slice())).collect()
     }
 }
 
@@ -145,10 +142,7 @@ pub fn compile_commit(
     map: &mut GitMap,
 ) -> Result<GitSha1> {
     let change = input.change;
-    let has_conflict_atom = change
-        .atoms
-        .iter()
-        .any(|atom| matches!(atom, Atom::Conflict { .. }));
+    let has_conflict_atom = change.atoms.iter().any(|atom| matches!(atom, Atom::Conflict { .. }));
 
     if has_conflict_atom || input.projected_state_has_conflict {
         bail!(CONFLICT_EXPORT_ERROR);
@@ -349,9 +343,7 @@ mod tests {
         let err = compile_tree(&state, &mut odb).unwrap_err();
         assert!(
             err.to_string().contains("both file and directory")
-                || err
-                    .to_string()
-                    .contains("collides with an existing directory"),
+                || err.to_string().contains("collides with an existing directory"),
             "unexpected error: {err}"
         );
     }

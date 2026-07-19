@@ -26,10 +26,7 @@ pub struct View {
 impl View {
     /// Create a new `View` with the given name and head set.
     pub fn new(name: impl Into<String>, heads: HashSet<Blake3Hash>) -> Self {
-        Self {
-            name: name.into(),
-            heads,
-        }
+        Self { name: name.into(), heads }
     }
 
     /// Persist this view to `.arc/views/{name}` using `bincode`.
@@ -153,13 +150,8 @@ pub fn load_views_with_overlay(
     let mut sorted_overlay = overlay.to_vec();
     sorted_overlay.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok(merge_sorted_overlay(
-        persisted,
-        sorted_overlay,
-        |view| view.name.clone(),
-        precedence,
-    )
-    .collect())
+    Ok(merge_sorted_overlay(persisted, sorted_overlay, |view| view.name.clone(), precedence)
+        .collect())
 }
 
 fn load_all_views(arc_root: &Path) -> Result<Vec<View>, StoreError> {
@@ -225,10 +217,7 @@ mod tests {
         let loaded = View::load(dir.path(), "empty-branch").unwrap();
 
         assert_eq!(loaded, view);
-        assert!(
-            loaded.heads.is_empty(),
-            "empty-headed view must round-trip cleanly"
-        );
+        assert!(loaded.heads.is_empty(), "empty-headed view must round-trip cleanly");
     }
 
     /// Loading a non-existent view must return an error, not panic.
@@ -236,10 +225,7 @@ mod tests {
     fn test_view_load_nonexistent_returns_error() {
         let dir = tempfile::tempdir().unwrap();
         let result = View::load(dir.path(), "ghost-branch");
-        assert!(
-            result.is_err(),
-            "loading a non-existent view must return an error"
-        );
+        assert!(result.is_err(), "loading a non-existent view must return an error");
     }
 
     /// A view name containing a slash (nested branch) must round-trip correctly.
@@ -267,13 +253,9 @@ mod tests {
             View::new("c", HashSet::from([[9u8; 32]])),
         ];
 
-        let merged: Vec<View> = merge_sorted_overlay(
-            left,
-            right,
-            |view| view.name.clone(),
-            OverlayPrecedence::Right,
-        )
-        .collect();
+        let merged: Vec<View> =
+            merge_sorted_overlay(left, right, |view| view.name.clone(), OverlayPrecedence::Right)
+                .collect();
 
         assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].name, "a");

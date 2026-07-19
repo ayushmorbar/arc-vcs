@@ -20,11 +20,10 @@ impl Repository {
     ///
     /// Falls back to full local ancestry when no reference heads are present.
     pub fn log_smartlog(&mut self) -> anyhow::Result<Vec<Change>> {
-        let has_reference_heads = !self
-            .resolve_revset_reference_heads("remote_branches")?
-            .is_empty()
-            || !self.resolve_revset_reference_heads("bookmarks")?.is_empty()
-            || !self.resolve_revset_reference_heads("tags")?.is_empty();
+        let has_reference_heads =
+            !self.resolve_revset_reference_heads("remote_branches")?.is_empty()
+                || !self.resolve_revset_reference_heads("bookmarks")?.is_empty()
+                || !self.resolve_revset_reference_heads("tags")?.is_empty();
 
         if !has_reference_heads {
             return self.log();

@@ -106,19 +106,17 @@ impl ChangeGraph {
         // 2. Compute in-degree within the sub-DAG.
         let mut in_degree: Blake3HashMap<usize> = Blake3HashMap::default();
         for &id in &reachable {
-            let count = self.edges.get(&id).map_or(0, |deps| {
-                deps.iter().filter(|&d| reachable.contains(d)).count()
-            });
+            let count = self
+                .edges
+                .get(&id)
+                .map_or(0, |deps| deps.iter().filter(|&d| reachable.contains(d)).count());
             in_degree.insert(id, count);
         }
 
         // 3. Seed the queue with roots (in-degree 0). Sort for determinism.
         let mut queue: VecDeque<Blake3Hash> = {
-            let mut roots: Vec<Blake3Hash> = in_degree
-                .iter()
-                .filter(|&(_, &deg)| deg == 0)
-                .map(|(&id, _)| id)
-                .collect();
+            let mut roots: Vec<Blake3Hash> =
+                in_degree.iter().filter(|&(_, &deg)| deg == 0).map(|(&id, _)| id).collect();
             roots.sort();
             roots.into()
         };
@@ -128,11 +126,8 @@ impl ChangeGraph {
         while let Some(id) = queue.pop_front() {
             order.push(id);
             if let Some(children) = self.reverse_edges.get(&id) {
-                let mut sorted: Vec<Blake3Hash> = children
-                    .iter()
-                    .filter(|&c| reachable.contains(c))
-                    .copied()
-                    .collect();
+                let mut sorted: Vec<Blake3Hash> =
+                    children.iter().filter(|&c| reachable.contains(c)).copied().collect();
                 sorted.sort();
                 for child in sorted {
                     let deg = in_degree.get_mut(&child).unwrap();
@@ -193,16 +188,9 @@ impl ChangeGraph {
             if self.nodes.get(&hash).is_some_and(|n| n.is_ghost) {
                 continue;
             }
-            let is_tip = self
-                .reverse_edges
-                .get(&hash)
-                .is_none_or(|children| {
-                    children.iter().all(|child| {
-                        self.nodes
-                            .get(child)
-                            .is_some_and(|node| node.is_ghost)
-                    })
-                });
+            let is_tip = self.reverse_edges.get(&hash).is_none_or(|children| {
+                children.iter().all(|child| self.nodes.get(child).is_some_and(|node| node.is_ghost))
+            });
             if is_tip {
                 tips.insert(ChangeId::from(hash));
             }
@@ -255,9 +243,7 @@ impl ChangeGraph {
         heads_a: &HashSet<Blake3Hash>,
         heads_b: &HashSet<Blake3Hash>,
     ) -> HashSet<Blake3Hash> {
-        self.merge_bases_ordered(heads_a, heads_b)
-            .into_iter()
-            .collect()
+        self.merge_bases_ordered(heads_a, heads_b).into_iter().collect()
     }
 
     /// Find the **Lowest Common Ancestors** between two sets of heads in
@@ -292,10 +278,7 @@ impl ChangeGraph {
             }
         }
 
-        common
-            .into_iter()
-            .filter(|id| !non_lca.contains(id))
-            .collect()
+        common.into_iter().filter(|id| !non_lca.contains(id)).collect()
     }
 
     /// Return one deterministic merge-base when multiple LCAs exist.
@@ -307,9 +290,7 @@ impl ChangeGraph {
         heads_a: &HashSet<Blake3Hash>,
         heads_b: &HashSet<Blake3Hash>,
     ) -> Option<Blake3Hash> {
-        self.merge_bases_ordered(heads_a, heads_b)
-            .into_iter()
-            .next()
+        self.merge_bases_ordered(heads_a, heads_b).into_iter().next()
     }
 }
 
@@ -344,10 +325,7 @@ mod tests {
         let content_hash: [u8; 32] = *blake3::hash(label.as_bytes()).as_bytes();
         Change::new(
             deps,
-            vec![Atom::Insert {
-                at: vec![label.to_string()],
-                content_hash,
-            }],
+            vec![Atom::Insert { at: vec![label.to_string()], content_hash }],
             "test",
             author,
             &signing_key,
@@ -490,10 +468,7 @@ mod tests {
         g.add_change(y);
 
         let picked = g.merge_base_deterministic(&HashSet::from([xid]), &HashSet::from([yid]));
-        assert!(
-            picked.is_none(),
-            "disjoint graphs must have no deterministic base"
-        );
+        assert!(picked.is_none(), "disjoint graphs must have no deterministic base");
     }
 
     #[test]

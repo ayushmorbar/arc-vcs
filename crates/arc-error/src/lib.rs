@@ -33,11 +33,7 @@ impl<E: StdError + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn new(error: E) -> Self {
         Self {
-            frame: Frame {
-                location: Location::caller(),
-                error: Box::new(error),
-                source: None,
-            },
+            frame: Frame { location: Location::caller(), error: Box::new(error), source: None },
             _marker: std::marker::PhantomData,
         }
     }
@@ -56,10 +52,7 @@ impl<E: StdError + Send + Sync + 'static> Exn<E> {
 
     /// Convert a typed exception into a type-erased one.
     pub fn erased(self) -> Exn {
-        Exn {
-            frame: self.frame,
-            _marker: std::marker::PhantomData,
-        }
+        Exn { frame: self.frame, _marker: std::marker::PhantomData }
     }
 
     /// Return the most probable cause (deepest linked source frame).
@@ -84,13 +77,7 @@ pub struct Frame {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "at {}:{}: {}",
-            self.location.file(),
-            self.location.line(),
-            self.error
-        )
+        write!(f, "at {}:{}: {}", self.location.file(), self.location.line(), self.error)
     }
 }
 
@@ -98,13 +85,7 @@ impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(feature = "auto-chain-error")]
         {
-            write!(
-                f,
-                "{} (at {}:{})",
-                self.error,
-                self.location.file(),
-                self.location.line()
-            )?;
+            write!(f, "{} (at {}:{})", self.error, self.location.file(), self.location.line())?;
 
             let mut current = self.source.as_deref();
             while let Some(source) = current {
@@ -122,22 +103,14 @@ impl fmt::Display for Frame {
 
         #[cfg(not(feature = "auto-chain-error"))]
         {
-            write!(
-                f,
-                "{} (at {}:{})",
-                self.error,
-                self.location.file(),
-                self.location.line()
-            )
+            write!(f, "{} (at {}:{})", self.error, self.location.file(), self.location.line())
         }
     }
 }
 
 impl StdError for Frame {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.source
-            .as_ref()
-            .map(|frame| frame as &(dyn StdError + 'static))
+        self.source.as_ref().map(|frame| frame as &(dyn StdError + 'static))
     }
 }
 
@@ -188,9 +161,7 @@ impl Error {
     where
         E: StdError + Send + Sync + 'static,
     {
-        Self {
-            inner: Box::new(error),
-        }
+        Self { inner: Box::new(error) }
     }
 }
 
@@ -217,9 +188,7 @@ where
     E: StdError + Send + Sync + 'static,
 {
     fn from(value: Exn<E>) -> Self {
-        Self {
-            inner: Box::new(value.frame),
-        }
+        Self { inner: Box::new(value.frame) }
     }
 }
 
@@ -346,9 +315,7 @@ mod tests {
 
     #[test]
     fn result_ext_preserves_cause_chain() {
-        let err = Result::<(), Inner>::Err(Inner)
-            .or_raise(|| Outer)
-            .expect_err("must fail");
+        let err = Result::<(), Inner>::Err(Inner).or_raise(|| Outer).expect_err("must fail");
         let rendered = err.to_string();
         assert!(rendered.contains("outer"));
         assert_eq!(err.probable_cause().to_string(), "inner");

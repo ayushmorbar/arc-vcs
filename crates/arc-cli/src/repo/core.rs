@@ -10,6 +10,10 @@ use arc_net::ai::AiProvider;
 use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
+use crate::policy_gate::PolicyError;
+use crate::policy_gate::{
+    AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
+};
 use arc_ai::AiResolver;
 use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
 use arc_ai::vector_store::VectorStore;
@@ -42,10 +46,6 @@ use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction
 use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use crate::policy_gate::PolicyError;
-use crate::policy_gate::{
-    AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
-};
 
 use crate::store_compat::{ObjectStoreChangeExt, apply_change};
 
@@ -266,8 +266,7 @@ pub fn synthesized_defaults_config() -> ArcConfig {
 
     cfg.aliases.insert("b".to_string(), "bookmark".to_string());
     cfg.aliases.insert("ci".to_string(), "commit".to_string());
-    cfg.aliases
-        .insert("desc".to_string(), "describe".to_string());
+    cfg.aliases.insert("desc".to_string(), "describe".to_string());
     cfg.aliases.insert("st".to_string(), "status".to_string());
 
     cfg.ui.color = "auto".to_string();
@@ -291,55 +290,36 @@ pub fn synthesized_defaults_config() -> ArcConfig {
     cfg.snapshot.auto_update_stale = Some(false);
     cfg.snapshot.blob_extensions = None;
 
-    cfg.revsets
-        .insert("arrange".to_string(), "reachable(@, mutable())".to_string());
-    cfg.revsets
-        .insert("fix".to_string(), "reachable(@, mutable())".to_string());
-    cfg.revsets.insert(
-        "simplify-parents".to_string(),
-        "reachable(@, mutable())".to_string(),
-    );
+    cfg.revsets.insert("arrange".to_string(), "reachable(@, mutable())".to_string());
+    cfg.revsets.insert("fix".to_string(), "reachable(@, mutable())".to_string());
+    cfg.revsets.insert("simplify-parents".to_string(), "reachable(@, mutable())".to_string());
     cfg.revsets.insert(
         "log".to_string(),
         "present(@) | ancestors(immutable_heads().., 2) | trunk()".to_string(),
     );
-    cfg.revsets
-        .insert("sign".to_string(), "reachable(@, mutable())".to_string());
+    cfg.revsets.insert("sign".to_string(), "reachable(@, mutable())".to_string());
 
-    cfg.templates
-        .insert("log".to_string(), "builtin_log_compact".to_string());
-    cfg.templates
-        .insert("show".to_string(), "builtin_log_detailed".to_string());
-    cfg.templates
-        .insert("op_log".to_string(), "builtin_op_log_compact".to_string());
+    cfg.templates.insert("log".to_string(), "builtin_log_compact".to_string());
+    cfg.templates.insert("show".to_string(), "builtin_log_detailed".to_string());
+    cfg.templates.insert("op_log".to_string(), "builtin_op_log_compact".to_string());
     cfg.templates.insert(
         "commit_summary".to_string(),
         "format_commit_summary_with_refs(self, format_commit_ref_names(bookmarks))".to_string(),
     );
 
     cfg.colors.insert("error".to_string(), "bold".to_string());
-    cfg.colors
-        .insert("warning".to_string(), "yellow bold".to_string());
-    cfg.colors
-        .insert("hint".to_string(), "cyan bold".to_string());
-    cfg.colors
-        .insert("commit_id".to_string(), "blue".to_string());
-    cfg.colors
-        .insert("change_id".to_string(), "magenta".to_string());
-    cfg.colors
-        .insert("author".to_string(), "yellow".to_string());
-    cfg.colors
-        .insert("timestamp".to_string(), "cyan".to_string());
+    cfg.colors.insert("warning".to_string(), "yellow bold".to_string());
+    cfg.colors.insert("hint".to_string(), "cyan bold".to_string());
+    cfg.colors.insert("commit_id".to_string(), "blue".to_string());
+    cfg.colors.insert("change_id".to_string(), "magenta".to_string());
+    cfg.colors.insert("author".to_string(), "yellow".to_string());
+    cfg.colors.insert("timestamp".to_string(), "cyan".to_string());
     cfg.colors.insert("conflict".to_string(), "red".to_string());
 
     cfg.merge_tools.insert(
         "vscode".to_string(),
         MergeToolConfig {
-            program: Some(if cfg!(windows) {
-                "code.cmd".to_string()
-            } else {
-                "code".to_string()
-            }),
+            program: Some(if cfg!(windows) { "code.cmd".to_string() } else { "code".to_string() }),
             merge_args: vec![
                 "--wait".to_string(),
                 "--merge".to_string(),
@@ -747,9 +727,8 @@ impl Repository {
         let g = self.graph.load_full();
 
         for id in order {
-            let change = g
-                .get(&id)
-                .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
+            let change =
+                g.get(&id).ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
             apply_change(&mut state, change, &self.store, &agent_ignore, None)
                 .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
@@ -800,17 +779,10 @@ impl Repository {
         let mut blame = BlameState::new();
 
         for id in order {
-            let change = g
-                .get(&id)
-                .ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
-            apply_change(
-                &mut state,
-                change,
-                &self.store,
-                &agent_ignore,
-                Some(&mut blame),
-            )
-            .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
+            let change =
+                g.get(&id).ok_or_else(|| anyhow::anyhow!("change {id:?} missing from graph"))?;
+            apply_change(&mut state, change, &self.store, &agent_ignore, Some(&mut blame))
+                .map_err(|e| anyhow::anyhow!("replay error: {e}"))?;
         }
 
         // Filter to nodes belonging to `filepath`.
@@ -896,12 +868,7 @@ impl Repository {
         let current_state = self.materialize(&current_name)?;
 
         // Check for un-snapped changes.
-        check_working_dir_clean(
-            &self.work_root,
-            &current_state,
-            &self.store,
-            "switching views",
-        )?;
+        check_working_dir_clean(&self.work_root, &current_state, &self.store, "switching views")?;
 
         // Hydrate the target view.
         self.hydrate(target)?;
@@ -955,10 +922,7 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
 
         // Materialize LCA state directly from heads — no temp view needed.
-        let lca_heads = self
-            .graph
-            .load()
-            .merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_heads = self.graph.load().merge_base(&current_view.heads, &conflict.target_heads);
         let lca_state = if lca_heads.is_empty() {
             MaterializedState::new()
         } else {
@@ -1024,10 +988,7 @@ impl Repository {
                 .store
                 .write_blob(&resolved)
                 .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
-            merge_atoms.push(Atom::Insert {
-                at: path.clone(),
-                content_hash,
-            });
+            merge_atoms.push(Atom::Insert { at: path.clone(), content_hash });
 
             // Write resolved bytes directly to the working directory.
             if path.len() >= 2 && path[0] == "file" {
@@ -1100,10 +1061,7 @@ impl Repository {
         let current_view = View::load(&self.shared_root, &conflict.current_view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
 
-        let lca_heads = self
-            .graph
-            .load()
-            .merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_heads = self.graph.load().merge_base(&current_view.heads, &conflict.target_heads);
         let lca_state = if lca_heads.is_empty() {
             MaterializedState::new()
         } else {
@@ -1149,11 +1107,8 @@ impl Repository {
                 }
             }
 
-            let file_path = if path.len() >= 2 && path[0] == "file" {
-                path[1].as_str()
-            } else {
-                "unknown"
-            };
+            let file_path =
+                if path.len() >= 2 && path[0] == "file" { path[1].as_str() } else { "unknown" };
 
             let resolved = provider
                 .resolve_conflict(
@@ -1172,10 +1127,7 @@ impl Repository {
                 .store
                 .write_blob(&resolved)
                 .map_err(|e| anyhow::anyhow!("AI merge store write failed: {e}"))?;
-            merge_atoms.push(Atom::Insert {
-                at: path.clone(),
-                content_hash,
-            });
+            merge_atoms.push(Atom::Insert { at: path.clone(), content_hash });
 
             if path.len() >= 2 && path[0] == "file" {
                 let file_path = self.work_root.join(&path[1]);
@@ -1232,13 +1184,9 @@ impl Repository {
             .map(ToOwned::to_owned)
             .or_else(|| cfg.merge.tool.clone())
             .ok_or_else(|| anyhow::anyhow!("no merge tool configured; set merge.tool first"))?;
-        let selected_tool = cfg
-            .merge_tools
-            .get(&selected_name)
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!("merge tool '{selected_name}' is not defined in [merge-tools]")
-            })?;
+        let selected_tool = cfg.merge_tools.get(&selected_name).cloned().ok_or_else(|| {
+            anyhow::anyhow!("merge tool '{selected_name}' is not defined in [merge-tools]")
+        })?;
 
         let conflict_bytes = fs::read(&conflict_path)?;
         let conflict: PendingConflict = bincode::deserialize(&conflict_bytes)
@@ -1250,10 +1198,7 @@ impl Repository {
         let current_view = View::load(&self.shared_root, &conflict.current_view)
             .map_err(|e| anyhow::anyhow!("failed to load view '{}': {e}", conflict.current_view))?;
 
-        let lca_heads = self
-            .graph
-            .load()
-            .merge_base(&current_view.heads, &conflict.target_heads);
+        let lca_heads = self.graph.load().merge_base(&current_view.heads, &conflict.target_heads);
         let lca_state = if lca_heads.is_empty() {
             MaterializedState::new()
         } else {
@@ -1315,10 +1260,7 @@ impl Repository {
                 .store
                 .write_blob(&resolved)
                 .map_err(|e| anyhow::anyhow!("merge-tool store write failed: {e}"))?;
-            merge_atoms.push(Atom::Insert {
-                at: path.clone(),
-                content_hash,
-            });
+            merge_atoms.push(Atom::Insert { at: path.clone(), content_hash });
 
             if path.len() >= 2 && path[0] == "file" {
                 let file_path = self.work_root.join(&path[1]);
@@ -1413,11 +1355,7 @@ impl Repository {
             );
         }
 
-        let path = self
-            .shared_root
-            .join(".arc")
-            .join("ai")
-            .join("last_policy_error.json");
+        let path = self.shared_root.join(".arc").join("ai").join("last_policy_error.json");
         if !path.exists() {
             return Ok(false);
         }
@@ -1437,10 +1375,7 @@ impl Repository {
         let payload: PersistedPolicyPayload = serde_json::from_value(raw_payload)
             .map_err(|e| anyhow::anyhow!("invalid signature-mismatch payload JSON: {e}"))?;
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         // Payloads older than one hour are considered stale and ignored.
         if now.saturating_sub(payload.created_at) > 3600 {
             let _ = fs::remove_file(&path);
@@ -1491,11 +1426,7 @@ impl Repository {
                 };
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n == ".arc")
-                    {
+                    if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n == ".arc") {
                         continue;
                     }
                     if path.is_dir() {
@@ -1513,11 +1444,8 @@ impl Repository {
             out
         }
 
-        let PolicyError::SignatureMismatch {
-            broken_functions,
-            old_signature,
-            new_signature,
-        } = &policy_error
+        let PolicyError::SignatureMismatch { broken_functions, old_signature, new_signature } =
+            &policy_error
         else {
             return Ok(false);
         };
@@ -1527,10 +1455,8 @@ impl Repository {
         let incoming_atoms = broken_functions
             .iter()
             .map(|name| {
-                let sig = new_signature_map
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| "() -> ()".to_string());
+                let sig =
+                    new_signature_map.get(name).cloned().unwrap_or_else(|| "() -> ()".to_string());
                 Atom::SemanticsPreserving {
                     at: vec!["file".to_string(), "incoming.rs".to_string(), name.clone()],
                     description: format!("fn {}{} {{}}", name, sig),
@@ -1585,10 +1511,7 @@ impl Repository {
 
         let pending = PendingAiChange::new_resolve(
             model,
-            format!(
-                "AI lens for policy signature mismatch at {}",
-                payload.mount_path
-            ),
+            format!("AI lens for policy signature mismatch at {}", payload.mount_path),
             affected_files,
             lens_atoms,
             view.heads.iter().copied().collect(),
@@ -1635,10 +1558,7 @@ impl Repository {
             );
         }
 
-        let ai_author = Author::AI {
-            model: pending.model.clone(),
-            human_sponsor: human_key,
-        };
+        let ai_author = Author::AI { model: pending.model.clone(), human_sponsor: human_key };
 
         let id = match pending.kind {
             PendingKind::Resolve => {
@@ -1649,10 +1569,7 @@ impl Repository {
                     pending.staged_atoms.clone(),
                     &pending.intent,
                     ai_author,
-                    arc_change::AuthorType::AI {
-                        confidence: 0.85,
-                        human_sponsor: Some(human_key),
-                    },
+                    arc_change::AuthorType::AI { confidence: 0.85, human_sponsor: Some(human_key) },
                     false,
                     signing_key,
                 );
@@ -1697,10 +1614,9 @@ impl Repository {
                     );
                 }
                 // Diff the working directory and snap with Author::AI.
-                self.snap_ai(&pending.intent, &ai_author, signing_key)?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("no working-directory changes detected — nothing to commit")
-                    })?
+                self.snap_ai(&pending.intent, &ai_author, signing_key)?.ok_or_else(|| {
+                    anyhow::anyhow!("no working-directory changes detected — nothing to commit")
+                })?
             }
         };
 
@@ -1729,10 +1645,9 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
         self.write_blob_atoms(&raw_atoms)?;
         let author_type = match author {
-            Author::AI { human_sponsor, .. } => arc_change::AuthorType::AI {
-                confidence: 0.8,
-                human_sponsor: Some(*human_sponsor),
-            },
+            Author::AI { human_sponsor, .. } => {
+                arc_change::AuthorType::AI { confidence: 0.8, human_sponsor: Some(*human_sponsor) }
+            }
             _ => arc_change::AuthorType::Human,
         };
         let change = Change::new_with_metadata(
@@ -1744,14 +1659,11 @@ impl Repository {
             false,
             signing_key,
         );
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.store.write_change(&change).map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph_add_change(change.clone());
         let before_heads = view.heads.clone();
         view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
         self.log_operation("snap", &view_name, before_heads, HashSet::from([change.id]))?;
         let _ = self.try_embed_change(&change);
         Ok(Some(change.id))
@@ -1764,11 +1676,7 @@ impl Repository {
     /// is only updated when `.arc/ai/embeddings.db` already exists (meaning
     /// the user has already run `arc log --intent` to bootstrap the index).
     pub(super) fn try_embed_change(&self, change: &Change) -> anyhow::Result<()> {
-        let db_path = self
-            .shared_root
-            .join(".arc")
-            .join("ai")
-            .join("embeddings.db");
+        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
         if !db_path.exists() {
             // Index not yet bootstrapped; skip silently.
             return Ok(());
@@ -1825,10 +1733,7 @@ impl Repository {
                         let prior_hash = self.store.write_blob(&prior_bytes).map_err(|e| {
                             anyhow::anyhow!("CAS write error for stash delete: {e}")
                         })?;
-                        stash_atoms.push(Atom::Delete {
-                            at: key.clone(),
-                            prior_hash,
-                        });
+                        stash_atoms.push(Atom::Delete { at: key.clone(), prior_hash });
                     }
                 }
             }
@@ -1844,8 +1749,7 @@ impl Repository {
             .filter_map(|e| e.ok())
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().into_owned();
-                name.strip_prefix(".stash_")
-                    .and_then(|n| n.parse::<u32>().ok())
+                name.strip_prefix(".stash_").and_then(|n| n.parse::<u32>().ok())
             })
             .max()
             .unwrap_or(0)
@@ -1920,18 +1824,12 @@ impl Repository {
             .filter_map(|e| e.ok())
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().into_owned();
-                if name.starts_with(".stash_") {
-                    Some(name)
-                } else {
-                    None
-                }
+                if name.starts_with(".stash_") { Some(name) } else { None }
             })
             .collect();
         names.sort_by(|a, b| {
             let n = |s: &str| {
-                s.strip_prefix(".stash_")
-                    .and_then(|x| x.parse::<u32>().ok())
-                    .unwrap_or(0)
+                s.strip_prefix(".stash_").and_then(|x| x.parse::<u32>().ok()).unwrap_or(0)
             };
             n(a).cmp(&n(b))
         });
@@ -2160,10 +2058,7 @@ impl Repository {
             let start = Instant::now();
             let mut hits = 0usize;
             for change in graph.iter() {
-                if ChangeId::from(change.id)
-                    .to_hex()
-                    .starts_with(&prefix_lower)
-                {
+                if ChangeId::from(change.id).to_hex().starts_with(&prefix_lower) {
                     hits += 1;
                 }
             }
@@ -2183,20 +2078,14 @@ impl Repository {
     /// in the current view), then updated incrementally by [`snap`] and
     /// [`approve_pending_ai`] on each new write.
     pub fn log_semantic(&mut self, query: &str, k: usize) -> anyhow::Result<Vec<(Change, f32)>> {
-        let db_path = self
-            .shared_root
-            .join(".arc")
-            .join("ai")
-            .join("embeddings.db");
+        let db_path = self.shared_root.join(".arc").join("ai").join("embeddings.db");
 
         // Initialise the embedding provider (may trigger model download on
         // first call; subsequent calls load the model from disk cache).
         eprintln!("[arc] Initializing embedding provider…");
         let provider = HybridProvider::new().context("failed to initialize embedding provider")?;
 
-        let query_vec = provider
-            .embed(query)
-            .context("failed to embed search query")?;
+        let query_vec = provider.embed(query).context("failed to embed search query")?;
 
         // Open (or create) the vector store.
         let store = VectorStore::open(&db_path).context("failed to open vector store")?;
@@ -2213,19 +2102,14 @@ impl Repository {
             let hex_id: String = id.iter().map(|b| format!("{b:02x}")).collect();
             if let Some(change) = g.get(id) {
                 // Only index if not already present (avoid redundant embeds).
-                let embedding = provider
-                    .embed(&change.intent)
-                    .context("failed to embed change intent")?;
-                store
-                    .upsert(&hex_id, &embedding)
-                    .context("failed to upsert embedding")?;
+                let embedding =
+                    provider.embed(&change.intent).context("failed to embed change intent")?;
+                store.upsert(&hex_id, &embedding).context("failed to upsert embedding")?;
             }
         }
 
         // Search.
-        let results = store
-            .search(&query_vec, k)
-            .context("vector store search failed")?;
+        let results = store.search(&query_vec, k).context("vector store search failed")?;
 
         let mut out = Vec::new();
         for (id_hex, score) in results {
@@ -2288,10 +2172,7 @@ impl Repository {
             let g = self.graph.load_full();
             for exc_id in &exclusive {
                 let exc_change = g.get(exc_id).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "change {} missing from graph during cherry-pick",
-                        _hex(exc_id)
-                    )
+                    anyhow::anyhow!("change {} missing from graph during cherry-pick", _hex(exc_id))
                 })?;
                 if !commutes(&change, exc_change) {
                     anyhow::bail!(
@@ -2470,11 +2351,8 @@ impl Repository {
         for tag in tags {
             if patterns.iter().any(|p| simple_pattern_match(p, &tag.name)) {
                 let safe_name = tag.name.replace('/', "-");
-                let path = self
-                    .shared_root
-                    .join(".arc")
-                    .join("tags")
-                    .join(format!("{safe_name}.json"));
+                let path =
+                    self.shared_root.join(".arc").join("tags").join(format!("{safe_name}.json"));
                 if path.exists() {
                     fs::remove_file(&path)
                         .map_err(|e| anyhow::anyhow!("failed to delete tag '{}': {e}", tag.name))?;
@@ -2758,9 +2636,8 @@ impl Repository {
         }
 
         // Log before writing so undo() can re-materialize the view state.
-        let view_heads = View::load(&self.shared_root, &view_name)
-            .map(|v| v.heads)
-            .unwrap_or_default();
+        let view_heads =
+            View::load(&self.shared_root, &view_name).map(|v| v.heads).unwrap_or_default();
         self.log_operation("restore", &view_name, view_heads.clone(), view_heads)?;
 
         let full = self.work_root.join(filepath);
@@ -2779,11 +2656,7 @@ impl Repository {
             if let Some(content) = state.get(&path_key) {
                 if content.starts_with(b"ARC_BLOB_REF:") && content.len() >= 45 {
                     let hash: Blake3Hash = content[13..45].try_into().unwrap_or([0u8; 32]);
-                    let blob_path = self
-                        .shared_root
-                        .join(".arc")
-                        .join("blobs")
-                        .join(_hex(&hash));
+                    let blob_path = self.shared_root.join(".arc").join("blobs").join(_hex(&hash));
                     let blob_file = std::fs::File::open(&blob_path)
                         .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
                     // SAFETY: The CAS blob store is an append-only, content-addressed system.
@@ -2817,11 +2690,7 @@ impl Repository {
             .filter_map(|e| e.ok())
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().into_owned();
-                if name.starts_with('.') {
-                    None
-                } else {
-                    Some(name)
-                }
+                if name.starts_with('.') { None } else { Some(name) }
             })
             .collect();
         names.sort();
@@ -2862,9 +2731,7 @@ impl Repository {
         ];
         for (label, value) in rows {
             table.add_row(vec![
-                Cell::new(label)
-                    .fg(Color::Cyan)
-                    .add_attribute(Attribute::Bold),
+                Cell::new(label).fg(Color::Cyan).add_attribute(Attribute::Bold),
                 Cell::new(value),
             ]);
         }
@@ -2923,10 +2790,7 @@ impl Repository {
     }
 
     fn redo_stack_path(&self) -> PathBuf {
-        self.shared_root
-            .join(".arc")
-            .join("local")
-            .join("redo_stack.json")
+        self.shared_root.join(".arc").join("local").join("redo_stack.json")
     }
 
     fn load_redo_stack(&self) -> anyhow::Result<Vec<Operation>> {
@@ -2973,10 +2837,7 @@ impl Repository {
         }
         if path.exists() {
             fs::rename(&path, &staged_backup).map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to stage redo stack backup '{}': {e}",
-                    path.display()
-                )
+                anyhow::anyhow!("failed to stage redo stack backup '{}': {e}", path.display())
             })?;
         }
 
@@ -3003,10 +2864,7 @@ impl Repository {
     }
 
     fn restack_checkpoint_path(&self) -> PathBuf {
-        self.shared_root
-            .join(".arc")
-            .join("local")
-            .join("pending_restack.json")
+        self.shared_root.join(".arc").join("local").join("pending_restack.json")
     }
 
     fn load_pending_restack(&self) -> anyhow::Result<Option<PendingRewrite>> {
@@ -3169,11 +3027,7 @@ impl Repository {
         if let Err(err) = self.persist_epoch_map_raw(previous_epoch) {
             failures.push(format!("epoch rollback failed: {err}"));
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            anyhow::bail!(failures.join("; "))
-        }
+        if failures.is_empty() { Ok(()) } else { anyhow::bail!(failures.join("; ")) }
     }
 
     fn rollback_rewrite_map_entries(
@@ -3214,9 +3068,7 @@ impl Repository {
             && let Err(err) = self.rollback_rewrite_map_entries(&op.rewrite_map)
         {
             let _ = OpLog::new(&arc_dir).append(&op);
-            return Err(anyhow::anyhow!(
-                "failed to rollback rewrite map during undo: {err}"
-            ));
+            return Err(anyhow::anyhow!("failed to rollback rewrite map during undo: {err}"));
         }
 
         // Load the current view and materialise it so we know which blob files
@@ -3250,9 +3102,8 @@ impl Repository {
             .into_iter()
             .filter(|f| !f.ends_with(".rs"))
             .collect();
-        for filepath in extract_filepaths_from_state(&current_state)
-            .into_iter()
-            .filter(|f| !f.ends_with(".rs"))
+        for filepath in
+            extract_filepaths_from_state(&current_state).into_iter().filter(|f| !f.ends_with(".rs"))
         {
             if !blobs_after.contains(&filepath) {
                 let _ = fs::remove_file(self.work_root.join(&filepath));
@@ -3348,11 +3199,7 @@ impl Repository {
         let view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
 
-        let targets = if revisions.is_empty() {
-            vec!["@".to_string()]
-        } else {
-            revisions.to_vec()
-        };
+        let targets = if revisions.is_empty() { vec!["@".to_string()] } else { revisions.to_vec() };
 
         let mut resolved = Vec::with_capacity(targets.len());
         for rev in &targets {
@@ -3409,10 +3256,7 @@ impl Repository {
 
         let exact_snapshot_matches: Vec<Operation> = ops
             .iter()
-            .filter(|op| {
-                op.snapshot
-                    .is_some_and(|snapshot| snapshot.to_hex() == op_id)
-            })
+            .filter(|op| op.snapshot.is_some_and(|snapshot| snapshot.to_hex() == op_id))
             .cloned()
             .collect();
 
@@ -3454,9 +3298,7 @@ impl Repository {
             .iter()
             .filter(|op| {
                 op.id.starts_with(op_id)
-                    || op
-                        .snapshot
-                        .is_some_and(|snapshot| snapshot.to_hex().starts_with(op_id))
+                    || op.snapshot.is_some_and(|snapshot| snapshot.to_hex().starts_with(op_id))
             })
             .cloned()
             .collect();
@@ -3531,12 +3373,9 @@ impl Repository {
             return Err(err);
         }
 
-        if let Err(err) = self.log_operation(
-            command_label,
-            &view_name,
-            before_heads.clone(),
-            after_hashes,
-        ) {
+        if let Err(err) =
+            self.log_operation(command_label, &view_name, before_heads.clone(), after_hashes)
+        {
             let rollback_view = View::new(&view_name, before_heads);
             let _ = rollback_view.save(&self.shared_root);
             let _ = write_state_to_working_dir(&self.work_root, &self.shared_root, &before_state);
@@ -3660,9 +3499,7 @@ impl Repository {
             author.clone(),
             signing_key,
         );
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.store.write_change(&change).map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph_add_change(change.clone());
         // Record the completed mount-add in the spacetime log.
         self.log_operation(
@@ -3672,8 +3509,7 @@ impl Repository {
             HashSet::from([change.id]),
         )?;
         view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
         Ok(change.id)
     }
 
@@ -3762,10 +3598,7 @@ impl Repository {
             self.ensure_linked_workspace_path(candidate)?;
         }
         fs::canonicalize(candidate).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to resolve workspace root '{}': {e}",
-                candidate.display()
-            )
+            anyhow::anyhow!("failed to resolve workspace root '{}': {e}", candidate.display())
         })
     }
 
@@ -3780,10 +3613,7 @@ impl Repository {
     pub fn workspace_rename(&self, old_path: &Path, new_path: &Path) -> anyhow::Result<()> {
         self.ensure_linked_workspace_path(old_path)?;
         if new_path.exists() {
-            anyhow::bail!(
-                "target workspace path '{}' already exists",
-                new_path.display()
-            );
+            anyhow::bail!("target workspace path '{}' already exists", new_path.display());
         }
         fs::rename(old_path, new_path).map_err(|e| {
             anyhow::anyhow!(
@@ -4125,10 +3955,7 @@ impl Repository {
                     .store
                     .write_blob(content)
                     .map_err(|e| anyhow::anyhow!("CAS write error in compact: {e}"))?;
-                atoms.push(Atom::Insert {
-                    at: path.clone(),
-                    content_hash,
-                });
+                atoms.push(Atom::Insert { at: path.clone(), content_hash });
             }
         }
 
@@ -4174,10 +4001,8 @@ impl Repository {
                 if any_compacted {
                     // Replace compacted heads with the genesis ID; preserve any
                     // non-compacted heads (live, unstable parallel branches).
-                    let mut new_heads: HashSet<Blake3Hash> = old_heads
-                        .into_iter()
-                        .filter(|h| !causally_stable.contains(h))
-                        .collect();
+                    let mut new_heads: HashSet<Blake3Hash> =
+                        old_heads.into_iter().filter(|h| !causally_stable.contains(h)).collect();
                     new_heads.insert(genesis_id);
                     view.heads = new_heads;
                     view.save(&self.shared_root)
@@ -4295,12 +4120,7 @@ impl Repository {
             .map_err(|e| anyhow::anyhow!("could not rename epoch map: {e}"))?;
 
         // Record the completed amend in the spacetime log.
-        self.log_operation(
-            "amend",
-            &view_name,
-            view.heads.clone(),
-            HashSet::from([new_id]),
-        )?;
+        self.log_operation("amend", &view_name, view.heads.clone(), HashSet::from([new_id]))?;
 
         // Repoint the view to the new change.
         let updated_view = View::new(&view_name, HashSet::from([new_id]));
@@ -4493,11 +4313,8 @@ impl Repository {
             pending.view
         );
 
-        let desired: Vec<Blake3Hash> = pending
-            .resolved_order()
-            .into_iter()
-            .map(Blake3Hash::from)
-            .collect();
+        let desired: Vec<Blake3Hash> =
+            pending.resolved_order().into_iter().map(Blake3Hash::from).collect();
 
         let (author, signing_key) = self.signing_identity()?;
         let signer = (author.clone(), signing_key.clone());
@@ -4712,10 +4529,7 @@ impl Repository {
         write_state_to_working_dir(&self.work_root, &self.shared_root, &state)?;
 
         tracing::info!(target = %_hex(&target_id), "diffedit prepare complete");
-        println!(
-            "diffedit: working directory set to change {}",
-            &_hex(&target_id)[..12]
-        );
+        println!("diffedit: working directory set to change {}", &_hex(&target_id)[..12]);
         println!("Edit your files then run `arc diffedit --apply` to record the change.");
         Ok(())
     }
@@ -4787,10 +4601,8 @@ impl Repository {
                 .write_blob(&prior_bytes)
                 .map_err(|e| anyhow::anyhow!("diffedit store write error: {e}"))?;
             for seg in files_before.iter().filter(|p| p == &filepath) {
-                new_atoms.push(Atom::Delete {
-                    at: vec!["file".to_string(), seg.clone()],
-                    prior_hash,
-                });
+                new_atoms
+                    .push(Atom::Delete { at: vec!["file".to_string(), seg.clone()], prior_hash });
             }
         }
 
@@ -4803,13 +4615,8 @@ impl Repository {
             .unwrap_or_else(|| format!("diffedit: {}", target_change.intent));
 
         let (author, signing_key) = self.signing_identity()?;
-        let new_change = Change::new(
-            target_change.deps.clone(),
-            new_atoms,
-            intent,
-            author.clone(),
-            signing_key,
-        );
+        let new_change =
+            Change::new(target_change.deps.clone(), new_atoms, intent, author.clone(), signing_key);
         let new_id = new_change.id;
 
         self.store
@@ -4965,8 +4772,7 @@ impl Repository {
 
     /// Typed variant of [`resolve_revset_symbol`] used by the revset evaluator.
     pub fn resolve_revset_symbol_typed(&self, symbol: &str) -> anyhow::Result<Option<ChangeId>> {
-        self.resolve_revset_symbol(symbol)
-            .map(|opt| opt.map(ChangeId::from))
+        self.resolve_revset_symbol(symbol).map(|opt| opt.map(ChangeId::from))
     }
 
     /// Resolve metadata-backed revset functions to typed reference heads.
@@ -5080,10 +4886,9 @@ pub(super) fn constrain_touched_to_current_view(
 
 fn contains_function(expr: &arc_revset::RevsetExpression, name: &str) -> bool {
     match expr {
-        arc_revset::RevsetExpression::Function {
-            name: fn_name,
-            args,
-        } => fn_name == name || args.iter().any(|arg| contains_function(arg, name)),
+        arc_revset::RevsetExpression::Function { name: fn_name, args } => {
+            fn_name == name || args.iter().any(|arg| contains_function(arg, name))
+        }
         arc_revset::RevsetExpression::Intersection(left, right)
         | arc_revset::RevsetExpression::Union(left, right) => {
             contains_function(left, name) || contains_function(right, name)
@@ -5103,10 +4908,7 @@ fn next_mutation_id(
     view: &str,
     rewrite_map: &HashMap<Blake3Hash, Blake3Hash>,
 ) -> anyhow::Result<MutationId> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let mut edges: Vec<(Blake3Hash, Blake3Hash)> =
         rewrite_map.iter().map(|(old, new)| (*old, *new)).collect();
     edges.sort();
@@ -5170,12 +4972,8 @@ fn conflict_projection_for_file(
 
 fn read_blob_bytes(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<Vec<u8>> {
     let blob_path = shared_root.join(".arc").join("blobs").join(_hex(hash));
-    fs::read(&blob_path).map_err(|e| {
-        anyhow::anyhow!(
-            "failed to read conflict blob '{}': {e}",
-            blob_path.display()
-        )
-    })
+    fs::read(&blob_path)
+        .map_err(|e| anyhow::anyhow!("failed to read conflict blob '{}': {e}", blob_path.display()))
 }
 
 fn read_blob_text(shared_root: &Path, hash: &Blake3Hash) -> anyhow::Result<String> {
@@ -5204,10 +5002,7 @@ fn run_external_merge_tool_once(
     ours_content: &[u8],
     theirs_content: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
-    let program = tool
-        .program
-        .clone()
-        .unwrap_or_else(|| tool_name.to_string());
+    let program = tool.program.clone().unwrap_or_else(|| tool_name.to_string());
     anyhow::ensure!(
         !tool.merge_args.is_empty(),
         "merge tool '{tool_name}' has no merge_args configured"
@@ -5245,17 +5040,11 @@ fn run_external_merge_tool_once(
         .args(&args)
         .status()
         .map_err(|e| anyhow::anyhow!("failed to execute merge tool '{program}': {e}"))?;
-    anyhow::ensure!(
-        status.success(),
-        "merge tool '{program}' exited with status {status}"
-    );
+    anyhow::ensure!(status.success(), "merge tool '{program}' exited with status {status}");
 
     let resolved = fs::read(&output_file)
         .map_err(|e| anyhow::anyhow!("failed to read merge output temp file: {e}"))?;
-    anyhow::ensure!(
-        !resolved.is_empty(),
-        "merge tool '{tool_name}' produced empty output"
-    );
+    anyhow::ensure!(!resolved.is_empty(), "merge tool '{tool_name}' produced empty output");
     Ok(resolved)
 }
 
@@ -5271,20 +5060,13 @@ fn render_conflict_markers(
         let _ = read_blob_text(shared_root, base)?;
     }
 
-    let side_a_hash = sides
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("conflict side A missing"))?;
-    let side_b_hash = sides
-        .get(1)
-        .ok_or_else(|| anyhow::anyhow!("conflict side B missing"))?;
+    let side_a_hash = sides.first().ok_or_else(|| anyhow::anyhow!("conflict side A missing"))?;
+    let side_b_hash = sides.get(1).ok_or_else(|| anyhow::anyhow!("conflict side B missing"))?;
 
     let side_a = read_blob_text(shared_root, side_a_hash)?;
     let side_b = read_blob_text(shared_root, side_b_hash)?;
 
-    Ok(format!(
-        "<<<<<<< side_a\n{}\n=======\n{}\n>>>>>>> side_b\n",
-        side_a, side_b
-    ))
+    Ok(format!("<<<<<<< side_a\n{}\n=======\n{}\n>>>>>>> side_b\n", side_a, side_b))
 }
 
 /// Decode a 64-character hex string to a [`Blake3Hash`] (used by log_semantic).
@@ -5372,11 +5154,7 @@ fn atom_label(atom: &Atom) -> String {
             )
         }
         Atom::SemanticsPreserving { at, description } => {
-            format!(
-                "Reformat: {} ({})",
-                at.last().unwrap_or(&"?".to_string()),
-                description
-            )
+            format!("Reformat: {} ({})", at.last().unwrap_or(&"?".to_string()), description)
         }
         Atom::Directory { path } => {
             format!("Directory:{}", path.last().unwrap_or(&"?".to_string()))
@@ -5423,43 +5201,20 @@ pub fn prefix_atom_path(atom: Atom, filepath: &str) -> Atom {
         prefixed
     };
     match atom {
-        Atom::Insert { at, content_hash } => Atom::Insert {
-            at: prepend(at),
-            content_hash,
-        },
-        Atom::Delete { at, prior_hash } => Atom::Delete {
-            at: prepend(at),
-            prior_hash,
-        },
-        Atom::Move { from, to } => Atom::Move {
-            from: prepend(from),
-            to: prepend(to),
-        },
-        Atom::SemanticsPreserving { at, description } => Atom::SemanticsPreserving {
-            at: prepend(at),
-            description,
-        },
-        Atom::Directory { path } => Atom::Directory {
-            path: prepend(path),
-        },
+        Atom::Insert { at, content_hash } => Atom::Insert { at: prepend(at), content_hash },
+        Atom::Delete { at, prior_hash } => Atom::Delete { at: prepend(at), prior_hash },
+        Atom::Move { from, to } => Atom::Move { from: prepend(from), to: prepend(to) },
+        Atom::SemanticsPreserving { at, description } => {
+            Atom::SemanticsPreserving { at: prepend(at), description }
+        }
+        Atom::Directory { path } => Atom::Directory { path: prepend(path) },
         Atom::Blob { path, hash, size } => Atom::Blob {
-            path: if path.is_empty() {
-                filepath.to_string()
-            } else {
-                format!("{filepath}/{path}")
-            },
+            path: if path.is_empty() { filepath.to_string() } else { format!("{filepath}/{path}") },
             hash,
             size,
         },
-        Atom::Mount { path, coordinate } => Atom::Mount {
-            path: prepend(path),
-            coordinate,
-        },
-        Atom::Conflict { bases, sides, at } => Atom::Conflict {
-            bases,
-            sides,
-            at: prepend(at),
-        },
+        Atom::Mount { path, coordinate } => Atom::Mount { path: prepend(path), coordinate },
+        Atom::Conflict { bases, sides, at } => Atom::Conflict { bases, sides, at: prepend(at) },
     }
 }
 
@@ -5674,10 +5429,7 @@ fn validate_sparse_patterns(
         if normalized.is_empty() {
             continue;
         }
-        if arcignore
-            .matched_path_or_any_parents(normalized, true)
-            .is_ignore()
-        {
+        if arcignore.matched_path_or_any_parents(normalized, true).is_ignore() {
             anyhow::bail!(
                 "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose a different sparse path",
                 pattern
@@ -5880,8 +5632,8 @@ pub fn load_merged_config(shared_root: &Path) -> anyhow::Result<ArcConfig> {
     merged.remotes.extend(local.remotes);
     merged.aliases.extend(local.aliases);
     let local_trust = arc_store_policy::repo_trust_level(shared_root);
-    let hook_permission = arc_policy::TrustMapping::<arc_policy::Permission>::default()
-        .by_level(local_trust);
+    let hook_permission =
+        arc_policy::TrustMapping::<arc_policy::Permission>::default().by_level(local_trust);
     if hook_permission.is_allowed() {
         merged.hooks.extend(local.hooks);
     }
@@ -5947,10 +5699,7 @@ fn collect_empty_dirs_recursive(
         }
         if let Ok(rel) = dir.strip_prefix(base) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
-            if arcignore
-                .matched_path_or_any_parents(&rel_str, true)
-                .is_ignore()
-            {
+            if arcignore.matched_path_or_any_parents(&rel_str, true).is_ignore() {
                 return Ok(());
             }
             if contains_hard_ignored_dir(rel) {
@@ -6025,10 +5774,7 @@ fn collect_all_recursive(
         // Skip paths matched by .arcignore.
         if let Ok(rel) = path.strip_prefix(base) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
-            if arcignore
-                .matched_path_or_any_parents(&rel_str, path.is_dir())
-                .is_ignore()
-            {
+            if arcignore.matched_path_or_any_parents(&rel_str, path.is_dir()).is_ignore() {
                 continue;
             }
 
@@ -6068,10 +5814,7 @@ fn collect_rs_recursive(
         // Skip paths matched by .arcignore.
         if let Ok(rel) = path.strip_prefix(base) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
-            if arcignore
-                .matched_path_or_any_parents(&rel_str, path.is_dir())
-                .is_ignore()
-            {
+            if arcignore.matched_path_or_any_parents(&rel_str, path.is_dir()).is_ignore() {
                 continue;
             }
 
@@ -6121,10 +5864,7 @@ pub(super) fn is_implicitly_ignored(file_path: &Path) -> bool {
         return true;
     }
 
-    let ext = file_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_ascii_lowercase());
+    let ext = file_path.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase());
 
     if matches!(ext.as_deref(), Some("pem" | "key")) {
         return true;
@@ -6160,13 +5900,7 @@ fn count_files_recursive(dir: &Path) -> usize {
         Err(_) => 0,
         Ok(rd) => rd
             .filter_map(|e| e.ok())
-            .map(|e| {
-                if e.path().is_dir() {
-                    count_files_recursive(&e.path())
-                } else {
-                    1
-                }
-            })
+            .map(|e| if e.path().is_dir() { count_files_recursive(&e.path()) } else { 1 })
             .sum(),
     }
 }
@@ -6277,10 +6011,7 @@ mod tests {
         assert_eq!(repo.current_view_name().unwrap(), "main");
 
         // Verify b.rs is gone (main doesn't have it).
-        assert!(
-            !repo_path.join("b.rs").exists(),
-            "b.rs should not exist on main"
-        );
+        assert!(!repo_path.join("b.rs").exists(), "b.rs should not exist on main");
 
         // Snap file C on main.
         fs::write(repo_path.join("c.rs"), "fn c() {}").unwrap();
@@ -6290,18 +6021,9 @@ mod tests {
         repo.merge_view("feature").unwrap();
 
         // After merge, all three files should be present.
-        assert!(
-            repo_path.join("a.rs").exists(),
-            "a.rs must exist after merge"
-        );
-        assert!(
-            repo_path.join("b.rs").exists(),
-            "b.rs must exist after merge"
-        );
-        assert!(
-            repo_path.join("c.rs").exists(),
-            "c.rs must exist after merge"
-        );
+        assert!(repo_path.join("a.rs").exists(), "a.rs must exist after merge");
+        assert!(repo_path.join("b.rs").exists(), "b.rs must exist after merge");
+        assert!(repo_path.join("c.rs").exists(), "c.rs must exist after merge");
 
         // The main view should have 2 heads (one from each branch).
         let main_view = arc_store_view::View::load(&repo_path, "main").unwrap();
@@ -6355,19 +6077,13 @@ mod tests {
         let second = repo.snap("changed", false).unwrap().unwrap();
 
         let undone = repo.undo().unwrap().unwrap();
-        assert_eq!(
-            undone.after_heads,
-            std::collections::BTreeSet::from([ChangeId::from(second)])
-        );
+        assert_eq!(undone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
 
         let after_undo = View::load(&repo.shared_root, "main").unwrap();
         assert_eq!(after_undo.heads, HashSet::from([first]));
 
         let redone = repo.redo().unwrap().unwrap();
-        assert_eq!(
-            redone.after_heads,
-            std::collections::BTreeSet::from([ChangeId::from(second)])
-        );
+        assert_eq!(redone.after_heads, std::collections::BTreeSet::from([ChangeId::from(second)]));
 
         let after_redo = View::load(&repo.shared_root, "main").unwrap();
         assert_eq!(after_redo.heads, HashSet::from([second]));
@@ -6394,13 +6110,7 @@ mod tests {
 
         let started = repo.bisect_start("ancestors(@)", false).unwrap();
         assert!(started.current.is_some());
-        assert!(
-            repo_path
-                .join(".arc")
-                .join("bisect")
-                .join("state.bin")
-                .exists()
-        );
+        assert!(repo_path.join(".arc").join("bisect").join("state.bin").exists());
 
         let after_mark = repo.bisect_mark_good().unwrap();
         // After marking current as good, either we have a next candidate or session converged.
@@ -6423,18 +6133,14 @@ mod tests {
         repo.set_identity(author.clone(), signing_key.clone());
 
         fs::write(repo_path.join("main.rs"), "fn main() { let a = 1; }").unwrap();
-        let main_head = repo
-            .snap("main head", false)
-            .unwrap()
-            .expect("main snap should create change");
+        let main_head =
+            repo.snap("main head", false).unwrap().expect("main snap should create change");
 
         repo.create_view("feature").unwrap();
         repo.switch_view("feature").unwrap();
         fs::write(repo_path.join("feature.rs"), "fn feature() { let b = 2; }").unwrap();
-        let feature_head = repo
-            .snap("feature head", false)
-            .unwrap()
-            .expect("feature snap should create change");
+        let feature_head =
+            repo.snap("feature head", false).unwrap().expect("feature snap should create change");
 
         repo.switch_view("main").unwrap();
 
@@ -6448,18 +6154,11 @@ mod tests {
 
         let graph = reopened.graph_snapshot();
         let mut resolver = |symbol: &str| reopened.resolve_revset_symbol(symbol);
-        let ids: HashSet<Blake3Hash> = arc_revset::compile(&expr, graph, &mut resolver)
-            .unwrap()
-            .collect();
+        let ids: HashSet<Blake3Hash> =
+            arc_revset::compile(&expr, graph, &mut resolver).unwrap().collect();
 
-        assert!(
-            ids.contains(&feature_head),
-            "revset must include feature head"
-        );
-        assert!(
-            ids.contains(&main_head),
-            "revset must include feature ancestor"
-        );
+        assert!(ids.contains(&feature_head), "revset must include feature head");
+        assert!(ids.contains(&main_head), "revset must include feature ancestor");
     }
 
     #[test]
@@ -6479,11 +6178,7 @@ mod tests {
 
         repo.create_view("feature").unwrap();
         repo.switch_view("feature").unwrap();
-        fs::write(
-            repo_path.join("main.rs"),
-            "fn main() { let feature = 2; }\n",
-        )
-        .unwrap();
+        fs::write(repo_path.join("main.rs"), "fn main() { let feature = 2; }\n").unwrap();
         let feature_main_id = repo.snap("feature main", false).unwrap().unwrap();
 
         repo.switch_view("main").unwrap();
@@ -6518,10 +6213,7 @@ mod tests {
         repo.create_view("feature").unwrap();
         repo.switch_view("feature").unwrap();
         fs::write(repo_path.join("feature.rs"), "fn feature() {}\n").unwrap();
-        let feature_head = repo
-            .snap("feature head", false)
-            .unwrap()
-            .expect("feature snap");
+        let feature_head = repo.snap("feature head", false).unwrap().expect("feature snap");
 
         repo.switch_view("main").unwrap();
         fs::write(repo_path.join("main.rs"), "fn main_head() {}\n").unwrap();
@@ -6529,9 +6221,7 @@ mod tests {
 
         repo.merge_view("feature").unwrap();
 
-        let entries = repo
-            .log()
-            .expect("default log must work for multi-head views");
+        let entries = repo.log().expect("default log must work for multi-head views");
         let ids: HashSet<Blake3Hash> = entries.iter().map(|change| change.id).collect();
         assert!(ids.contains(&feature_head));
         assert!(ids.contains(&main_head));
@@ -6589,14 +6279,9 @@ mod tests {
         );
         let head = *main_view.heads.iter().next().unwrap();
         let graph = repo.graph.load();
-        let change = graph
-            .get(&head)
-            .expect("conflict change must exist in graph");
+        let change = graph.get(&head).expect("conflict change must exist in graph");
         assert!(
-            change
-                .atoms
-                .iter()
-                .any(|a| matches!(a, Atom::Conflict { .. })),
+            change.atoms.iter().any(|a| matches!(a, Atom::Conflict { .. })),
             "merged head must contain Atom::Conflict"
         );
     }
@@ -6647,11 +6332,7 @@ mod tests {
 
         // .arc/ai/pending.json must exist — the Ghost Node.
         assert!(
-            repo_path
-                .join(".arc")
-                .join("ai")
-                .join("pending.json")
-                .exists(),
+            repo_path.join(".arc").join("ai").join("pending.json").exists(),
             ".arc/ai/pending.json must exist after resolve_conflict"
         );
 
@@ -6672,20 +6353,14 @@ mod tests {
 
         // Now approve: should write Author::AI change, advance view, clear pending.
         let (approve_author, approve_key) = arc_store_types::author::test_keypair();
-        let merge_id = repo
-            .approve_pending_ai(&approve_author, &approve_key)
-            .unwrap();
+        let merge_id = repo.approve_pending_ai(&approve_author, &approve_key).unwrap();
 
         // The merge change ID should be non-zero.
         assert_ne!(merge_id, [0u8; 32]);
 
         // pending.json must be gone after approval.
         assert!(
-            !repo_path
-                .join(".arc")
-                .join("ai")
-                .join("pending.json")
-                .exists(),
+            !repo_path.join(".arc").join("ai").join("pending.json").exists(),
             ".arc/ai/pending.json must be removed after approve"
         );
 
@@ -6695,14 +6370,8 @@ mod tests {
             .iter()
             .filter(|c| matches!(&c.author, arc_store_types::author::Author::AI { .. }))
             .collect();
-        assert!(
-            !ai_changes.is_empty(),
-            "at least one AI-authored change must be in log"
-        );
-        assert!(
-            ai_changes[0].verify_signature(),
-            "AI change must have a valid signature"
-        );
+        assert!(!ai_changes.is_empty(), "at least one AI-authored change must be in log");
+        assert!(ai_changes[0].verify_signature(), "AI change must have a valid signature");
     }
 
     #[test]
@@ -6743,20 +6412,14 @@ mod tests {
 
         repo.merge_view("feature").unwrap();
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(repo.resolve_conflict_with_provider(&MockProvider, "mock-model"))
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(repo.resolve_conflict_with_provider(&MockProvider, "mock-model")).unwrap();
 
         let content = fs::read_to_string(repo_path.join("shared.rs")).unwrap();
         assert!(content.contains("let a = 1") && content.contains("let b = 2"));
 
         let (approve_author, approve_key) = arc_store_types::author::test_keypair();
-        let _ = repo
-            .approve_pending_ai(&approve_author, &approve_key)
-            .unwrap();
+        let _ = repo.approve_pending_ai(&approve_author, &approve_key).unwrap();
 
         let oplog = arc_store_view::oplog::OpLog::new(&repo.shared_root.join(".arc"));
         let ops = oplog.read_all().unwrap();
@@ -6801,11 +6464,7 @@ mod tests {
         cfg.merge_tools.insert(
             "testtool".to_string(),
             MergeToolConfig {
-                program: Some(if cfg!(windows) {
-                    "cmd".to_string()
-                } else {
-                    "sh".to_string()
-                }),
+                program: Some(if cfg!(windows) { "cmd".to_string() } else { "sh".to_string() }),
                 merge_args: if cfg!(windows) {
                     vec![
                         "/C".to_string(),
@@ -6862,11 +6521,7 @@ mod tests {
             "conflict metadata should be cleared after staging merge-tool resolution"
         );
         assert!(
-            repo_path
-                .join(".arc")
-                .join("ai")
-                .join("pending.json")
-                .exists(),
+            repo_path.join(".arc").join("ai").join("pending.json").exists(),
             "pending ghost node should be staged"
         );
 
@@ -6913,11 +6568,7 @@ mod tests {
         repo.resolve_conflict_with_merge_tool(None).unwrap();
 
         assert!(
-            repo_path
-                .join(".arc")
-                .join("ai")
-                .join("pending.json")
-                .exists(),
+            repo_path.join(".arc").join("ai").join("pending.json").exists(),
             "unchanged output should still stage a pending resolution"
         );
     }
@@ -6950,13 +6601,7 @@ mod tests {
         let msg = format!("{err:#}");
         assert!(msg.contains("exited with status"));
         assert!(repo_path.join(".arc").join("conflict").exists());
-        assert!(
-            !repo_path
-                .join(".arc")
-                .join("ai")
-                .join("pending.json")
-                .exists()
-        );
+        assert!(!repo_path.join(".arc").join("ai").join("pending.json").exists());
     }
 
     #[test]
@@ -6980,10 +6625,7 @@ mod tests {
         let loaded = load_pending_ai(repo_root).expect("must be loadable");
         assert_eq!(loaded.intent, "add retry backoff");
         assert_eq!(loaded.model, "gpt-4o-mini");
-        assert!(matches!(
-            loaded.kind,
-            crate::ai_pending::PendingKind::Generate
-        ));
+        assert!(matches!(loaded.kind, crate::ai_pending::PendingKind::Generate));
 
         clear_pending_ai(repo_root);
         assert!(!has_pending_ai(repo_root));
@@ -7011,10 +6653,7 @@ mod tests {
 
         // Every returned entry must have a valid signature.
         for (path, change) in &entries {
-            assert!(
-                change.verify_signature(),
-                "blame entry for {path:?} has invalid signature"
-            );
+            assert!(change.verify_signature(), "blame entry for {path:?} has invalid signature");
         }
 
         // The first change id must appear somewhere in the blame (root nodes
@@ -7044,17 +6683,11 @@ mod tests {
 
         // Stash it.
         let stash_name = repo.stash().unwrap();
-        assert!(
-            stash_name.starts_with(".stash_"),
-            "stash name must start with .stash_"
-        );
+        assert!(stash_name.starts_with(".stash_"), "stash name must start with .stash_");
 
         // Working directory should now be back to the original content.
         let content = fs::read_to_string(repo_path.join("test.rs")).unwrap();
-        assert_eq!(
-            content, "fn main() {}",
-            "stash must reset working dir to snapped state"
-        );
+        assert_eq!(content, "fn main() {}", "stash must reset working dir to snapped state");
 
         // Stash list should contain the stash.
         let list = repo.stash_list().unwrap();
@@ -7096,10 +6729,7 @@ mod tests {
         repo.switch_view("feature").unwrap();
 
         fs::write(repo_path.join("b.rs"), "fn b() {}").unwrap();
-        let b_id = repo
-            .snap("add b", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        let b_id = repo.snap("add b", false).unwrap().expect("snap must produce a change");
 
         // ── switch back to main, snap fn c() ──────────────────────────────
         repo.switch_view("main").unwrap();
@@ -7118,29 +6748,17 @@ mod tests {
         );
 
         // b.rs must exist on disk with the correct content.
-        assert!(
-            repo_path.join("b.rs").exists(),
-            "cherry-picked file must appear on disk"
-        );
+        assert!(repo_path.join("b.rs").exists(), "cherry-picked file must appear on disk");
 
         // a.rs and c.rs must still be intact.
-        assert!(
-            repo_path.join("a.rs").exists(),
-            "a.rs must not be disturbed"
-        );
-        assert!(
-            repo_path.join("c.rs").exists(),
-            "c.rs must not be disturbed"
-        );
+        assert!(repo_path.join("a.rs").exists(), "a.rs must not be disturbed");
+        assert!(repo_path.join("c.rs").exists(), "c.rs must not be disturbed");
 
         // Verify the AST content of b.rs through the plugin.
         let state = repo.materialize("main").unwrap();
         let plugin = RustPlugin::new();
         let src = plugin.unparse(&state, "b.rs").unwrap_or_default();
-        assert!(
-            src.contains("fn b"),
-            "materialized b.rs must contain fn b, got: {src}"
-        );
+        assert!(src.contains("fn b"), "materialized b.rs must contain fn b, got: {src}");
     }
 
     /// `revert` must produce the exact semantic anti-patch: the reverted
@@ -7159,10 +6777,7 @@ mod tests {
 
         // Snap "fn alpha() {}" into the repository.
         fs::write(repo_path.join("src.rs"), "fn alpha() {}").unwrap();
-        let snap_id = repo
-            .snap("add alpha", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        let snap_id = repo.snap("add alpha", false).unwrap().expect("snap must produce a change");
 
         // Revert it — this should produce a semantic anti-patch.
         let revert_id = repo.revert(&snap_id).unwrap();
@@ -7179,12 +6794,7 @@ mod tests {
 
         // The graph must contain exactly snap + revert = 2 changes.
         let log = repo.log().unwrap();
-        assert_eq!(
-            log.len(),
-            2,
-            "log must contain snap + revert = 2 changes, got {}",
-            log.len()
-        );
+        assert_eq!(log.len(), 2, "log must contain snap + revert = 2 changes, got {}", log.len());
 
         // The revert change must carry a valid cryptographic signature.
         let rc = repo
@@ -7193,10 +6803,7 @@ mod tests {
             .get(&revert_id)
             .expect("revert change must be present in the graph")
             .clone();
-        assert!(
-            rc.verify_signature(),
-            "revert change must carry a valid Ed25519 signature"
-        );
+        assert!(rc.verify_signature(), "revert change must carry a valid Ed25519 signature");
     }
 
     #[test]
@@ -7215,10 +6822,7 @@ mod tests {
         repo.create_tag("v1.0.0", &snap_id).unwrap();
 
         // Creating the same tag twice must fail.
-        assert!(
-            repo.create_tag("v1.0.0", &snap_id).is_err(),
-            "duplicate tag must be rejected"
-        );
+        assert!(repo.create_tag("v1.0.0", &snap_id).is_err(), "duplicate tag must be rejected");
 
         // List tags and verify contents.
         let tags = repo.list_tags().unwrap();
@@ -7250,9 +6854,7 @@ mod tests {
 
         // Pattern delete should remove matching tags only.
         repo.set_tag("release-candidate", &snap_id, true).unwrap();
-        let deleted = repo
-            .delete_tags_matching(&["release-*".to_string()])
-            .unwrap();
+        let deleted = repo.delete_tags_matching(&["release-*".to_string()]).unwrap();
         assert_eq!(deleted, vec!["release-candidate".to_string()]);
     }
 
@@ -7293,10 +6895,7 @@ mod tests {
         );
 
         repo.delete_bookmark("trunk/main").unwrap();
-        assert!(
-            repo.delete_bookmark("trunk/main").is_err(),
-            "deleting missing bookmark must fail"
-        );
+        assert!(repo.delete_bookmark("trunk/main").is_err(), "deleting missing bookmark must fail");
 
         let invalid_names = [
             "",
@@ -7328,8 +6927,7 @@ mod tests {
 
         // Add two remotes.
         repo.add_remote("origin", "http://localhost:8080").unwrap();
-        repo.add_remote("upstream", "http://upstream.example.com")
-            .unwrap();
+        repo.add_remote("upstream", "http://upstream.example.com").unwrap();
 
         let remotes = repo.list_remotes().unwrap();
         assert_eq!(remotes.len(), 2, "must have 2 remotes");
@@ -7337,8 +6935,7 @@ mod tests {
         assert_eq!(remotes["upstream"], "http://upstream.example.com");
 
         // Overwriting a remote must update the URL.
-        repo.add_remote("origin", "http://new.localhost:8080")
-            .unwrap();
+        repo.add_remote("origin", "http://new.localhost:8080").unwrap();
         let remotes2 = repo.list_remotes().unwrap();
         assert_eq!(
             remotes2["origin"], "http://new.localhost:8080",
@@ -7357,11 +6954,7 @@ mod tests {
 
         fs::write(repo_path.join(".env"), "API_KEY=super-secret").unwrap();
         fs::create_dir_all(repo_path.join("node_modules")).unwrap();
-        fs::write(
-            repo_path.join("node_modules").join("fake.js"),
-            "module.exports = 1;",
-        )
-        .unwrap();
+        fs::write(repo_path.join("node_modules").join("fake.js"), "module.exports = 1;").unwrap();
 
         let delta = repo.status().unwrap();
         assert!(
@@ -7399,9 +6992,7 @@ mod tests {
         );
         repo.store.write_change(&legacy_change).unwrap();
 
-        View::new("main", HashSet::from([legacy_change.id]))
-            .save(&repo_path)
-            .unwrap();
+        View::new("main", HashSet::from([legacy_change.id])).save(&repo_path).unwrap();
 
         let delta = repo.status().unwrap();
         assert!(
@@ -7441,10 +7032,7 @@ mod tests {
         // .arc/blobs/ must contain exactly one file.
         let blobs_dir = repo_path.join(".arc").join("blobs");
         assert!(blobs_dir.is_dir(), ".arc/blobs/ must exist");
-        let blob_count = fs::read_dir(&blobs_dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .count();
+        let blob_count = fs::read_dir(&blobs_dir).unwrap().filter_map(|e| e.ok()).count();
         assert_eq!(blob_count, 1, "must have exactly one blob");
 
         // The materialized state must carry an ARC_BLOB_REF: entry.
@@ -7469,10 +7057,7 @@ mod tests {
         // Snap must carry a valid cryptographic signature.
         let g = repo.graph.load_full();
         let change = g.get(&snap_id).expect("snap must be in graph");
-        assert!(
-            change.verify_signature(),
-            "blob snap must carry a valid signature"
-        );
+        assert!(change.verify_signature(), "blob snap must carry a valid signature");
     }
 
     /// OpLog + undo: snapping a file then calling `undo()` must revert the
@@ -7489,9 +7074,7 @@ mod tests {
         // Snap a markdown file.
         let txt_path = repo_path.join("data.md");
         fs::write(&txt_path, b"important data").unwrap();
-        repo.snap("add data.md", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        repo.snap("add data.md", false).unwrap().expect("snap must produce a change");
 
         // Oplog must exist after snap.
         let oplog_path = repo_path.join(".arc").join("oplog.json");
@@ -7499,11 +7082,7 @@ mod tests {
 
         // View must have exactly one head.
         let view_before = View::load(&repo_path, "main").unwrap();
-        assert_eq!(
-            view_before.heads.len(),
-            1,
-            "view must have 1 head after snap"
-        );
+        assert_eq!(view_before.heads.len(), 1, "view must have 1 head after snap");
 
         // Undo the snap.
         repo.undo().unwrap();
@@ -7525,10 +7104,7 @@ mod tests {
         // Oplog must be empty (the only entry was consumed).
         let oplog_raw = fs::read_to_string(&oplog_path).unwrap_or_default();
         let oplog: Vec<serde_json::Value> = serde_json::from_str(&oplog_raw).unwrap_or_default();
-        assert!(
-            oplog.is_empty(),
-            "oplog must be empty after undoing the only entry"
-        );
+        assert!(oplog.is_empty(), "oplog must be empty after undoing the only entry");
     }
 
     #[test]
@@ -7541,14 +7117,10 @@ mod tests {
         repo.set_identity(author, signing_key);
 
         fs::write(repo_path.join("main.rs"), "fn a() {}\n").unwrap();
-        repo.snap("add a", false)
-            .unwrap()
-            .expect("snap must produce id");
+        repo.snap("add a", false).unwrap().expect("snap must produce id");
 
         fs::write(repo_path.join("main.rs"), "fn a() {}\nfn b() {}\n").unwrap();
-        repo.snap("add b", false)
-            .unwrap()
-            .expect("snap must produce id");
+        repo.snap("add b", false).unwrap().expect("snap must produce id");
 
         let before = View::load(&repo_path, "main").unwrap().heads;
         assert_eq!(before.len(), 1, "test assumes one-head view");
@@ -7594,8 +7166,7 @@ mod tests {
             vec![ChangeId::from(*before_heads.iter().next().unwrap())],
         )
         .with_conflict("simulated interruption");
-        repo.save_pending_restack(&pending)
-            .expect("save pending checkpoint");
+        repo.save_pending_restack(&pending).expect("save pending checkpoint");
 
         fs::write(repo_path.join("main.rs"), "fn v3() {}\n").unwrap();
         let _ = repo.snap("v3", false).unwrap().unwrap();
@@ -7603,14 +7174,9 @@ mod tests {
         repo.restack_abort().expect("restack abort must succeed");
 
         let restored = View::load(&repo_path, "main").unwrap().heads;
-        assert_eq!(
-            restored, before_heads,
-            "abort must restore checkpoint heads"
-        );
+        assert_eq!(restored, before_heads, "abort must restore checkpoint heads");
         assert!(
-            repo.load_pending_restack()
-                .expect("load pending checkpoint")
-                .is_none(),
+            repo.load_pending_restack().expect("load pending checkpoint").is_none(),
             "abort must clear pending checkpoint"
         );
     }
@@ -7664,11 +7230,7 @@ mod tests {
             HashSet::from([v1]),
             "op restore must move heads to selected operation state"
         );
-        assert!(
-            fs::read_to_string(repo_path.join("main.rs"))
-                .unwrap()
-                .contains("v1")
-        );
+        assert!(fs::read_to_string(repo_path.join("main.rs")).unwrap().contains("v1"));
 
         repo.op_revert(&op_v2_selector).unwrap();
         let view_after_revert = View::load(&repo_path, "main").unwrap();
@@ -7691,13 +7253,8 @@ mod tests {
         fs::write(repo_path.join("main.rs"), "fn v1() {}\n").unwrap();
         repo.snap("v1", false).unwrap().unwrap();
 
-        let err = repo
-            .op_restore("does-not-exist")
-            .expect_err("missing operation id must error");
-        assert!(
-            err.to_string().contains("not found"),
-            "unexpected error: {err}"
-        );
+        let err = repo.op_restore("does-not-exist").expect_err("missing operation id must error");
+        assert!(err.to_string().contains("not found"), "unexpected error: {err}");
     }
 
     /// Sparse Safety Law: files outside the active cone must be absent from
@@ -7717,18 +7274,13 @@ mod tests {
         fs::write(repo_path.join("b").join("c.rs"), "fn c() {}").unwrap();
 
         // Snap both files in one change.
-        repo.snap("add a.rs and b/c.rs", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        repo.snap("add a.rs and b/c.rs", false).unwrap().expect("snap must produce a change");
 
         // Shrink the sparse cone to only `b/`.
         repo.apply_sparse(&["b/".to_string()]).unwrap();
 
         // b/c.rs must exist on disk; a.rs must not.
-        assert!(
-            repo_path.join("b").join("c.rs").exists(),
-            "b/c.rs must remain in the sparse cone"
-        );
+        assert!(repo_path.join("b").join("c.rs").exists(), "b/c.rs must remain in the sparse cone");
         assert!(
             !repo_path.join("a.rs").exists(),
             "a.rs must be removed when outside the sparse cone"
@@ -7754,9 +7306,7 @@ mod tests {
         fs::write(repo_path.join("a.rs"), "fn a() {}").unwrap();
         fs::create_dir_all(repo_path.join("b")).unwrap();
         fs::write(repo_path.join("b").join("c.rs"), "fn c() {}").unwrap();
-        repo.snap("add files", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        repo.snap("add files", false).unwrap().expect("snap must produce a change");
 
         repo.apply_sparse(&["b/".to_string()]).unwrap();
         assert!(!repo_path.join("a.rs").exists());
@@ -7764,10 +7314,7 @@ mod tests {
 
         repo.apply_sparse(&[]).unwrap();
 
-        assert!(
-            repo_path.join("a.rs").exists(),
-            "a.rs must be restored when sparse is cleared"
-        );
+        assert!(repo_path.join("a.rs").exists(), "a.rs must be restored when sparse is cleared");
         assert!(
             repo_path.join("b").join("c.rs").exists(),
             "b/c.rs must remain present after returning to full checkout"
@@ -7797,10 +7344,7 @@ mod tests {
         primary.workspace_add(&ws_path, None).unwrap();
 
         // The manifest must exist in the workspace directory.
-        assert!(
-            ws_path.join(".arc-workspace").exists(),
-            ".arc-workspace must be written"
-        );
+        assert!(ws_path.join(".arc-workspace").exists(), ".arc-workspace must be written");
 
         // The workspace manifest must point at the primary shared_root.
         let json = fs::read_to_string(ws_path.join(".arc-workspace")).unwrap();
@@ -7815,10 +7359,7 @@ mod tests {
 
         // workspace_list() from the primary must include the workspace dir.
         let list = primary.workspace_list().unwrap();
-        assert!(
-            list.contains(&ws_path),
-            "workspace_list must return ws_path"
-        );
+        assert!(list.contains(&ws_path), "workspace_list must return ws_path");
     }
 
     #[test]
@@ -7834,9 +7375,7 @@ mod tests {
         let root = primary.workspace_root(Some(&ws_path)).unwrap();
         assert!(root.ends_with("workspace-a"));
 
-        primary
-            .workspace_rename(&ws_path, &ws_path_renamed)
-            .unwrap();
+        primary.workspace_rename(&ws_path, &ws_path_renamed).unwrap();
         assert!(ws_path_renamed.join(".arc-workspace").exists());
 
         primary.workspace_forget(&ws_path_renamed).unwrap();
@@ -7877,11 +7416,7 @@ mod tests {
         );
         for shard in &shards {
             let name = shard.file_name().to_string_lossy().into_owned();
-            assert_eq!(
-                name.len(),
-                2,
-                "shard directory '{name}' must be exactly 2 hex chars"
-            );
+            assert_eq!(name.len(), 2, "shard directory '{name}' must be exactly 2 hex chars");
             assert!(
                 name.bytes().all(|b| b.is_ascii_hexdigit()),
                 "shard directory '{name}' must be lowercase hex"
@@ -7919,24 +7454,12 @@ mod tests {
         let before_count = fs::read_dir(&blobs_dir).unwrap().count();
 
         let result = repo.gc().unwrap();
-        assert_eq!(
-            result.changes_deleted, 0,
-            "reachable changes must not be deleted"
-        );
-        assert!(
-            result.blobs_deleted >= 1,
-            "orphan blob must be deleted by GC"
-        );
-        assert!(
-            !orphan_path.exists(),
-            "orphan blob file must be removed from disk"
-        );
+        assert_eq!(result.changes_deleted, 0, "reachable changes must not be deleted");
+        assert!(result.blobs_deleted >= 1, "orphan blob must be deleted by GC");
+        assert!(!orphan_path.exists(), "orphan blob file must be removed from disk");
 
         let after_count = fs::read_dir(&blobs_dir).unwrap().count();
-        assert!(
-            after_count < before_count,
-            "blob count must decrease after GC"
-        );
+        assert!(after_count < before_count, "blob count must decrease after GC");
     }
 
     /// DAG Compaction: PO-Log Compaction via a single Genesis Change.
@@ -7980,33 +7503,17 @@ mod tests {
 
         // The view must now point exclusively to the Genesis Change.
         let view = View::load(&repo_path, "main").expect("load main view");
-        assert_eq!(
-            view.heads.len(),
-            1,
-            "view must have exactly one head after compact"
-        );
-        assert!(
-            view.heads.contains(&genesis_id),
-            "view head must be the genesis change"
-        );
+        assert_eq!(view.heads.len(), 1, "view must have exactly one head after compact");
+        assert!(view.heads.contains(&genesis_id), "view head must be the genesis change");
 
         // The in-memory graph must contain only the Genesis Change
         // (no ancestors — it has empty deps).
         let ancestors = repo2.graph.load().ancestors(&view.heads);
-        assert_eq!(
-            ancestors.len(),
-            1,
-            "only the Genesis Change must remain in the ancestor set"
-        );
-        assert!(
-            ancestors.contains(&genesis_id),
-            "ancestors must contain genesis_id"
-        );
+        assert_eq!(ancestors.len(), 1, "only the Genesis Change must remain in the ancestor set");
+        assert!(ancestors.contains(&genesis_id), "ancestors must contain genesis_id");
 
         // Materialising the view must reproduce all three functions.
-        let state = repo2
-            .materialize("main")
-            .expect("materialize after compact");
+        let state = repo2.materialize("main").expect("materialize after compact");
         let all_content: String = state
             .values()
             .filter_map(|v| std::str::from_utf8(v).ok())
@@ -8029,17 +7536,10 @@ mod tests {
         // Create a file and snap it.
         fs::create_dir_all(repo_path.join("src")).unwrap();
         fs::write(repo_path.join("src").join("main.rs"), "fn a() {}").unwrap();
-        let snap_id = repo
-            .snap("add fn a", false)
-            .unwrap()
-            .expect("snap must produce a change");
+        let snap_id = repo.snap("add fn a", false).unwrap().expect("snap must produce a change");
 
         // Modify the file and amend — no new message supplied.
-        fs::write(
-            repo_path.join("src").join("main.rs"),
-            "fn a() {}\nfn amended() {}",
-        )
-        .unwrap();
+        fs::write(repo_path.join("src").join("main.rs"), "fn a() {}\nfn amended() {}").unwrap();
         let new_id = repo.amend(None).expect("amend must succeed");
 
         // The amended change must have a different ID.
@@ -8047,19 +7547,9 @@ mod tests {
 
         // The view must point at the amended change as its sole head.
         let view = View::load(&repo_path, "main").expect("load view");
-        assert_eq!(
-            view.heads.len(),
-            1,
-            "view must have exactly one head after amend"
-        );
-        assert!(
-            view.heads.contains(&new_id),
-            "view head must be the amended change"
-        );
-        assert!(
-            !view.heads.contains(&snap_id),
-            "original snap must no longer be a head"
-        );
+        assert_eq!(view.heads.len(), 1, "view must have exactly one head after amend");
+        assert!(view.heads.contains(&new_id), "view head must be the amended change");
+        assert!(!view.heads.contains(&snap_id), "original snap must no longer be a head");
 
         // Materialising the view must reflect the amended content.
         let state = repo.materialize("main").expect("materialize after amend");
@@ -8091,16 +7581,11 @@ mod tests {
     #[test]
     fn interactive_selector_keeps_non_ast_atoms() {
         let interactive_insert = Atom::Insert {
-            at: vec![
-                "file".to_string(),
-                "src/main.rs".to_string(),
-                "fn_new".to_string(),
-            ],
+            at: vec!["file".to_string(), "src/main.rs".to_string(), "fn_new".to_string()],
             content_hash: [7u8; 32],
         };
-        let non_interactive_dir = Atom::Directory {
-            path: vec!["dir".to_string(), "src".to_string()],
-        };
+        let non_interactive_dir =
+            Atom::Directory { path: vec!["dir".to_string(), "src".to_string()] };
 
         let selected = select_atoms_interactively(
             vec![interactive_insert.clone(), non_interactive_dir.clone()],
@@ -8113,19 +7598,11 @@ mod tests {
     #[test]
     fn interactive_selector_can_accept_ast_atoms() {
         let keep = Atom::Insert {
-            at: vec![
-                "file".to_string(),
-                "src/lib.rs".to_string(),
-                "fn_keep".to_string(),
-            ],
+            at: vec!["file".to_string(), "src/lib.rs".to_string(), "fn_keep".to_string()],
             content_hash: [1u8; 32],
         };
         let drop = Atom::Delete {
-            at: vec![
-                "file".to_string(),
-                "src/lib.rs".to_string(),
-                "fn_drop".to_string(),
-            ],
+            at: vec!["file".to_string(), "src/lib.rs".to_string(), "fn_drop".to_string()],
             prior_hash: [2u8; 32],
         };
 

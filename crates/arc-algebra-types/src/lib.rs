@@ -62,9 +62,8 @@ impl SpacetimeCoordinate {
         let body = uri
             .strip_prefix("arc://")
             .ok_or_else(|| "coordinate must start with 'arc://'".to_string())?;
-        let (repo_part, hash_hex) = body
-            .split_once('@')
-            .ok_or_else(|| "coordinate must include '@<hash>'".to_string())?;
+        let (repo_part, hash_hex) =
+            body.split_once('@').ok_or_else(|| "coordinate must include '@<hash>'".to_string())?;
         let (namespace, repo) = repo_part
             .split_once('/')
             .ok_or_else(|| "coordinate must include '<namespace>/<repo>'".to_string())?;
@@ -76,21 +75,12 @@ impl SpacetimeCoordinate {
         }
         let hash = blake3::Hash::from_hex(hash_hex)
             .map_err(|_| "coordinate hash must be 64 lowercase/uppercase hex chars".to_string())?;
-        Ok(Self {
-            namespace: namespace.to_string(),
-            repo: repo.to_string(),
-            hash,
-        })
+        Ok(Self { namespace: namespace.to_string(), repo: repo.to_string(), hash })
     }
 
     /// Render this coordinate as `arc://<namespace>/<repo>@<hash>`.
     pub fn to_uri(&self) -> String {
-        format!(
-            "arc://{}/{}@{}",
-            self.namespace,
-            self.repo,
-            self.hash.to_hex()
-        )
+        format!("arc://{}/{}@{}", self.namespace, self.repo, self.hash.to_hex())
     }
 }
 
@@ -199,7 +189,8 @@ mod tests {
 
     #[test]
     fn spacetime_coordinate_rejects_nested_repo() {
-        let uri = "arc://org/repo/sub@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let uri =
+            "arc://org/repo/sub@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         assert!(SpacetimeCoordinate::from_uri(uri).is_err());
     }
 }

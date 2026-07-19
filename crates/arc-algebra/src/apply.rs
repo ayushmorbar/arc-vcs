@@ -89,9 +89,8 @@ pub fn apply_change_scoped(
                 // Zero-trust: AI can never self-modify the permission boundary.
 
                 let is_sentinel = checked_path == ".agentignore";
-                let is_restricted = agent_ignore
-                    .matched_path_or_any_parents(checked_path, is_dir)
-                    .is_ignore();
+                let is_restricted =
+                    agent_ignore.matched_path_or_any_parents(checked_path, is_dir).is_ignore();
                 if is_sentinel || is_restricted {
                     return Err(format!(
                         "Security Violation: AI is not permitted to modify \
@@ -192,9 +191,7 @@ mod tests {
 
     impl BlobStore for ObjectStore {
         fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, String> {
-            self.read_blob(hash)
-                .map(|bytes| bytes.to_vec())
-                .map_err(|e| format!("{e}"))
+            self.read_blob(hash).map(|bytes| bytes.to_vec()).map_err(|e| format!("{e}"))
         }
 
         fn contains_blob(&self, hash: &Blake3Hash) -> bool {
@@ -223,54 +220,28 @@ mod tests {
         let insert_change = Change::new(
             HashSet::new(),
             vec![
-                Atom::Insert {
-                    at: vec!["fn_main".into(), "body".into()],
-                    content_hash: body_hash,
-                },
-                Atom::Insert {
-                    at: vec!["fn_main".into(), "ret".into()],
-                    content_hash: ret_hash,
-                },
+                Atom::Insert { at: vec!["fn_main".into(), "body".into()], content_hash: body_hash },
+                Atom::Insert { at: vec!["fn_main".into(), "ret".into()], content_hash: ret_hash },
             ],
             "test",
             author.clone(),
             &signing_key,
         );
 
-        apply_change(
-            &mut state,
-            &insert_change,
-            &store,
-            &Gitignore::empty(),
-            None,
-        )
-        .unwrap();
+        apply_change(&mut state, &insert_change, &store, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 2);
-        assert_eq!(
-            state.get(&vec!["fn_main".into(), "body".into()]).unwrap(),
-            b"let x = 1;"
-        );
+        assert_eq!(state.get(&vec!["fn_main".into(), "body".into()]).unwrap(), b"let x = 1;");
 
         // Apply a change that deletes one of the paths.
         let delete_change = Change::new(
             HashSet::from([insert_change.id]),
-            vec![Atom::Delete {
-                at: vec!["fn_main".into(), "ret".into()],
-                prior_hash: del_hash,
-            }],
+            vec![Atom::Delete { at: vec!["fn_main".into(), "ret".into()], prior_hash: del_hash }],
             "test",
             author.clone(),
             &signing_key,
         );
 
-        apply_change(
-            &mut state,
-            &delete_change,
-            &store,
-            &Gitignore::empty(),
-            None,
-        )
-        .unwrap();
+        apply_change(&mut state, &delete_change, &store, &Gitignore::empty(), None).unwrap();
         assert_eq!(state.len(), 1);
         assert!(!state.contains_key(&vec!["fn_main".into(), "ret".into()]));
         drop(dir);
@@ -284,10 +255,7 @@ mod tests {
 
         let bad_delete = Change::new(
             HashSet::new(),
-            vec![Atom::Delete {
-                at: vec!["ghost".into()],
-                prior_hash,
-            }],
+            vec![Atom::Delete { at: vec!["ghost".into()], prior_hash }],
             "test",
             author,
             &signing_key,
@@ -312,10 +280,7 @@ mod tests {
         let mut state = MaterializedState::new();
         let (_, signing_key) = author::test_keypair();
         let key = signing_key.verifying_key().to_bytes();
-        let ai_author = author::Author::AI {
-            model: "gpt-99".to_string(),
-            human_sponsor: key,
-        };
+        let ai_author = author::Author::AI { model: "gpt-99".to_string(), human_sponsor: key };
 
         // Restricted path — AI must be blocked.
         let change = Change::new(
@@ -331,14 +296,8 @@ mod tests {
         let result = apply_change(&mut state, &change, &store, &agent_ignore, None);
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(
-            msg.contains("Security Violation"),
-            "expected security violation, got: {msg}"
-        );
-        assert!(
-            msg.contains("src/crypto.rs"),
-            "expected path in error, got: {msg}"
-        );
+        assert!(msg.contains("Security Violation"), "expected security violation, got: {msg}");
+        assert!(msg.contains("src/crypto.rs"), "expected path in error, got: {msg}");
 
         // Hardcoded sentinel: AI must never modify .agentignore itself,
         // even when the file is NOT listed in the rules.
@@ -352,13 +311,8 @@ mod tests {
             ai_author,
             &signing_key,
         );
-        let sentinel_result = apply_change(
-            &mut state,
-            &sentinel_change,
-            &store,
-            &Gitignore::empty(),
-            None,
-        );
+        let sentinel_result =
+            apply_change(&mut state, &sentinel_change, &store, &Gitignore::empty(), None);
         assert!(sentinel_result.is_err());
         assert!(
             sentinel_result.unwrap_err().contains("Security Violation"),
@@ -375,9 +329,7 @@ mod tests {
 
         let change = Change::new(
             HashSet::new(),
-            vec![Atom::Directory {
-                path: vec!["dir".into(), "src/utils".into()],
-            }],
+            vec![Atom::Directory { path: vec!["dir".into(), "src/utils".into()] }],
             "create utils dir",
             author,
             &signing_key,
@@ -385,15 +337,8 @@ mod tests {
 
         apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
         let key = vec!["dir".into(), "src/utils".into()];
-        assert!(
-            state.contains_key(&key),
-            "Directory atom must insert an entry at its path"
-        );
-        assert_eq!(
-            state[&key].as_slice(),
-            b"",
-            "Directory atom must store an empty value"
-        );
+        assert!(state.contains_key(&key), "Directory atom must insert an entry at its path");
+        assert_eq!(state[&key].as_slice(), b"", "Directory atom must store an empty value");
         drop(dir);
     }
 
@@ -407,11 +352,7 @@ mod tests {
 
         let change = Change::new(
             HashSet::new(),
-            vec![Atom::Blob {
-                path: "logo.png".into(),
-                hash: hash.into(),
-                size: 0,
-            }],
+            vec![Atom::Blob { path: "logo.png".into(), hash: hash.into(), size: 0 }],
             "add binary asset",
             author,
             &signing_key,
@@ -424,11 +365,7 @@ mod tests {
             val.starts_with(b"ARC_BLOB_REF:"),
             "Blob atom must write ARC_BLOB_REF: prefix, got: {val:?}"
         );
-        assert_eq!(
-            &val[13..],
-            &hash,
-            "Blob atom must embed the 32-byte hash after the prefix"
-        );
+        assert_eq!(&val[13..], &hash, "Blob atom must embed the 32-byte hash after the prefix");
         drop(dir);
     }
 
@@ -452,20 +389,10 @@ mod tests {
         );
         let sparse = SparseMatcher::from_patterns(&["src".to_string()]);
 
-        apply_change_scoped(
-            &mut state,
-            &change,
-            &store,
-            &Gitignore::empty(),
-            Some(&sparse),
-            None,
-        )
-        .unwrap();
+        apply_change_scoped(&mut state, &change, &store, &Gitignore::empty(), Some(&sparse), None)
+            .unwrap();
 
-        assert!(
-            state.is_empty(),
-            "out-of-scope insert must be skipped during sparse replay"
-        );
+        assert!(state.is_empty(), "out-of-scope insert must be skipped during sparse replay");
         drop(dir);
     }
     #[test]
@@ -476,24 +403,15 @@ mod tests {
 
         let change = Change::new(
             HashSet::new(),
-            vec![Atom::Move {
-                from: vec!["fn_old".into()],
-                to: vec!["fn_new".into()],
-            }],
+            vec![Atom::Move { from: vec!["fn_old".into()], to: vec!["fn_new".into()] }],
             "rename fn",
             author,
             &signing_key,
         );
 
         let result = apply_change(&mut state, &change, &store, &Gitignore::empty(), None);
-        assert!(
-            result.is_err(),
-            "Move atom must return an error (not yet implemented)"
-        );
-        assert!(
-            result.unwrap_err().contains("Move"),
-            "error message must mention Move"
-        );
+        assert!(result.is_err(), "Move atom must return an error (not yet implemented)");
+        assert!(result.unwrap_err().contains("Move"), "error message must mention Move");
         drop(dir);
     }
 
@@ -511,28 +429,15 @@ mod tests {
         let change = Change::new(
             HashSet::new(),
             vec![
-                Atom::Insert {
-                    at: vec!["fn_a".into()],
-                    content_hash: fn_a_hash,
-                },
-                Atom::Insert {
-                    at: vec!["fn_b".into()],
-                    content_hash: fn_b_hash,
-                },
+                Atom::Insert { at: vec!["fn_a".into()], content_hash: fn_a_hash },
+                Atom::Insert { at: vec!["fn_b".into()], content_hash: fn_b_hash },
             ],
             "add a and b",
             author,
             &signing_key,
         );
 
-        apply_change(
-            &mut state,
-            &change,
-            &store,
-            &Gitignore::empty(),
-            Some(&mut blame),
-        )
-        .unwrap();
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
 
         assert_eq!(
             blame.get(&vec!["fn_a".into()]),
@@ -549,26 +454,13 @@ mod tests {
         let (author2, signing_key2) = author::test_keypair();
         let del = Change::new(
             HashSet::from([change.id]),
-            vec![Atom::Delete {
-                at: vec!["fn_a".into()],
-                prior_hash: fn_a_prior,
-            }],
+            vec![Atom::Delete { at: vec!["fn_a".into()], prior_hash: fn_a_prior }],
             "remove a",
             author2,
             &signing_key2,
         );
-        apply_change(
-            &mut state,
-            &del,
-            &store,
-            &Gitignore::empty(),
-            Some(&mut blame),
-        )
-        .unwrap();
-        assert!(
-            !blame.contains_key(&vec!["fn_a".into()]),
-            "blame must remove fn_a after Delete"
-        );
+        apply_change(&mut state, &del, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        assert!(!blame.contains_key(&vec!["fn_a".into()]), "blame must remove fn_a after Delete");
         drop(dir);
     }
 }

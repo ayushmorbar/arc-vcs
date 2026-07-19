@@ -168,11 +168,7 @@ async fn get_status(params: Option<serde_json::Value>) -> Result<StatusResult, R
         let current_view_hash = select_head_hash(&view.heads);
         let has_conflicts = path.join(".arc").join("conflict").exists();
 
-        Ok(StatusResult {
-            current_view,
-            current_view_hash,
-            has_conflicts,
-        })
+        Ok(StatusResult { current_view, current_view_hash, has_conflicts })
     })
     .await
     .map_err(|e| RpcDispatchError::Internal(anyhow::anyhow!("status task join error: {e}")))?;
@@ -196,11 +192,7 @@ async fn get_oplog(params: Option<serde_json::Value>) -> Result<Vec<OplogEntry>,
                 } else {
                     select_change_head_hash(&entry.before_heads)
                 };
-                OplogEntry {
-                    action: entry.command,
-                    timestamp: entry.timestamp,
-                    view_hash,
-                }
+                OplogEntry { action: entry.command, timestamp: entry.timestamp, view_hash }
             })
             .collect();
 
@@ -316,9 +308,7 @@ mod tests {
     async fn get_status_rpc_response_has_expected_shape() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".arc").join("views")).unwrap();
-        View::new("main", std::collections::HashSet::new())
-            .save(dir.path())
-            .unwrap();
+        View::new("main", std::collections::HashSet::new()).save(dir.path()).unwrap();
 
         let req = RpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -346,9 +336,7 @@ mod tests {
         let repo_path = dir.path();
 
         std::fs::create_dir_all(repo_path.join(".arc").join("views")).unwrap();
-        View::new("main", std::collections::HashSet::new())
-            .save(repo_path)
-            .unwrap();
+        View::new("main", std::collections::HashSet::new()).save(repo_path).unwrap();
 
         std::fs::write(repo_path.join("tracked.rs"), "fn a() {}\n").unwrap();
         std::fs::write(repo_path.join("new.rs"), "fn b() {}\n").unwrap();
@@ -367,19 +355,14 @@ mod tests {
         assert_eq!(value["id"], 8);
         assert!(value["error"].is_null(), "unexpected error: {value}");
 
-        let result = value["result"]
-            .as_array()
-            .expect("result should be an array");
+        let result = value["result"].as_array().expect("result should be an array");
         assert!(!result.is_empty(), "expected at least one file state");
         for item in result {
             assert!(item["file_path"].is_string());
             assert!(item["status"].is_string());
             let status = item["status"].as_str().unwrap();
             assert!(
-                matches!(
-                    status,
-                    "modified" | "untracked" | "conflict" | "ai_generated"
-                ),
+                matches!(status, "modified" | "untracked" | "conflict" | "ai_generated"),
                 "unexpected status value: {status}"
             );
         }

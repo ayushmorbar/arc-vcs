@@ -19,10 +19,7 @@ pub struct HumanRichRenderer {
 
 impl HumanRichRenderer {
     pub fn new(supports_osc8: bool) -> Self {
-        Self {
-            spinner: None,
-            supports_osc8,
-        }
+        Self { spinner: None, supports_osc8 }
     }
 
     fn stop_spinner(&mut self) {
@@ -151,11 +148,7 @@ impl Renderer for JsonRenderer {
             ),
         };
 
-        let envelope = JsonEnvelope {
-            version: 1,
-            event: name,
-            payload,
-        };
+        let envelope = JsonEnvelope { version: 1, event: name, payload };
 
         if self.ndjson {
             let line = serde_json::to_string(&envelope).expect("json serialization must succeed");
@@ -207,7 +200,8 @@ pub fn hyperlink_for_path(path: &str, line: usize, supports_osc8: bool) -> Strin
 fn percent_encode_uri_path(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for &b in value.as_bytes() {
-        let is_unreserved = b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/' | b':');
+        let is_unreserved =
+            b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/' | b':');
         if is_unreserved {
             out.push(char::from(b));
         } else {

@@ -183,10 +183,8 @@ mod tests {
 
     #[test]
     fn early_stop_callback_works() {
-        let encoded = [
-            0, 0, 0, 64, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0,
-            0, 0,
-        ];
+        let encoded =
+            [0, 0, 0, 64, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0];
         let (bitmap, _) = EwahBitmap::decode(&encoded).expect("decode");
 
         let mut seen = Vec::new();
@@ -200,10 +198,8 @@ mod tests {
     #[test]
     fn does_not_emit_bits_past_declared_num_bits() {
         // Declares only 3 bits, but literal sets bits 0, 2 and 4.
-        let encoded = [
-            0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0,
-            0, 0,
-        ];
+        let encoded =
+            [0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0];
         let (bitmap, _) = EwahBitmap::decode(&encoded).expect("decode");
 
         let mut seen = Vec::new();

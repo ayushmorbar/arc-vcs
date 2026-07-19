@@ -37,8 +37,7 @@ mod native {
                     for (index, item) in bucket {
                         partial.push((index, worker(item)));
                     }
-                    tx.send(partial)
-                        .expect("scoped worker should send partial result");
+                    tx.send(partial).expect("scoped worker should send partial result");
                 });
             }
         });

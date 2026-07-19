@@ -61,9 +61,7 @@ impl Default for ContextSynthesizer {
 impl ContextSynthesizer {
     /// Create a synthesizer with a custom max number of changes.
     pub fn with_limit(limit: usize) -> Self {
-        Self {
-            limit: limit.max(1),
-        }
+        Self { limit: limit.max(1) }
     }
 
     /// Build a "Codebase State" narrative from the current frontier.
@@ -180,10 +178,8 @@ pub async fn generate_message(diff_summary: &str) -> Result<String> {
         .await
         .context("Failed to communicate with AI provider")?;
 
-    let data: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse AI provider response as JSON")?;
+    let data: serde_json::Value =
+        response.json().await.context("Failed to parse AI provider response as JSON")?;
 
     let message = data["choices"][0]["message"]["content"]
         .as_str()
@@ -254,12 +250,7 @@ impl RemoteConfig {
             _ => RemoteProvider::OpenAiCompatible,
         };
 
-        Some(Self {
-            provider,
-            api_key,
-            base_url,
-            model,
-        })
+        Some(Self { provider, api_key, base_url, model })
     }
 }
 
@@ -299,10 +290,8 @@ async fn request_openai_ghost_intent(
         .await
         .context("failed OpenAI-compatible ghost intent request")?;
 
-    let data: serde_json::Value = response
-        .json()
-        .await
-        .context("failed to parse OpenAI-compatible ghost intent response")?;
+    let data: serde_json::Value =
+        response.json().await.context("failed to parse OpenAI-compatible ghost intent response")?;
 
     Ok(data["choices"][0]["message"]["content"]
         .as_str()
@@ -336,16 +325,10 @@ async fn request_anthropic_ghost_intent(
         .await
         .context("failed Anthropic ghost intent request")?;
 
-    let data: serde_json::Value = response
-        .json()
-        .await
-        .context("failed to parse Anthropic ghost intent response")?;
+    let data: serde_json::Value =
+        response.json().await.context("failed to parse Anthropic ghost intent response")?;
 
-    Ok(data["content"][0]["text"]
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .to_string())
+    Ok(data["content"][0]["text"].as_str().unwrap_or_default().trim().to_string())
 }
 
 fn heuristic_ghost_intent(diff: &str) -> String {
@@ -364,15 +347,9 @@ fn heuristic_ghost_intent(diff: &str) -> String {
         );
     }
     if insert_count >= delete_count {
-        return format!(
-            "Feat: Added {} semantic atoms across the working frontier",
-            insert_count
-        );
+        return format!("Feat: Added {} semantic atoms across the working frontier", insert_count);
     }
-    format!(
-        "Refactor: Removed {} semantic atoms and tightened intent scope",
-        delete_count
-    )
+    format!("Refactor: Removed {} semantic atoms and tightened intent scope", delete_count)
 }
 
 /// Trait for AI-powered conflict resolution.
@@ -451,16 +428,10 @@ pub async fn generate_code(prompt: &str) -> Result<String> {
         .await
         .context("failed to communicate with AI provider")?;
 
-    let data: serde_json::Value = response
-        .json()
-        .await
-        .context("failed to parse AI provider response as JSON")?;
+    let data: serde_json::Value =
+        response.json().await.context("failed to parse AI provider response as JSON")?;
 
-    let raw = data["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_owned();
+    let raw = data["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_owned();
 
     Ok(raw)
 }
@@ -491,11 +462,7 @@ impl LlmResolver {
         let base_url =
             std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
         let model = std::env::var("ARC_AI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_owned());
-        Some(Self {
-            model,
-            api_key,
-            base_url,
-        })
+        Some(Self { model, api_key, base_url })
     }
 }
 
@@ -544,15 +511,10 @@ impl AiResolver for LlmResolver {
             .send()
             .map_err(|e| format!("HTTP request failed: {e}"))?;
 
-        let data: serde_json::Value = response
-            .json()
-            .map_err(|e| format!("failed to parse AI response: {e}"))?;
+        let data: serde_json::Value =
+            response.json().map_err(|e| format!("failed to parse AI response: {e}"))?;
 
-        let raw = data["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+        let raw = data["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_owned();
 
         Ok(extract_code_fence(&raw).into_bytes())
     }
@@ -629,9 +591,8 @@ mod tests {
 
         let frontier = HashSet::from([last]);
         let synthesizer = ContextSynthesizer::default();
-        let state = synthesizer
-            .synthesize_codebase_state(&frontier, &all)
-            .expect("state synthesis");
+        let state =
+            synthesizer.synthesize_codebase_state(&frontier, &all).expect("state synthesis");
 
         let lines = state.lines().filter(|line| line.starts_with("-")).count();
         assert_eq!(lines, 10);
@@ -640,9 +601,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn generate_ghost_intent_summarizes_three_atom_diff() {
         let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy sync impl";
-        let summary = generate_ghost_intent_with_config(diff, None)
-            .await
-            .expect("ghost intent");
+        let summary = generate_ghost_intent_with_config(diff, None).await.expect("ghost intent");
         assert_eq!(summary, "Refactor: Modularized network sync logic");
     }
 }

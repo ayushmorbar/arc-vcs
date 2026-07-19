@@ -101,10 +101,7 @@ impl SyncPipeline {
             bars.push(pb);
         }
 
-        Self {
-            bars,
-            _multi: multi,
-        }
+        Self { bars, _multi: multi }
     }
 
     /// Mark a stage as currently running.

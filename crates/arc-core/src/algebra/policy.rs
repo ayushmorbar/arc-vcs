@@ -39,10 +39,8 @@ impl ArcPolicy {
             path: path.display().to_string(),
             source,
         })?;
-        serde_json::from_slice(&bytes).map_err(|source| PolicyError::ParseConfig {
-            path: path.display().to_string(),
-            source,
-        })
+        serde_json::from_slice(&bytes)
+            .map_err(|source| PolicyError::ParseConfig { path: path.display().to_string(), source })
     }
 }
 

@@ -51,11 +51,7 @@ where
         resolve_symbol: &'g mut F,
         resolve_refs: &'g mut R,
     ) -> Self {
-        Self {
-            graph,
-            resolve_symbol,
-            resolve_refs,
-        }
+        Self { graph, resolve_symbol, resolve_refs }
     }
 
     /// Evaluate `expr` into a lazy iterator of typed [`ChangeId`] values.
@@ -144,9 +140,7 @@ where
                 compile_impl_change_ids(left, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
             let right_iter = compile_impl_change_ids(right, graph, resolve_symbol, resolve_refs)?;
             let right_set: HashSet<ChangeId> = right_iter.collect();
-            Ok(Box::new(
-                left_iter.filter(move |hash| right_set.contains(hash)),
-            ))
+            Ok(Box::new(left_iter.filter(move |hash| right_set.contains(hash))))
         }
         RevsetExpression::Function { name, args } => {
             compile_function(name, args, graph, resolve_symbol, resolve_refs)
@@ -199,9 +193,8 @@ where
             if args.len() != 1 {
                 bail!("ancestors() expects exactly one argument");
             }
-            let arg = args
-                .first()
-                .ok_or_else(|| anyhow!("ancestors() expects exactly one argument"))?;
+            let arg =
+                args.first().ok_or_else(|| anyhow!("ancestors() expects exactly one argument"))?;
             let starts_iter =
                 compile_impl_change_ids(arg, Arc::clone(&graph), resolve_symbol, resolve_refs)?;
             let starts = starts_iter.collect::<Vec<_>>();
@@ -232,11 +225,8 @@ where
 
             let from_ancestors = graph.ancestors(&from_heads);
             let to_ancestors = graph.ancestors(&to_heads);
-            let selected: BTreeSet<ChangeId> = to_ancestors
-                .difference(&from_ancestors)
-                .copied()
-                .map(ChangeId::from)
-                .collect();
+            let selected: BTreeSet<ChangeId> =
+                to_ancestors.difference(&from_ancestors).copied().map(ChangeId::from).collect();
             Ok(Box::new(selected.into_iter()))
         }
         "symmetric" => {
@@ -329,12 +319,7 @@ struct UnionIterator<'a> {
 
 impl<'a> UnionIterator<'a> {
     fn new(left: RevsetChangeIdIterator<'a>, right: RevsetChangeIdIterator<'a>) -> Self {
-        Self {
-            left,
-            right,
-            seen: HashSet::new(),
-            on_left: true,
-        }
+        Self { left, right, seen: HashSet::new(), on_left: true }
     }
 }
 
@@ -355,13 +340,11 @@ impl<'a> Iterator for UnionIterator<'a> {
                 }
             }
 
-            match self.right.next() {
-                Some(hash) => {
-                    if self.seen.insert(hash) {
-                        return Some(hash);
-                    }
+            {
+                let hash = self.right.next()?;
+                if self.seen.insert(hash) {
+                    return Some(hash);
                 }
-                None => return None,
             }
         }
     }
@@ -375,11 +358,7 @@ struct AncestorsIterator {
 
 impl AncestorsIterator {
     fn new(graph: Arc<ChangeGraph>, starts: Vec<ChangeId>) -> Self {
-        Self {
-            graph,
-            queue: starts.into(),
-            seen: HashSet::new(),
-        }
+        Self { graph, queue: starts.into(), seen: HashSet::new() }
     }
 }
 
@@ -438,10 +417,7 @@ mod tests {
         let content_hash: [u8; 32] = *blake3::hash(label.as_bytes()).as_bytes();
         let change = Change::new(
             deps,
-            vec![Atom::Insert {
-                at: vec![label.to_string()],
-                content_hash,
-            }],
+            vec![Atom::Insert { at: vec![label.to_string()], content_hash }],
             "test",
             author,
             &key,
@@ -486,10 +462,7 @@ mod tests {
             Ok(_) => panic!("compile should fail"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly one argument"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly one argument"), "unexpected error: {err}");
     }
 
     #[test]
@@ -512,10 +485,7 @@ mod tests {
             Ok(_) => panic!("compile should fail"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly one argument"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly one argument"), "unexpected error: {err}");
     }
 
     #[test]
@@ -584,11 +554,7 @@ mod tests {
         let main_change = Change::new(
             HashSet::from([root]),
             vec![Atom::Insert {
-                at: vec![
-                    "file".to_string(),
-                    "src/main.rs".to_string(),
-                    "fn_main".to_string(),
-                ],
+                at: vec!["file".to_string(), "src/main.rs".to_string(), "fn_main".to_string()],
                 content_hash: main_hash,
             }],
             "touch main",
@@ -601,11 +567,7 @@ mod tests {
         let util_change = Change::new(
             HashSet::from([root]),
             vec![Atom::Insert {
-                at: vec![
-                    "file".to_string(),
-                    "src/util.rs".to_string(),
-                    "fn_util".to_string(),
-                ],
+                at: vec!["file".to_string(), "src/util.rs".to_string(), "fn_util".to_string()],
                 content_hash: util_hash,
             }],
             "touch util",
@@ -655,10 +617,7 @@ mod tests {
             Ok(_) => panic!("compile should fail"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly one argument"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly one argument"), "unexpected error: {err}");
     }
 
     #[test]
@@ -743,11 +702,7 @@ mod tests {
             .expect("compile should succeed")
             .collect();
 
-        assert_eq!(
-            result.len(),
-            1,
-            "merge_base must return a single deterministic id"
-        );
+        assert_eq!(result.len(), 1, "merge_base must return a single deterministic id");
         let expected = ChangeId::from(a.min(b));
         assert_eq!(result[0], expected);
     }
@@ -762,10 +717,7 @@ mod tests {
             Ok(_) => panic!("range() must reject wrong arity"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly two arguments"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly two arguments"), "unexpected error: {err}");
     }
 
     #[test]
@@ -778,10 +730,7 @@ mod tests {
             Ok(_) => panic!("symmetric() must reject wrong arity"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly two arguments"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly two arguments"), "unexpected error: {err}");
     }
 
     #[test]
@@ -794,10 +743,7 @@ mod tests {
             Ok(_) => panic!("merge_base() must reject wrong arity"),
             Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("exactly two arguments"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("exactly two arguments"), "unexpected error: {err}");
     }
 
     #[test]

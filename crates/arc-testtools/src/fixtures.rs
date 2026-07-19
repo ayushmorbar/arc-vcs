@@ -32,11 +32,7 @@ impl FixtureOptions {
     /// Construct default options for a named fixture.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            version: "v1".to_string(),
-            mode: FixtureMode::Cached,
-        }
+        Self { name: name.into(), version: "v1".to_string(), mode: FixtureMode::Cached }
     }
 
     /// Override version for cache key invalidation.
@@ -68,9 +64,9 @@ impl FixtureOrchestrator {
 
     /// Compute deterministic cache key for a fixture source and options.
     pub fn cache_key(&self, source: &Path, options: &FixtureOptions) -> anyhow::Result<String> {
-        let canonical_source = source
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize fixture source {}", source.display()))?;
+        let canonical_source = source.canonicalize().with_context(|| {
+            format!("failed to canonicalize fixture source {}", source.display())
+        })?;
         let mode = match options.mode {
             FixtureMode::Cached => "cached",
             FixtureMode::WritableCopy => "writable-copy",
@@ -117,23 +113,19 @@ impl FixtureOrchestrator {
     {
         let _guard = fixture_lock().lock().expect("fixture lock poisoned");
         let (cache_path, created_by_this_call) = self.ensure_cached(source, options)?;
-        if created_by_this_call
-            && let Err(error) = post(&cache_path) {
-                if let Err(remove_error) = std::fs::remove_dir_all(&cache_path) {
-                    return Err(anyhow::anyhow!(
-                        "post-processing failed for fixture cache {} and cache invalidation failed: {}",
-                        cache_path.display(),
-                        remove_error
-                    ))
-                    .context(error.to_string());
-                }
-                return Err(error).with_context(|| {
-                    format!(
-                        "post-processing failed for fixture cache {}",
-                        cache_path.display()
-                    )
-                });
+        if created_by_this_call && let Err(error) = post(&cache_path) {
+            if let Err(remove_error) = std::fs::remove_dir_all(&cache_path) {
+                return Err(anyhow::anyhow!(
+                    "post-processing failed for fixture cache {} and cache invalidation failed: {}",
+                    cache_path.display(),
+                    remove_error
+                ))
+                .context(error.to_string());
             }
+            return Err(error).with_context(|| {
+                format!("post-processing failed for fixture cache {}", cache_path.display())
+            });
+        }
         match options.mode {
             FixtureMode::Cached => Ok(cache_path),
             FixtureMode::WritableCopy => {
@@ -158,14 +150,10 @@ impl FixtureOrchestrator {
             return Ok((cache_path, false));
         }
 
-        let cache_parent = cache_path
-            .parent()
-            .context("cache path must have a parent directory")?;
+        let cache_parent =
+            cache_path.parent().context("cache path must have a parent directory")?;
         std::fs::create_dir_all(cache_parent).with_context(|| {
-            format!(
-                "failed to create fixture cache parent {}",
-                cache_parent.display()
-            )
+            format!("failed to create fixture cache parent {}", cache_parent.display())
         })?;
 
         let staging = tempfile::Builder::new()
@@ -201,7 +189,8 @@ fn copy_directory(source: &Path, destination: &Path) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(source)
         .with_context(|| format!("failed to read source directory {}", source.display()))?
     {
-        let entry = entry.with_context(|| format!("failed to read entry under {}", source.display()))?;
+        let entry =
+            entry.with_context(|| format!("failed to read entry under {}", source.display()))?;
         let entry_path = entry.path();
         let dest_path = destination.join(entry.file_name());
         let metadata = entry
@@ -243,12 +232,8 @@ mod tests {
         let orchestrator = FixtureOrchestrator::new(cache_root.path().to_path_buf());
         let options = FixtureOptions::new("demo").with_version("v1");
 
-        let first = orchestrator
-            .cache_key(source.path(), &options)
-            .expect("first key");
-        let second = orchestrator
-            .cache_key(source.path(), &options)
-            .expect("second key");
+        let first = orchestrator.cache_key(source.path(), &options).expect("first key");
+        let second = orchestrator.cache_key(source.path(), &options).expect("second key");
         assert_eq!(first, second);
     }
 
@@ -275,9 +260,8 @@ mod tests {
         let orchestrator = FixtureOrchestrator::new(cache_root.path().to_path_buf());
         let options = FixtureOptions::new("demo").with_mode(FixtureMode::WritableCopy);
 
-        let writable_path = orchestrator
-            .materialize(source.path(), &options)
-            .expect("materialize writable copy");
+        let writable_path =
+            orchestrator.materialize(source.path(), &options).expect("materialize writable copy");
         let writable_file = writable_path.join("data.txt");
         std::fs::write(&writable_file, "mutated").expect("mutate writable copy");
 

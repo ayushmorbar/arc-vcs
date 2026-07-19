@@ -7,14 +7,14 @@ use anyhow::Context as _;
 use arc_core::store::oplog::{Causality, OpAction, OpRecord, auto_intent_summary};
 use arc_core::store::redb_metadata::MetadataStore;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tree_sitter::{Node, Parser};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use tree_sitter::{Node, Parser};
 
 const BINARY_EXT_ALLOWLIST: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "pdf", "zip", "gz", "bz2",
-    "xz", "7z", "tar", "jar", "mp3", "mp4", "avi", "mov", "wasm", "exe", "dll", "so",
-    "dylib", "bin", "ttf", "otf", "woff", "woff2",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "pdf", "zip", "gz", "bz2", "xz", "7z",
+    "tar", "jar", "mp3", "mp4", "avi", "mov", "wasm", "exe", "dll", "so", "dylib", "bin", "ttf",
+    "otf", "woff", "woff2",
 ];
 
 #[derive(Default)]
@@ -97,9 +97,9 @@ impl AutoSnapDaemon {
                             intent_summary,
                         };
 
-                        metadata_store.put_op_record(&record).context(
-                            "failed to persist semantic snap metadata record",
-                        )?;
+                        metadata_store
+                            .put_op_record(&record)
+                            .context("failed to persist semantic snap metadata record")?;
 
                         transient.clear();
                         pending_paths.clear();
@@ -248,18 +248,12 @@ fn collect_symbols_recursive(node: Node<'_>, bytes: &[u8], symbols: &mut Vec<Str
 }
 
 fn unix_timestamp_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-    fn unix_timestamp_nanos() -> u128 {
-        SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-    }
+fn unix_timestamp_nanos() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+}
 
 fn snapshot_oid_for_paths(paths: &BTreeSet<PathBuf>) -> [u8; 20] {
     let mut hasher = blake3::Hasher::new();
@@ -301,8 +295,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir should be created");
         let path = dir.path().join("ok.rs");
         let mut file = std::fs::File::create(&path).expect("file must be creatable");
-        writeln!(file, "fn compute_total() {{}}\nstruct Invoice;")
-            .expect("write should succeed");
+        writeln!(file, "fn compute_total() {{}}\nstruct Invoice;").expect("write should succeed");
 
         let mut paths = BTreeSet::new();
         paths.insert(path);
@@ -316,9 +309,7 @@ mod tests {
     #[test]
     fn error_node_helper_flags_invalid_tree() {
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .expect("language should set");
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("language should set");
         let tree = parser.parse("fn broken(", None).expect("parse should return a tree");
         assert!(has_error_nodes(tree.root_node()));
     }

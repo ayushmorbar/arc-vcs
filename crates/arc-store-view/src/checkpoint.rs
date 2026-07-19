@@ -21,11 +21,7 @@ where
     match fs::read_to_string(path) {
         Ok(raw) => {
             let value = serde_json::from_str::<T>(&raw).with_context(|| {
-                format!(
-                    "failed to parse checkpoint JSON '{}': {}",
-                    path.display(),
-                    raw
-                )
+                format!("failed to parse checkpoint JSON '{}': {}", path.display(), raw)
             })?;
             Ok(Some(value))
         }
@@ -53,8 +49,7 @@ where
         .with_context(|| format!("failed to acquire checkpoint lock '{}'", path.display()))?;
     lock.write_all(&payload)
         .with_context(|| format!("failed to write checkpoint '{}'", path.display()))?;
-    lock.commit()
-        .with_context(|| format!("failed to commit checkpoint '{}'", path.display()))?;
+    lock.commit().with_context(|| format!("failed to commit checkpoint '{}'", path.display()))?;
     Ok(())
 }
 
@@ -84,22 +79,14 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("checkpoint.json");
 
-        let sample = Sample {
-            id: 7,
-            label: "restack".to_string(),
-        };
+        let sample = Sample { id: 7, label: "restack".to_string() };
 
         save_json_atomic(&path, &sample).expect("save checkpoint");
-        let loaded = load_json::<Sample>(&path)
-            .expect("load checkpoint")
-            .expect("checkpoint exists");
+        let loaded =
+            load_json::<Sample>(&path).expect("load checkpoint").expect("checkpoint exists");
         assert_eq!(loaded, sample);
 
         remove(&path).expect("remove checkpoint");
-        assert!(
-            load_json::<Sample>(&path)
-                .expect("load after remove")
-                .is_none()
-        );
+        assert!(load_json::<Sample>(&path).expect("load after remove").is_none());
     }
 }

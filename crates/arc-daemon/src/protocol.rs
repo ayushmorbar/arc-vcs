@@ -41,12 +41,7 @@ where
 {
     /// Construct a successful response.
     pub fn ok(id: u64, result: T) -> Self {
-        Self {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: Some(result),
-            error: None,
-        }
+        Self { jsonrpc: "2.0".to_string(), id, result: Some(result), error: None }
     }
 
     /// Construct an error response.
@@ -55,10 +50,7 @@ where
             jsonrpc: "2.0".to_string(),
             id,
             result: None,
-            error: Some(RpcError {
-                code,
-                message: message.into(),
-            }),
+            error: Some(RpcError { code, message: message.into() }),
         }
     }
 }
@@ -113,11 +105,8 @@ where
 
 /// Serialize and emit a JSON-RPC notification as one stdout line.
 pub fn send_notification<T: Serialize>(method: &str, params: Option<T>) -> anyhow::Result<()> {
-    let payload = RpcNotification {
-        jsonrpc: "2.0".to_string(),
-        method: method.to_string(),
-        params,
-    };
+    let payload =
+        RpcNotification { jsonrpc: "2.0".to_string(), method: method.to_string(), params };
     write_json_line(&payload)
 }
 
@@ -125,9 +114,7 @@ fn write_json_line<T: Serialize>(value: &T) -> anyhow::Result<()> {
     static STDOUT_LOCK: OnceLock<Mutex<std::io::Stdout>> = OnceLock::new();
     let lock = STDOUT_LOCK.get_or_init(|| Mutex::new(std::io::stdout()));
 
-    let mut stdout = lock
-        .lock()
-        .map_err(|_| anyhow::anyhow!("stdout lock was poisoned"))?;
+    let mut stdout = lock.lock().map_err(|_| anyhow::anyhow!("stdout lock was poisoned"))?;
     let payload = serde_json::to_string(value)?;
     stdout.write_all(payload.as_bytes())?;
     stdout.write_all(b"\n")?;

@@ -44,12 +44,7 @@ pub fn analyze_git_repo(path: &Path) -> Result<GitAnalysis> {
 
     let commits = collect_commits_with_fallback(&git_dir, head_oid)?;
 
-    Ok(GitAnalysis {
-        path: path.to_path_buf(),
-        head_hex,
-        commit_count: commits.len(),
-        commits,
-    })
+    Ok(GitAnalysis { path: path.to_path_buf(), head_hex, commit_count: commits.len(), commits })
 }
 
 fn collect_commits_with_fallback(git_dir: &Path, head_oid: GitOid) -> Result<Vec<GitCommit>> {
@@ -200,16 +195,11 @@ fn read_loose_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     let path = git_dir.join("objects").join(&h[..2]).join(&h[2..]);
     let compressed = std::fs::read(&path)?;
     let buf = zlib_decompress(&compressed)?;
-    let nul = buf
-        .iter()
-        .position(|&b| b == 0)
-        .context("malformed loose object: no NUL separator")?;
+    let nul =
+        buf.iter().position(|&b| b == 0).context("malformed loose object: no NUL separator")?;
     let header = std::str::from_utf8(&buf[..nul])?;
     let kind = parse_obj_kind(header.split(' ').next().unwrap_or(""))?;
-    Ok(RawObject {
-        kind,
-        data: Bytes::copy_from_slice(&buf[nul + 1..]),
-    })
+    Ok(RawObject { kind, data: Bytes::copy_from_slice(&buf[nul + 1..]) })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -251,10 +241,7 @@ fn read_packed_object(git_dir: &Path, oid: &GitOid) -> Result<RawObject> {
     let backends: &[PackLookupBackend] = match mode {
         TEST_BACKEND_MMAP_ONLY => &[PackLookupBackend::MmapChunkIndex],
         TEST_BACKEND_LEGACY_ONLY => &[PackLookupBackend::LegacyIndexScan],
-        _ => &[
-            PackLookupBackend::MmapChunkIndex,
-            PackLookupBackend::LegacyIndexScan,
-        ],
+        _ => &[PackLookupBackend::MmapChunkIndex, PackLookupBackend::LegacyIndexScan],
     };
 
     let mut errors = Vec::new();
@@ -377,9 +364,7 @@ impl CommitGraphIndex {
             bail!("commit-graph is too small");
         }
 
-        if data
-            .get(0..4)
-            .context("commit-graph header missing signature")?
+        if data.get(0..4).context("commit-graph header missing signature")?
             != COMMIT_GRAPH_SIGNATURE
         {
             bail!("commit-graph signature mismatch");
@@ -397,9 +382,7 @@ impl CommitGraphIndex {
         let hash_len = 20usize;
 
         let chunk_count = *data.get(6).context("commit-graph missing chunk count")? as usize;
-        let base_graph_count = *data
-            .get(7)
-            .context("commit-graph missing base graph count")?;
+        let base_graph_count = *data.get(7).context("commit-graph missing base graph count")?;
         if base_graph_count != 0 {
             bail!(
                 "split commit-graph chains are not supported in arc-git fast path; fallback required"
@@ -428,12 +411,9 @@ impl CommitGraphIndex {
                 .get(cursor..cursor + 4)
                 .context("commit-graph truncated chunk id")?
                 .try_into()?;
-            let offset = usize::try_from(read_u64_be_at(
-                &data,
-                cursor + 4,
-                "commit-graph chunk offset",
-            )?)
-            .context("commit-graph chunk offset does not fit in usize")?;
+            let offset =
+                usize::try_from(read_u64_be_at(&data, cursor + 4, "commit-graph chunk offset")?)
+                    .context("commit-graph chunk offset does not fit in usize")?;
             entries.push((id, offset));
             cursor += 12;
         }
@@ -461,18 +441,9 @@ impl CommitGraphIndex {
             chunks.insert(id, start..end);
         }
 
-        let oidf = chunks
-            .get(b"OIDF")
-            .context("commit-graph missing OIDF chunk")?
-            .clone();
-        let oidl = chunks
-            .get(b"OIDL")
-            .context("commit-graph missing OIDL chunk")?
-            .clone();
-        let cdat = chunks
-            .get(b"CDAT")
-            .context("commit-graph missing CDAT chunk")?
-            .clone();
+        let oidf = chunks.get(b"OIDF").context("commit-graph missing OIDF chunk")?.clone();
+        let oidl = chunks.get(b"OIDL").context("commit-graph missing OIDL chunk")?.clone();
+        let cdat = chunks.get(b"CDAT").context("commit-graph missing CDAT chunk")?.clone();
         let edge = chunks.get(b"EDGE").cloned();
 
         if oidf.len() != COMMIT_GRAPH_FAN_LEN * 4 {
@@ -486,9 +457,8 @@ impl CommitGraphIndex {
         let commit_count = fan[255];
         let commit_count_usize = commit_count as usize;
 
-        let expected_oidl = commit_count_usize
-            .checked_mul(hash_len)
-            .context("commit-graph OIDL size overflow")?;
+        let expected_oidl =
+            commit_count_usize.checked_mul(hash_len).context("commit-graph OIDL size overflow")?;
         if oidl.len() != expected_oidl {
             bail!("commit-graph OIDL chunk length does not match fanout count");
         }
@@ -557,10 +527,7 @@ impl CommitGraphIndex {
             .lookup_position(oid)
             .context("HEAD or parent OID is not present in commit-graph")?;
         let parent_positions = self.parent_positions_for(pos)?;
-        parent_positions
-            .into_iter()
-            .map(|p| self.oid_at(p))
-            .collect()
+        parent_positions.into_iter().map(|p| self.oid_at(p)).collect()
     }
 
     fn parent_positions_for(&self, pos: u32) -> Result<Vec<u32>> {
@@ -610,9 +577,7 @@ impl CommitGraphIndex {
 
         loop {
             let raw = read_u32_be_at(&self.data, cursor, "commit-graph EDGE parent")?;
-            cursor = cursor
-                .checked_add(4)
-                .context("commit-graph EDGE cursor overflow")?;
+            cursor = cursor.checked_add(4).context("commit-graph EDGE cursor overflow")?;
 
             if raw & COMMIT_GRAPH_EXTENDED_EDGE_MASK != 0 {
                 let last = raw & !COMMIT_GRAPH_EXTENDED_EDGE_MASK;
@@ -693,21 +658,13 @@ fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Resu
 
     let oid_table: usize = 1032;
     let crc_table = oid_table
-        .checked_add(
-            total
-                .checked_mul(20)
-                .context("pack idx oid table overflow")?,
-        )
+        .checked_add(total.checked_mul(20).context("pack idx oid table overflow")?)
         .context("pack idx crc table overflow")?;
     let off_table = crc_table
         .checked_add(total.checked_mul(4).context("pack idx crc span overflow")?)
         .context("pack idx offset table overflow")?;
     let big_table = off_table
-        .checked_add(
-            total
-                .checked_mul(4)
-                .context("pack idx offset span overflow")?,
-        )
+        .checked_add(total.checked_mul(4).context("pack idx offset span overflow")?)
         .context("pack idx big-offset table overflow")?;
     if big_table > idx.len() {
         bail!("pack idx tables exceed file length");
@@ -719,9 +676,8 @@ fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Resu
         while l < r {
             let m = l + (r - l) / 2;
             let start = oid_table + m * 20;
-            let entry = idx
-                .get(start..start + 20)
-                .context("pack idx oid table entry out of bounds")?;
+            let entry =
+                idx.get(start..start + 20).context("pack idx oid table entry out of bounds")?;
             match entry.cmp(oid.as_slice()) {
                 std::cmp::Ordering::Equal => {
                     found = Some(m);
@@ -738,11 +694,7 @@ fn lookup_in_pack(idx: &[u8], pack: &[u8], oid: &GitOid, git_dir: &Path) -> Resu
     let pack_offset = if raw_off & 0x8000_0000 != 0 {
         let big_idx = (raw_off & 0x7FFF_FFFF) as usize;
         let big_off = big_table
-            .checked_add(
-                big_idx
-                    .checked_mul(8)
-                    .context("pack idx big-offset index overflow")?,
-            )
+            .checked_add(big_idx.checked_mul(8).context("pack idx big-offset index overflow")?)
             .context("pack idx big-offset pointer overflow")?;
         usize::try_from(read_u64_be_at(idx, big_off, "pack idx 64-bit offset")?)
             .context("pack idx 64-bit offset does not fit in usize")?
@@ -776,23 +728,16 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
     match obj_type {
         1..=4 => {
             let data = zlib_decompress(&pack[data_pos..])?;
-            Ok(RawObject {
-                kind: type_to_kind(obj_type)?,
-                data: Bytes::from(data),
-            })
+            Ok(RawObject { kind: type_to_kind(obj_type)?, data: Bytes::from(data) })
         }
         6 => {
             let (neg_off, delta_pos) = parse_ofs_delta_header(pack, data_pos)?;
-            let base_off = offset
-                .checked_sub(neg_off)
-                .context("OFS_DELTA: base offset underflow")?;
+            let base_off =
+                offset.checked_sub(neg_off).context("OFS_DELTA: base offset underflow")?;
             let base = read_pack_entry(pack, base_off, git_dir)?;
             let delta = zlib_decompress(&pack[delta_pos..])?;
             let data = apply_delta(&base.data, &delta)?;
-            Ok(RawObject {
-                kind: base.kind,
-                data: Bytes::from(data),
-            })
+            Ok(RawObject { kind: base.kind, data: Bytes::from(data) })
         }
         7 => {
             let base_oid: GitOid = pack
@@ -802,14 +747,10 @@ fn read_pack_entry(pack: &[u8], offset: usize, git_dir: &Path) -> Result<RawObje
                 .context("REF_DELTA: invalid base OID length")?;
             let base = read_object(git_dir, &base_oid)?;
             let delta = zlib_decompress(
-                pack.get(data_pos + 20..)
-                    .context("REF_DELTA: truncated delta payload")?,
+                pack.get(data_pos + 20..).context("REF_DELTA: truncated delta payload")?,
             )?;
             let data = apply_delta(&base.data, &delta)?;
-            Ok(RawObject {
-                kind: base.kind,
-                data: Bytes::from(data),
-            })
+            Ok(RawObject { kind: base.kind, data: Bytes::from(data) })
         }
         _ => bail!("unknown pack object type {obj_type}"),
     }
@@ -835,11 +776,8 @@ pub fn extract_tree_to_memory(
     }
     let tree = parse_tree(&obj.data)?;
     for entry in &tree.entries {
-        let path = if prefix.is_empty() {
-            entry.name.clone()
-        } else {
-            format!("{prefix}/{}", entry.name)
-        };
+        let path =
+            if prefix.is_empty() { entry.name.clone() } else { format!("{prefix}/{}", entry.name) };
         let oid = parse_hex_oid(&entry.oid)?;
         if entry.mode == "40000" || entry.mode == "040000" {
             extract_tree_to_memory(git_dir, &oid, &path, out)?;

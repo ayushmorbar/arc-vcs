@@ -35,18 +35,14 @@ pub struct NativeSyncClient {
 impl NativeSyncClient {
     /// Create a new native sync client targeting `endpoint`.
     pub fn new(endpoint: String, auth_token: Option<String>) -> Self {
-        Self {
-            endpoint,
-            auth_token,
-        }
+        Self { endpoint, auth_token }
     }
 
     async fn open_framed(&self) -> Result<Framed<TcpStream, ArcSyncCodec>, NetError> {
         let endpoint = SyncEndpoint::parse(&self.endpoint)
             .map_err(|e| NetError::Protocol(format!("invalid native sync endpoint: {e}")))?;
-        let socket = connect_with_retry(&endpoint)
-            .await
-            .map_err(|e| NetError::Protocol(e.to_string()))?;
+        let socket =
+            connect_with_retry(&endpoint).await.map_err(|e| NetError::Protocol(e.to_string()))?;
         Ok(Framed::new(socket, ArcSyncCodec::new()))
     }
 
@@ -78,14 +74,16 @@ impl NativeSyncClient {
 
         let response_frame = timeout(HANDSHAKE_RESPONSE_TIMEOUT, framed.next())
             .await
-            .map_err(|_| NetError::Protocol("timed out waiting for handshake response".to_string()))?
-            .ok_or_else(|| NetError::Protocol("connection closed before handshake response".to_string()))?
+            .map_err(|_| {
+                NetError::Protocol("timed out waiting for handshake response".to_string())
+            })?
+            .ok_or_else(|| {
+                NetError::Protocol("connection closed before handshake response".to_string())
+            })?
             .map_err(NetError::from)?;
 
         if response_frame.message_type != MessageType::Handshake {
-            return Err(NetError::Protocol(
-                "expected handshake response frame".to_string(),
-            ));
+            return Err(NetError::Protocol("expected handshake response frame".to_string()));
         }
 
         let response: HandshakeResponse = bincode::deserialize(&response_frame.payload)
@@ -109,16 +107,9 @@ impl SyncProtocol for NativeSyncClient {
     ) -> Result<Vec<blake3::Hash>, NetError> {
         let mut framed = self.open_framed().await?;
         let response = self
-            .handshake(
-                &mut framed,
-                local_frontier.iter().map(|h| *h.as_bytes()).collect(),
-            )
+            .handshake(&mut framed, local_frontier.iter().map(|h| *h.as_bytes()).collect())
             .await?;
-        Ok(response
-            .remote_frontier
-            .into_iter()
-            .map(blake3::Hash::from)
-            .collect())
+        Ok(response.remote_frontier.into_iter().map(blake3::Hash::from).collect())
     }
 
     async fn fetch_cas_blocks(&self, missing_hashes: &[blake3::Hash]) -> Result<Vec<u8>, NetError> {
@@ -138,9 +129,10 @@ impl SyncProtocol for NativeSyncClient {
         let mut remaining = requested.clone();
         let mut blocks = Vec::new();
 
-        while let Some(frame_result) = timeout(PAYLOAD_FRAME_TIMEOUT, framed.next())
-            .await
-            .map_err(|_| NetError::Protocol("timed out waiting for CAS payload frame".to_string()))?
+        while let Some(frame_result) =
+            timeout(PAYLOAD_FRAME_TIMEOUT, framed.next()).await.map_err(|_| {
+                NetError::Protocol("timed out waiting for CAS payload frame".to_string())
+            })?
         {
             let frame = frame_result.map_err(NetError::from)?;
             if frame.message_type == MessageType::KeepAlive {
@@ -171,10 +163,8 @@ impl SyncProtocol for NativeSyncClient {
         }
 
         if !remaining.is_empty() {
-            let mut missing: Vec<String> = remaining
-                .into_iter()
-                .map(|hash| ChangeId::from(hash).to_hex())
-                .collect();
+            let mut missing: Vec<String> =
+                remaining.into_iter().map(|hash| ChangeId::from(hash).to_hex()).collect();
             missing.sort();
             return Err(NetError::Protocol(format!(
                 "peer omitted {} requested CAS block(s): {}",
@@ -223,10 +213,7 @@ pub(crate) async fn sync_remote_from_repo(
         min_version: 1,
         auth_token: choose_auth_token(auth_token),
         view_heads,
-        required_capabilities: vec![
-            SyncCapability::PayloadStreamV1,
-            SyncCapability::TypedChangeId,
-        ],
+        required_capabilities: vec![SyncCapability::PayloadStreamV1, SyncCapability::TypedChangeId],
         optional_capabilities: vec![SyncCapability::KeepAlive, SyncCapability::ProgressSideband],
         frontier: Vec::new(),
     };
@@ -251,19 +238,13 @@ pub(crate) async fn sync_remote_from_repo(
         .context("failed to decode handshake response payload")?;
 
     if response.status != 0 {
-        bail!(
-            "native sync handshake failed with status {}",
-            response.status
-        );
+        bail!("native sync handshake failed with status {}", response.status);
     }
 
     if response.negotiated_version < request.min_version
         || response.negotiated_version > request.version
     {
-        bail!(
-            "server negotiated unsupported protocol version {}",
-            response.negotiated_version
-        );
+        bail!("server negotiated unsupported protocol version {}", response.negotiated_version);
     }
 
     let (_accepted, rejected) = negotiate_capabilities(&request, &response.negotiated_capabilities);
@@ -354,17 +335,11 @@ async fn stream_required_changes(
             bail!("local CAS object id mismatch for {}", id.to_hex());
         }
         if !change.verify_signature() {
-            bail!(
-                "local CAS object failed signature verification for {}",
-                id.to_hex()
-            );
+            bail!("local CAS object failed signature verification for {}", id.to_hex());
         }
 
         framed
-            .send(SyncFrame::new(
-                MessageType::PayloadStream,
-                Bytes::copy_from_slice(raw.as_ref()),
-            ))
+            .send(SyncFrame::new(MessageType::PayloadStream, Bytes::copy_from_slice(raw.as_ref())))
             .await
             .context("failed to send payload stream frame")?;
     }
@@ -436,12 +411,9 @@ mod tests {
 
     #[tokio::test]
     async fn sync_remote_roundtrips_handshake_with_server() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("test listener bind should succeed");
-        let addr = listener
-            .local_addr()
-            .expect("listener should expose local address");
+        let listener =
+            TcpListener::bind("127.0.0.1:0").await.expect("test listener bind should succeed");
+        let addr = listener.local_addr().expect("listener should expose local address");
 
         let server_handle = tokio::spawn(async move {
             let _ = server::serve_with_listener(listener, PathBuf::from(".")).await;
@@ -485,12 +457,9 @@ mod tests {
             .save(client_root.path())
             .expect("client view save should succeed");
 
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("test listener bind should succeed");
-        let addr = listener
-            .local_addr()
-            .expect("listener should expose local address");
+        let listener =
+            TcpListener::bind("127.0.0.1:0").await.expect("test listener bind should succeed");
+        let addr = listener.local_addr().expect("listener should expose local address");
 
         let server_repo = server_root.path().to_path_buf();
         let server_handle = tokio::spawn(async move {

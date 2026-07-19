@@ -35,9 +35,7 @@ impl LanguagePlugin for RustPlugin {
         parser
             .set_language(&tree_sitter_rust::LANGUAGE.into())
             .map_err(|e| format!("failed to set language: {e}"))?;
-        parser
-            .parse(source, None)
-            .ok_or_else(|| "tree-sitter parse returned None".to_string())
+        parser.parse(source, None).ok_or_else(|| "tree-sitter parse returned None".to_string())
     }
 
     fn diff(&self, old_src: &str, new_src: &str, store: &ObjectStore) -> Result<Vec<Atom>, String> {
@@ -55,10 +53,7 @@ impl LanguagePlugin for RustPlugin {
                 let prior_hash = store
                     .write_blob(old_content)
                     .map_err(|e| format!("CAS write error for Delete at {path:?}: {e}"))?;
-                atoms.push(Atom::Delete {
-                    at: path.clone(),
-                    prior_hash,
-                });
+                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
             }
         }
 
@@ -68,10 +63,7 @@ impl LanguagePlugin for RustPlugin {
                 let content_hash = store
                     .write_blob(content)
                     .map_err(|e| format!("CAS write error for Insert at {path:?}: {e}"))?;
-                atoms.push(Atom::Insert {
-                    at: path.clone(),
-                    content_hash,
-                });
+                atoms.push(Atom::Insert { at: path.clone(), content_hash });
             }
         }
 
@@ -86,14 +78,8 @@ impl LanguagePlugin for RustPlugin {
                 let content_hash = store
                     .write_blob(new_content)
                     .map_err(|e| format!("CAS write error for Insert at {path:?}: {e}"))?;
-                atoms.push(Atom::Delete {
-                    at: path.clone(),
-                    prior_hash,
-                });
-                atoms.push(Atom::Insert {
-                    at: path.clone(),
-                    content_hash,
-                });
+                atoms.push(Atom::Delete { at: path.clone(), prior_hash });
+                atoms.push(Atom::Insert { at: path.clone(), content_hash });
             }
         }
 
@@ -153,10 +139,8 @@ impl LanguagePlugin for RustPlugin {
             sort_key(a).cmp(&sort_key(b))
         });
 
-        let parts: Vec<String> = items
-            .iter()
-            .map(|(_, content)| String::from_utf8_lossy(content).to_string())
-            .collect();
+        let parts: Vec<String> =
+            items.iter().map(|(_, content)| String::from_utf8_lossy(content).to_string()).collect();
 
         Ok(parts.join("\n\n"))
     }
@@ -194,9 +178,8 @@ fn node_segment(node: &Node, source: &[u8]) -> String {
     let kind = node.kind();
 
     // Try to find a semantic name from a `name` or `pattern` child field.
-    if let Some(name_node) = node
-        .child_by_field_name("name")
-        .or_else(|| node.child_by_field_name("pattern"))
+    if let Some(name_node) =
+        node.child_by_field_name("name").or_else(|| node.child_by_field_name("pattern"))
     {
         let name_text = name_node.utf8_text(source).unwrap_or("?");
         return format!("{kind}[{name_text}]");
@@ -258,10 +241,7 @@ mod tests {
         let atoms = plugin.diff(old_src, new_src, &store).unwrap();
 
         let has_insert = atoms.iter().any(|a| matches!(a, Atom::Insert { .. }));
-        assert!(
-            has_insert,
-            "expected at least one Insert atom for `let y = 2;`, got: {atoms:?}"
-        );
+        assert!(has_insert, "expected at least one Insert atom for `let y = 2;`, got: {atoms:?}");
 
         // Verify content is stored as a blob and is readable.
         let has_y_insert = atoms.iter().any(|a| {
@@ -272,10 +252,7 @@ mod tests {
                 false
             }
         });
-        assert!(
-            has_y_insert,
-            "expected an Insert whose blob content contains 'y', got: {atoms:?}"
-        );
+        assert!(has_y_insert, "expected an Insert whose blob content contains 'y', got: {atoms:?}");
     }
 
     #[test]
@@ -292,10 +269,7 @@ mod tests {
         assert!(has_main, "function path must contain 'main', got: {path:?}");
 
         let has_fn_kind = path.iter().any(|seg| seg.contains("function_item"));
-        assert!(
-            has_fn_kind,
-            "path must contain 'function_item', got: {path:?}"
-        );
+        assert!(has_fn_kind, "path must contain 'function_item', got: {path:?}");
     }
 
     #[test]
@@ -304,10 +278,7 @@ mod tests {
         let (_dir, store) = make_store();
         let src = r#"fn hello() { println!("hi"); }"#;
         let atoms = plugin.diff(src, src, &store).unwrap();
-        assert!(
-            atoms.is_empty(),
-            "identical sources must produce no atoms, got: {atoms:?}"
-        );
+        assert!(atoms.is_empty(), "identical sources must produce no atoms, got: {atoms:?}");
     }
 
     #[test]

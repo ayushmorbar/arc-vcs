@@ -82,7 +82,9 @@ pub struct ValidatedMappings {
 }
 
 /// Validate mappings using the default destination rule (`destination` must be non-empty).
-pub fn validate_mappings(records: Vec<MappingRecord>) -> Result<ValidatedMappings, ValidationError> {
+pub fn validate_mappings(
+    records: Vec<MappingRecord>,
+) -> Result<ValidatedMappings, ValidationError> {
     validate_mappings_with(records, |destination| !destination.is_empty())
 }
 
@@ -126,11 +128,7 @@ pub fn validate_mappings_with(
                 sources.push(source);
                 rule_indexes.push(*source_rules.first().expect("rules are non-empty"));
             }
-            issues.push(ValidationIssue::Conflict {
-                destination,
-                sources,
-                rule_indexes,
-            });
+            issues.push(ValidationIssue::Conflict { destination, sources, rule_indexes });
         }
     }
 
@@ -246,7 +244,8 @@ mod tests {
             },
         ];
 
-        let out = validate_mappings(records).expect("invalid destinations should be fixed, not conflicted");
+        let out = validate_mappings(records)
+            .expect("invalid destinations should be fixed, not conflicted");
         assert!(out.accepted.is_empty());
         assert_eq!(out.fixes.len(), 2);
     }

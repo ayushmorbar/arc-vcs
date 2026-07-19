@@ -44,10 +44,7 @@ impl SparseMatcher {
     ///
     /// Empty pattern lists mean "full checkout" and therefore match all paths.
     pub fn from_patterns(patterns: &[String]) -> Self {
-        let patterns = patterns
-            .iter()
-            .filter_map(SparsePattern::new)
-            .collect::<Vec<_>>();
+        let patterns = patterns.iter().filter_map(SparsePattern::new).collect::<Vec<_>>();
         Self { patterns }
     }
 
@@ -130,11 +127,7 @@ mod tests {
     fn sparse_matches_atom_when_any_path_is_in_scope() {
         let matcher = SparseMatcher::from_patterns(&["src".to_string()]);
         let atom = Atom::Insert {
-            at: vec![
-                "file".to_string(),
-                "src/lib.rs".to_string(),
-                "fn_foo".to_string(),
-            ],
+            at: vec!["file".to_string(), "src/lib.rs".to_string(), "fn_foo".to_string()],
             content_hash: [7u8; 32],
         };
         assert!(matcher.matches_atom(&atom));

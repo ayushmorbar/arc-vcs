@@ -135,10 +135,7 @@ impl IdentityManager {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&identity_dir, fs::Permissions::from_mode(0o700))?;
         }
-        Ok(Self {
-            identity_dir,
-            active_identity: Mutex::new(None),
-        })
+        Ok(Self { identity_dir, active_identity: Mutex::new(None) })
     }
 
     /// Generate, encrypt, and persist a new identity as <alias>.json.
@@ -164,10 +161,7 @@ impl IdentityManager {
         let ciphertext = cipher
             .encrypt(
                 GenericArray::from_slice(&nonce),
-                Payload {
-                    msg: plaintext.as_ref(),
-                    aad: &aad,
-                },
+                Payload { msg: plaintext.as_ref(), aad: &aad },
             )
             .map_err(|_| KeyringError::Crypto("encryption failed".to_string()))?;
         plaintext.zeroize();
@@ -197,8 +191,8 @@ impl IdentityManager {
         }
 
         let bytes = fs::read(path)?;
-        let persisted: PersistedIdentity = serde_json::from_slice(&bytes)
-            .map_err(|_| KeyringError::CorruptedCiphertext)?;
+        let persisted: PersistedIdentity =
+            serde_json::from_slice(&bytes).map_err(|_| KeyringError::CorruptedCiphertext)?;
 
         if persisted.alias != alias {
             return Err(KeyringError::CorruptedCiphertext);
@@ -217,10 +211,7 @@ impl IdentityManager {
         let mut decrypted = cipher
             .decrypt(
                 GenericArray::from_slice(&persisted.nonce),
-                Payload {
-                    msg: persisted.ciphertext.as_ref(),
-                    aad: &aad,
-                },
+                Payload { msg: persisted.ciphertext.as_ref(), aad: &aad },
             )
             .map_err(|_| KeyringError::InvalidPassphrase)?;
 
@@ -342,10 +333,7 @@ pub struct KeyringSessionFacade {
 impl KeyringSessionFacade {
     pub fn new(manager: IdentityManager) -> Self {
         let session_file = manager.identity_dir().join("session.json");
-        Self {
-            manager,
-            session_file,
-        }
+        Self { manager, session_file }
     }
 
     pub fn list_aliases(&self) -> Result<Vec<String>, KeyringError> {
@@ -358,9 +346,7 @@ impl KeyringSessionFacade {
         passphrase: &str,
     ) -> Result<VerifyingKey, KeyringError> {
         let identity = self.manager.load(alias, passphrase)?;
-        let state = SessionState {
-            active_alias: alias.to_string(),
-        };
+        let state = SessionState { active_alias: alias.to_string() };
         let payload = serde_json::to_vec_pretty(&state)?;
         atomic_write(&self.session_file, &payload)?;
         Ok(identity.verifying_key)
@@ -387,10 +373,8 @@ impl KeyringSessionFacade {
         }
         let bytes = fs::read(path)?;
         let persisted: PersistedIdentity = serde_json::from_slice(&bytes)?;
-        let key: [u8; 32] = persisted
-            .verifying_key
-            .try_into()
-            .map_err(|_| KeyringError::CorruptedCiphertext)?;
+        let key: [u8; 32] =
+            persisted.verifying_key.try_into().map_err(|_| KeyringError::CorruptedCiphertext)?;
         Ok(arc_store_types::Author::Human {
             name: alias.to_string(),
             email: format!("{alias}@local.arc"),
@@ -413,7 +397,10 @@ impl IdentityManager {
     }
 }
 
-fn derive_encryption_key(passphrase: &str, salt: &[u8]) -> Result<[u8; DERIVED_KEY_LEN], KeyringError> {
+fn derive_encryption_key(
+    passphrase: &str,
+    salt: &[u8],
+) -> Result<[u8; DERIVED_KEY_LEN], KeyringError> {
     let mut out = [0u8; DERIVED_KEY_LEN];
     Argon2::default()
         .hash_password_into(passphrase.as_bytes(), salt, &mut out)
@@ -422,10 +409,7 @@ fn derive_encryption_key(passphrase: &str, salt: &[u8]) -> Result<[u8; DERIVED_K
 }
 
 fn validate_alias(alias: &str) -> Result<(), KeyringError> {
-    if alias.is_empty()
-        || !alias
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return Err(KeyringError::InvalidAlias(alias.to_string()));
     }
@@ -438,14 +422,10 @@ fn parse_sponsorship(
     let Some(prov) = persisted else {
         return Ok(None);
     };
-    let sponsor_key_arr: [u8; 32] = prov
-        .sponsor_key
-        .try_into()
-        .map_err(|_| KeyringError::CorruptedCiphertext)?;
-    let signature_arr: [u8; 64] = prov
-        .sponsor_signature
-        .try_into()
-        .map_err(|_| KeyringError::CorruptedCiphertext)?;
+    let sponsor_key_arr: [u8; 32] =
+        prov.sponsor_key.try_into().map_err(|_| KeyringError::CorruptedCiphertext)?;
+    let signature_arr: [u8; 64] =
+        prov.sponsor_signature.try_into().map_err(|_| KeyringError::CorruptedCiphertext)?;
     Ok(Some(AiSponsorship {
         model_name: prov.model_name,
         sponsor_key: VerifyingKey::from_bytes(&sponsor_key_arr)

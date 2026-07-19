@@ -56,14 +56,8 @@ pub struct OpRecord {
 
 /// Build a lightweight auto-generated intent summary from parsed symbols.
 pub fn auto_intent_summary(symbols: &[String]) -> String {
-    let descriptor = if symbols.is_empty() {
-        "workspace".to_string()
-    } else {
-        symbols.join(", ")
-    };
-    format!(
-        "[auto-snap] Structural changes to {descriptor} detected via tree-sitter."
-    )
+    let descriptor = if symbols.is_empty() { "workspace".to_string() } else { symbols.join(", ") };
+    format!("[auto-snap] Structural changes to {descriptor} detected via tree-sitter.")
 }
 
 /// Human or AI actor attribution for an operation.
@@ -162,10 +156,7 @@ impl Operation {
         before_heads: BTreeSet<ChangeId>,
         after_heads: BTreeSet<ChangeId>,
     ) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         Self::new_with_timestamp(command, view, before_heads, after_heads, now)
     }
 
@@ -256,9 +247,7 @@ pub struct OpLog {
 impl OpLog {
     /// Create an OpLog at `<arc_dir>/oplog`.
     pub fn new(arc_dir: &Path) -> Self {
-        Self {
-            root: arc_dir.join("oplog"),
-        }
+        Self { root: arc_dir.join("oplog") }
     }
 
     /// Persist one operation node and publish it into the head set.
@@ -278,10 +267,7 @@ impl OpLog {
             }
             next_heads.insert(node.id);
 
-            let candidate = HeadsState {
-                epoch: heads_state.epoch + 1,
-                heads: next_heads,
-            };
+            let candidate = HeadsState { epoch: heads_state.epoch + 1, heads: next_heads };
 
             if self.publish_heads_cas(&heads_fingerprint, &candidate)? {
                 let _ = self.write_legacy_projection();
@@ -382,18 +368,14 @@ impl OpLog {
                 .then_with(|| a.operation.id.cmp(&b.operation.id))
         });
 
-        let selected = head_nodes
-            .pop()
-            .ok_or_else(|| anyhow::anyhow!("head set unexpectedly empty"))?;
+        let selected =
+            head_nodes.pop().ok_or_else(|| anyhow::anyhow!("head set unexpectedly empty"))?;
 
         let mut next_heads = heads_state.heads.clone();
         let _ = next_heads.remove(&selected.id);
         next_heads.extend(selected.operation.parents.iter().copied());
 
-        let candidate = HeadsState {
-            epoch: heads_state.epoch + 1,
-            heads: next_heads,
-        };
+        let candidate = HeadsState { epoch: heads_state.epoch + 1, heads: next_heads };
         self.write_heads_state(&candidate)?;
         let _ = self.write_legacy_projection();
 
@@ -491,10 +473,7 @@ impl OpLog {
         let snapshot = SnapshotId(*blake3::hash(&payload).as_bytes());
         op.snapshot = Some(snapshot);
 
-        Ok(OperationNode {
-            id: snapshot,
-            operation: op,
-        })
+        Ok(OperationNode { id: snapshot, operation: op })
     }
 
     fn persist_node(&self, node: &OperationNode) -> Result<()> {
@@ -591,9 +570,7 @@ impl OpLog {
 
     fn node_path(&self, id: SnapshotId) -> PathBuf {
         let hex = id.to_hex();
-        self.ops_root()
-            .join(&hex[..2])
-            .join(format!("{}.bin", &hex[2..]))
+        self.ops_root().join(&hex[..2]).join(format!("{}.bin", &hex[2..]))
     }
 }
 
@@ -626,20 +603,7 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     days -= year1 * 365;
     let year = year400 * 400 + year100 * 100 + year4 * 4 + year1 + 1970;
     let leap = (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
-    let dims: [u64; 12] = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
+    let dims: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut month = 1u64;
     for dim in dims {
         if days < dim {
@@ -698,10 +662,7 @@ mod tests {
         assert_eq!(all[0].command, "snap");
         assert_eq!(all[1].command, "merge");
 
-        let popped = log
-            .pop()
-            .expect("pop must succeed")
-            .expect("pop must return op");
+        let popped = log.pop().expect("pop must succeed").expect("pop must return op");
         assert_eq!(popped.command, "merge");
 
         let remaining = log.read_all().expect("read_all must succeed");
@@ -725,26 +686,16 @@ mod tests {
 
         let b2 = Arc::clone(&barrier);
         let t2 = std::thread::spawn(move || {
-            let op = Operation::new(
-                "merge",
-                "main",
-                BTreeSet::from([cid(1)]),
-                BTreeSet::from([cid(2)]),
-            );
+            let op =
+                Operation::new("merge", "main", BTreeSet::from([cid(1)]), BTreeSet::from([cid(2)]));
             b2.wait();
             log2.append(&op)
         });
 
-        t1.join()
-            .expect("thread 1 must not panic")
-            .expect("append1 must succeed");
-        t2.join()
-            .expect("thread 2 must not panic")
-            .expect("append2 must succeed");
+        t1.join().expect("thread 1 must not panic").expect("append1 must succeed");
+        t2.join().expect("thread 2 must not panic").expect("append2 must succeed");
 
-        let ops = OpLog::new(dir.path())
-            .read_all()
-            .expect("read_all must succeed");
+        let ops = OpLog::new(dir.path()).read_all().expect("read_all must succeed");
         assert_eq!(ops.len(), 2);
     }
 
@@ -763,8 +714,7 @@ mod tests {
             agent: OperationAgent::Human,
         };
 
-        log.append_transaction(&tx)
-            .expect("append transaction must succeed");
+        log.append_transaction(&tx).expect("append transaction must succeed");
         let ops = log.read_all().expect("read_all must succeed");
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0].kind, OperationKind::Rewrite));

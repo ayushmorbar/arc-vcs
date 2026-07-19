@@ -76,8 +76,8 @@ mod tests {
 
     #[test]
     fn standard_commit_matches_oracle_hash() {
-        let tree = GitOid::from_str("bc225ea23f53f06c0c5bd3ba2be85c2120d68417")
-            .expect("valid tree oid");
+        let tree =
+            GitOid::from_str("bc225ea23f53f06c0c5bd3ba2be85c2120d68417").expect("valid tree oid");
         let signature = GitSignature {
             name: "John Doe".to_string(),
             email: "john@example.com".to_string(),

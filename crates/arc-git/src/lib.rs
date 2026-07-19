@@ -160,11 +160,7 @@ mod tests {
             .current_dir(dir)
             .output()
             .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
-        assert!(
-            out.status.success(),
-            "git {args:?} failed with {}",
-            out.status
-        );
+        assert!(out.status.success(), "git {args:?} failed with {}", out.status);
         String::from_utf8(out.stdout)
             .unwrap_or_else(|e| panic!("git {args:?} produced non-utf8 output: {e}"))
     }
@@ -186,11 +182,7 @@ mod tests {
                 .expect("backend override mutex should not be poisoned");
             let previous_pack = set_test_backend_override(pack_mode);
             let previous_traversal = set_test_traversal_override(traversal_mode);
-            Self {
-                previous_pack,
-                previous_traversal,
-                _lock: lock,
-            }
+            Self { previous_pack, previous_traversal, _lock: lock }
         }
     }
 
@@ -266,11 +258,7 @@ mod tests {
 
         std::fs::write(path.join("root.rs"), b"fn root() {}" as &[u8]).unwrap();
         std::fs::create_dir_all(path.join("sub")).unwrap();
-        std::fs::write(
-            path.join("sub").join("nested.rs"),
-            b"fn nested() {}" as &[u8],
-        )
-        .unwrap();
+        std::fs::write(path.join("sub").join("nested.rs"), b"fn nested() {}" as &[u8]).unwrap();
 
         git(&["add", "."], path);
         git(&["commit", "-m", "initial"], path);
@@ -282,18 +270,9 @@ mod tests {
         let mut files: HashMap<String, Vec<u8>> = HashMap::new();
         extract_tree_to_memory(&git_dir, &tree_oid, "", &mut files).unwrap();
 
-        assert!(
-            files.contains_key("root.rs"),
-            "root-level file must be extracted"
-        );
-        assert!(
-            files.contains_key("sub/nested.rs"),
-            "nested file must be extracted"
-        );
-        assert_eq!(
-            files["root.rs"], b"fn root() {}",
-            "root.rs bytes must match exactly"
-        );
+        assert!(files.contains_key("root.rs"), "root-level file must be extracted");
+        assert!(files.contains_key("sub/nested.rs"), "nested file must be extracted");
+        assert_eq!(files["root.rs"], b"fn root() {}", "root.rs bytes must match exactly");
         assert_eq!(
             files["sub/nested.rs"], b"fn nested() {}",
             "sub/nested.rs bytes must match exactly"
@@ -342,22 +321,13 @@ mod tests {
             .unwrap()
             .filter_map(|e| e.ok())
             .any(|e| e.file_name().to_string_lossy().ends_with(".idx"));
-        assert!(
-            has_idx,
-            "git gc should produce at least one pack index file"
-        );
+        assert!(has_idx, "git gc should produce at least one pack index file");
 
         let head_hex = git_output(&["rev-parse", "HEAD"], path).trim().to_string();
         let analysis = analyze_git_repo(path).unwrap();
 
-        assert_eq!(
-            analysis.head_hex, head_hex,
-            "head OID must match git rev-parse"
-        );
-        assert_eq!(
-            analysis.commit_count, 9,
-            "all reachable commits must be returned"
-        );
+        assert_eq!(analysis.head_hex, head_hex, "head OID must match git rev-parse");
+        assert_eq!(analysis.commit_count, 9, "all reachable commits must be returned");
         assert_eq!(
             analysis.commits.first().unwrap().message,
             "commit-0",
@@ -413,16 +383,10 @@ mod tests {
 
         assert_eq!(mmap_analysis.head_hex, legacy_analysis.head_hex);
         assert_eq!(mmap_analysis.commit_count, legacy_analysis.commit_count);
-        let mmap_messages: Vec<&str> = mmap_analysis
-            .commits
-            .iter()
-            .map(|c| c.message.as_str())
-            .collect();
-        let legacy_messages: Vec<&str> = legacy_analysis
-            .commits
-            .iter()
-            .map(|c| c.message.as_str())
-            .collect();
+        let mmap_messages: Vec<&str> =
+            mmap_analysis.commits.iter().map(|c| c.message.as_str()).collect();
+        let legacy_messages: Vec<&str> =
+            legacy_analysis.commits.iter().map(|c| c.message.as_str()).collect();
         assert_eq!(mmap_messages, legacy_messages);
     }
 
@@ -447,16 +411,10 @@ mod tests {
         let graph_oids: Vec<GitOid> = graph_analysis.commits.iter().map(|c| c.oid).collect();
         let legacy_oids: Vec<GitOid> = legacy_analysis.commits.iter().map(|c| c.oid).collect();
         assert_eq!(graph_oids, legacy_oids);
-        let graph_messages: Vec<&str> = graph_analysis
-            .commits
-            .iter()
-            .map(|c| c.message.as_str())
-            .collect();
-        let legacy_messages: Vec<&str> = legacy_analysis
-            .commits
-            .iter()
-            .map(|c| c.message.as_str())
-            .collect();
+        let graph_messages: Vec<&str> =
+            graph_analysis.commits.iter().map(|c| c.message.as_str()).collect();
+        let legacy_messages: Vec<&str> =
+            legacy_analysis.commits.iter().map(|c| c.message.as_str()).collect();
         assert_eq!(graph_messages, legacy_messages);
     }
 
@@ -479,11 +437,8 @@ mod tests {
         };
         assert_eq!(analysis.head_hex, legacy.head_hex);
         assert_eq!(analysis.commit_count, legacy.commit_count);
-        let analysis_messages: Vec<&str> = analysis
-            .commits
-            .iter()
-            .map(|c| c.message.as_str())
-            .collect();
+        let analysis_messages: Vec<&str> =
+            analysis.commits.iter().map(|c| c.message.as_str()).collect();
         let legacy_messages: Vec<&str> =
             legacy.commits.iter().map(|c| c.message.as_str()).collect();
         assert_eq!(analysis_messages, legacy_messages);

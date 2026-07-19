@@ -22,11 +22,7 @@ pub(crate) struct LineView<'a> {
 
 /// Iterate byte lines while preserving the original bytes.
 pub(crate) fn iter_lines(input: &[u8]) -> LineIter<'_> {
-    LineIter {
-        input,
-        pos: 0,
-        line_no: 1,
-    }
+    LineIter { input, pos: 0, line_no: 1 }
 }
 
 /// Losslessly rewrite a byte stream line-by-line.
@@ -73,11 +69,7 @@ impl<'a> Iterator for LineIter<'a> {
         }
         let content = &raw[..content_end];
 
-        let line = LineView {
-            raw,
-            content,
-            line_no: self.line_no,
-        };
+        let line = LineView { raw, content, line_no: self.line_no };
         self.line_no += 1;
         Some(line)
     }

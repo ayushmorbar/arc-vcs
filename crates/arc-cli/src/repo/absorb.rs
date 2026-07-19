@@ -127,10 +127,7 @@ fn deepest_commuting_index(synthetic_working: &Change, spine: &[Change]) -> usiz
     let mut selected = 0usize;
 
     for idx in 0..spine.len() {
-        if !spine[..idx]
-            .iter()
-            .all(|newer| commutes(synthetic_working, newer))
-        {
+        if !spine[..idx].iter().all(|newer| commutes(synthetic_working, newer)) {
             continue;
         }
         selected = idx;

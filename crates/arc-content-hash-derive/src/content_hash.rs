@@ -16,9 +16,7 @@ use syn::spanned::Spanned as _;
 pub fn add_trait_bounds(mut generics: Generics, core_path: &TokenStream) -> Generics {
     for param in &mut generics.params {
         if let GenericParam::Type(type_param) = param {
-            type_param
-                .bounds
-                .push(parse_quote!(#core_path::store::content_hash::ContentHash));
+            type_param.bounds.push(parse_quote!(#core_path::store::content_hash::ContentHash));
         }
     }
     generics
@@ -110,20 +108,12 @@ fn enum_bindings_with_type<'a>(fields: impl IntoIterator<Item = &'a Field>) -> V
     fields
         .into_iter()
         .enumerate()
-        .map(|(i, f)| {
-            (
-                f.ty.clone(),
-                f.ident.clone().unwrap_or(format_ident!("field_{}", i)),
-            )
-        })
+        .map(|(i, f)| (f.ty.clone(), f.ident.clone().unwrap_or(format_ident!("field_{}", i))))
         .collect::<Vec<_>>()
 }
 
 fn enum_bindings<'a>(fields: impl IntoIterator<Item = &'a Field>) -> Vec<Ident> {
-    enum_bindings_with_type(fields)
-        .into_iter()
-        .map(|(_, binding)| binding)
-        .collect()
+    enum_bindings_with_type(fields).into_iter().map(|(_, binding)| binding).collect()
 }
 
 fn hash_statements_for_enum_fields<'a>(

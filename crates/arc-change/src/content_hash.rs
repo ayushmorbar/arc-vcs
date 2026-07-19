@@ -198,28 +198,19 @@ mod tests {
 
     #[test]
     fn derive_struct_hash_is_deterministic() {
-        let node = DemoNode {
-            label: "arc".to_string(),
-            weight: 7,
-            enabled: true,
-        };
+        let node = DemoNode { label: "arc".to_string(), weight: 7, enabled: true };
         assert_eq!(node.content_hash(), node.content_hash());
     }
 
     #[test]
     fn enum_variant_ordinals_separate_same_payload() {
-        let named = DemoKind::Named {
-            name: "same".to_string(),
-        };
+        let named = DemoKind::Named { name: "same".to_string() };
         let tuple = DemoKind::Tuple(123);
         assert_ne!(named.content_hash(), tuple.content_hash());
     }
 
     #[test]
     fn enum_unit_variant_hashes_uniquely() {
-        assert_ne!(
-            DemoKind::Unit.content_hash(),
-            DemoKind::Tuple(0).content_hash()
-        );
+        assert_ne!(DemoKind::Unit.content_hash(), DemoKind::Tuple(0).content_hash());
     }
 }

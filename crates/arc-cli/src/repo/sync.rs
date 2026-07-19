@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
+use arc_algebra_types::Atom;
 use arc_algebra_types::Blake3Hash;
 use arc_algebra_types::SpacetimeCoordinate;
-use arc_algebra_types::Atom;
 use arc_change::Change;
 use arc_net::sync::client::NativeSyncClient;
 use arc_net::sync::protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes};
-use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
 use arc_store_view::View;
 
 use super::core::*;
@@ -21,10 +21,8 @@ impl Repository {
         view_name: &str,
         view_heads: &[String],
     ) -> anyhow::Result<()> {
-        let created_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let created_at =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let payload = serde_json::json!({
             "mount_path": mount_path,
             "view_name": view_name,
@@ -32,11 +30,7 @@ impl Repository {
             "created_at": created_at,
             "error": error.to_mcp_payload(),
         });
-        let path = self
-            .shared_root
-            .join(".arc")
-            .join("ai")
-            .join("last_policy_error.json");
+        let path = self.shared_root.join(".arc").join("ai").join("last_policy_error.json");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| anyhow::anyhow!("failed to create AI metadata dir: {e}"))?;
@@ -59,12 +53,8 @@ impl Repository {
         self.hydrate(&view_name)?;
         let current_view = View::load(&self.shared_root, &view_name)
             .map_err(|e| anyhow::anyhow!("failed to load view '{view_name}': {e}"))?;
-        let local_frontier: Vec<blake3::Hash> = current_view
-            .heads
-            .iter()
-            .copied()
-            .map(blake3::Hash::from)
-            .collect();
+        let local_frontier: Vec<blake3::Hash> =
+            current_view.heads.iter().copied().map(blake3::Hash::from).collect();
 
         let mut view_heads: Vec<String> = current_view
             .heads
@@ -160,7 +150,10 @@ impl Repository {
 
         for (block, change) in blocks.iter().zip(decoded_changes.iter()) {
             self.store
-                .write_change_bytes(arc_store_types::newtypes::ChangeId::from(block.hash), &block.bytes)
+                .write_change_bytes(
+                    arc_store_types::newtypes::ChangeId::from(block.hash),
+                    &block.bytes,
+                )
                 .map_err(|e| anyhow::anyhow!("failed to persist downloaded CAS block: {e}"))?;
             self.graph_add_change(change.clone());
         }
@@ -230,9 +223,8 @@ impl Repository {
             .collect();
         view_heads.sort();
         let policy_path = self.shared_root.join(".arc").join("arc.policy.json");
-        let policy = ArcPolicy::load_from_path(&policy_path).map_err(|e| {
-            anyhow::anyhow!("policy load failed before sync gate evaluation: {e}")
-        })?;
+        let policy = ArcPolicy::load_from_path(&policy_path)
+            .map_err(|e| anyhow::anyhow!("policy load failed before sync gate evaluation: {e}"))?;
         let evaluator = policy.default_evaluator();
         let local_ast = Ast::default();
 
@@ -246,19 +238,14 @@ impl Repository {
             .iter()
             .filter_map(|(key, value)| {
                 if key.len() == 2 && key[0] == "file" && value.starts_with(b"ARC_MOUNT:") {
-                    let info = std::str::from_utf8(value)
-                        .ok()?
-                        .strip_prefix("ARC_MOUNT:")?;
+                    let info = std::str::from_utf8(value).ok()?.strip_prefix("ARC_MOUNT:")?;
                     if let Ok(coord) = SpacetimeCoordinate::from_uri(info) {
                         Some((key[1].clone(), MountSpec::Coordinate(coord)))
                     } else {
                         let (url, tgt) = info.split_once('|')?;
                         Some((
                             key[1].clone(),
-                            MountSpec::Legacy {
-                                url: url.to_string(),
-                                target: tgt.to_string(),
-                            },
+                            MountSpec::Legacy { url: url.to_string(), target: tgt.to_string() },
                         ))
                     }
                 } else {

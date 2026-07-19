@@ -71,9 +71,8 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
     // ── 4. Call the AI (async, via an explicit runtime) ───────────────────────
     let rt =
         tokio::runtime::Runtime::new().context("failed to start async runtime for arc generate")?;
-    let raw_response = rt
-        .block_on(arc_ai::generate_code(&prompt))
-        .context("AI code generation failed")?;
+    let raw_response =
+        rt.block_on(arc_ai::generate_code(&prompt)).context("AI code generation failed")?;
 
     let generated = extract_code_fence(&raw_response);
 
@@ -107,11 +106,7 @@ fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
     use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
     use arc_ai::vector_store::VectorStore;
 
-    let db_path = repo
-        .shared_root
-        .join(".arc")
-        .join("ai")
-        .join("embeddings.db");
+    let db_path = repo.shared_root.join(".arc").join("ai").join("embeddings.db");
     if !db_path.exists() {
         return String::new();
     }

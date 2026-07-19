@@ -4,17 +4,17 @@ pub use arc_change::change;
 pub use arc_change::change::*;
 pub use arc_change::content_hash;
 pub use arc_change::content_hash::*;
+pub use arc_store_cas::blake3_hasher;
+pub use arc_store_cas::blake3_hasher::{Blake3HashMap, Blake3Hasher};
 pub use arc_store_cas::cas;
+pub use arc_store_cas::cas::CasBytes;
 pub use arc_store_cas::cas::*;
 pub use arc_store_graph::*;
-pub use arc_store_view::oplog::*;
 pub use arc_store_view::StoreError;
+pub use arc_store_view::oplog::*;
 pub use arc_store_view::synthesis::*;
 pub use arc_store_view::tempfile::*;
 pub use arc_store_view::view::*;
-pub use arc_store_cas::blake3_hasher;
-pub use arc_store_cas::blake3_hasher::{Blake3HashMap, Blake3Hasher};
-pub use arc_store_cas::cas::CasBytes;
 
 /// Append-only spacetime operation log for O(1) undo.
 pub mod oplog;

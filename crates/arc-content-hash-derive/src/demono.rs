@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, GenericParam, Ident, Item, ItemFn, Pat, Signature, Type, TypePath,
-    TypeReference, TypeTraitObject, WherePredicate, parse2, spanned::Spanned,
+    FnArg, GenericParam, Ident, Item, ItemFn, Pat, Signature, Type, TypePath, TypeReference,
+    TypeTraitObject, WherePredicate, parse2, spanned::Spanned,
 };
 
 pub(crate) fn inner(code: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
@@ -21,8 +21,10 @@ pub(crate) fn inner(code: proc_macro2::TokenStream) -> proc_macro2::TokenStream 
 }
 
 fn transform_fn(item_fn: ItemFn) -> proc_macro2::TokenStream {
-    let mut bound_map: HashMap<Ident, syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>> =
-        HashMap::new();
+    let mut bound_map: HashMap<
+        Ident,
+        syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>,
+    > = HashMap::new();
 
     for param in &item_fn.sig.generics.params {
         if let GenericParam::Type(type_param) = param

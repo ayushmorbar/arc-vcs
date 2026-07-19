@@ -1,6 +1,6 @@
+use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs;
-use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -63,10 +63,7 @@ pub struct SizeWindowCachePolicy {
 
 impl Default for SizeWindowCachePolicy {
     fn default() -> Self {
-        Self {
-            min_bytes: 1,
-            max_bytes: 2 * 1024 * 1024,
-        }
+        Self { min_bytes: 1, max_bytes: 2 * 1024 * 1024 }
     }
 }
 
@@ -176,22 +173,13 @@ impl CasCache for WeightedLruCache {
 
         self.evict_until(bytes.len());
 
-        let mut buf = self
-            .free_buffers
-            .pop()
-            .unwrap_or_else(|| Vec::with_capacity(bytes.len()));
+        let mut buf = self.free_buffers.pop().unwrap_or_else(|| Vec::with_capacity(bytes.len()));
         buf.clear();
         buf.extend_from_slice(bytes);
         let stored = Bytes::from(buf);
 
         self.used_bytes = self.used_bytes.saturating_add(stored.len());
-        self.entries.insert(
-            key,
-            WeightedEntry {
-                bytes: stored,
-                weight: bytes.len(),
-            },
-        );
+        self.entries.insert(key, WeightedEntry { bytes: stored, weight: bytes.len() });
         self.lru.push_back(key);
     }
 }
@@ -321,12 +309,8 @@ impl<const N: usize> CasCache for TinyLinkedLruCache<N> {
         }
 
         let idx = self.allocate_slot();
-        self.slots[idx] = Some(TinyEntry {
-            key,
-            bytes: Bytes::copy_from_slice(bytes),
-            prev: None,
-            next: None,
-        });
+        self.slots[idx] =
+            Some(TinyEntry { key, bytes: Bytes::copy_from_slice(bytes), prev: None, next: None });
         self.index.insert(key, idx);
         self.push_back(idx);
     }
@@ -341,9 +325,7 @@ pub struct CasReadPolicy {
 
 impl Default for CasReadPolicy {
     fn default() -> Self {
-        Self {
-            mmap_threshold_bytes: SMALL_OBJECT_THRESHOLD,
-        }
+        Self { mmap_threshold_bytes: SMALL_OBJECT_THRESHOLD }
     }
 }
 
@@ -416,18 +398,12 @@ pub type LocalCas = ObjectStore;
 impl ObjectStore {
     /// Create a new `ObjectStore` rooted at `root/.arc`.
     pub fn new(root: impl AsRef<Path>) -> Self {
-        Self {
-            root: root.as_ref().join(".arc"),
-            read_policy: CasReadPolicy::default(),
-        }
+        Self { root: root.as_ref().join(".arc"), read_policy: CasReadPolicy::default() }
     }
 
     /// Create an `ObjectStore` with an explicit CAS read policy.
     pub fn with_read_policy(root: impl AsRef<Path>, read_policy: CasReadPolicy) -> Self {
-        Self {
-            root: root.as_ref().join(".arc"),
-            read_policy,
-        }
+        Self { root: root.as_ref().join(".arc"), read_policy }
     }
 
     /// Derive the on-disk path for a given BLAKE3 hash.
@@ -499,10 +475,7 @@ impl ObjectStore {
         create_dir_all_retry(&blobs_dir)?;
 
         let tmp_path = create_unique_temp_path(&blobs_dir, OsStr::new("blob-stream"))?;
-        let mut tmp = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&tmp_path)?;
+        let mut tmp = fs::OpenOptions::new().create_new(true).write(true).open(&tmp_path)?;
 
         let mut hasher = blake3::Hasher::new();
         let mut total_bytes: u64 = 0;
@@ -542,7 +515,8 @@ impl ObjectStore {
             }
             Err(err)
                 if err.kind() == std::io::ErrorKind::AlreadyExists
-                    || (err.kind() == std::io::ErrorKind::PermissionDenied && final_path.exists()) =>
+                    || (err.kind() == std::io::ErrorKind::PermissionDenied
+                        && final_path.exists()) =>
             {
                 let _ = fs::remove_file(&tmp_path);
                 Ok((hash, total_bytes))
@@ -780,10 +754,7 @@ fn write_once_atomic(path: &Path, bytes: &[u8]) -> Result<bool, CasError> {
     let file_name = path.file_name().unwrap_or_else(|| OsStr::new("cas-object"));
     let tmp_path = create_unique_temp_path(parent, file_name)?;
 
-    let mut tmp = fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&tmp_path)?;
+    let mut tmp = fs::OpenOptions::new().create_new(true).write(true).open(&tmp_path)?;
     tmp.write_all(bytes)?;
     tmp.sync_data()?;
     drop(tmp);
@@ -936,11 +907,7 @@ mod tests {
         assert_eq!(written, hash, "write must return the object's id");
 
         let loaded = store.read_object(&hash).unwrap();
-        assert_eq!(
-            &*loaded,
-            original.as_slice(),
-            "bytes must roundtrip via CAS"
-        );
+        assert_eq!(&*loaded, original.as_slice(), "bytes must roundtrip via CAS");
     }
 
     #[test]
@@ -952,10 +919,7 @@ mod tests {
         let h1 = store.write_object(&hash, &bytes).unwrap();
         let h2 = store.write_object(&hash, &bytes).unwrap();
 
-        assert_eq!(
-            h1, h2,
-            "writing the same object twice must return the same hash"
-        );
+        assert_eq!(h1, h2, "writing the same object twice must return the same hash");
 
         let path = store.object_path(&hash);
         assert!(path.exists());
@@ -1008,9 +972,7 @@ mod tests {
         let hash = store.write_blob(b"cache-me").unwrap();
 
         let mut cache = WeightedLruCache::new(1024);
-        let loaded = store
-            .read_blob_cached(&hash, &mut cache, &NeverCache)
-            .unwrap();
+        let loaded = store.read_blob_cached(&hash, &mut cache, &NeverCache).unwrap();
 
         assert_eq!(&*loaded, b"cache-me");
         assert_eq!(cache.used_bytes(), 0);
@@ -1050,9 +1012,7 @@ mod tests {
     #[test]
     fn test_read_policy_uses_owned_for_large_threshold() {
         let dir = tempfile::tempdir().unwrap();
-        let policy = CasReadPolicy {
-            mmap_threshold_bytes: 1 << 20,
-        };
+        let policy = CasReadPolicy { mmap_threshold_bytes: 1 << 20 };
         let store = ObjectStore::with_read_policy(dir.path(), policy);
         let hash = store.write_blob(&vec![1u8; 8192]).unwrap();
         let loaded = store.read_blob(&hash).unwrap();

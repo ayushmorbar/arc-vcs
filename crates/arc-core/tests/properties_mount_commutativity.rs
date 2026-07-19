@@ -18,10 +18,7 @@ fn mount_change(path_leaf: String) -> Change {
     let (author, signing_key) = author::test_keypair();
     Change::new(
         HashSet::new(),
-        vec![Atom::Mount {
-            path: vec!["file".to_string(), path_leaf],
-            coordinate: coordinate(),
-        }],
+        vec![Atom::Mount { path: vec!["file".to_string(), path_leaf], coordinate: coordinate() }],
         "mount",
         author,
         &signing_key,
@@ -32,10 +29,7 @@ fn insert_change(path_leaf: String) -> Change {
     let (author, signing_key) = author::test_keypair();
     Change::new(
         HashSet::new(),
-        vec![Atom::Insert {
-            at: vec!["file".to_string(), path_leaf],
-            content_hash: [7u8; 32],
-        }],
+        vec![Atom::Insert { at: vec!["file".to_string(), path_leaf], content_hash: [7u8; 32] }],
         "insert",
         author,
         &signing_key,

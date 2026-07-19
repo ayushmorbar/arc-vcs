@@ -11,12 +11,15 @@ pub struct DagExplorer {
 
 impl DagExplorer {
     pub fn new() -> Self {
-        Self {
-            table_state: TableState::default(),
-        }
+        Self { table_state: TableState::default() }
     }
 
-    pub fn render(&mut self, frame: &mut ratatui::Frame<'_>, area: ratatui::layout::Rect, state: &AppState) {
+    pub fn render(
+        &mut self,
+        frame: &mut ratatui::Frame<'_>,
+        area: ratatui::layout::Rect,
+        state: &AppState,
+    ) {
         self.table_state.select(Some(state.selected));
 
         let rows = state.changes.iter().map(|change| {
@@ -29,13 +32,12 @@ impl DagExplorer {
 
         let table = Table::new(
             rows,
-            [
-                Constraint::Length(10),
-                Constraint::Percentage(55),
-                Constraint::Percentage(35),
-            ],
+            [Constraint::Length(10), Constraint::Percentage(55), Constraint::Percentage(35)],
         )
-        .header(Row::new(vec!["Change", "Intent", "Author"]).style(Style::default().add_modifier(Modifier::BOLD)))
+        .header(
+            Row::new(vec!["Change", "Intent", "Author"])
+                .style(Style::default().add_modifier(Modifier::BOLD)),
+        )
         .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .column_spacing(1);
 

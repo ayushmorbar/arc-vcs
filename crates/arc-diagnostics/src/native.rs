@@ -15,21 +15,20 @@ const META_TABLE_SQL: &str = "CREATE TABLE IF NOT EXISTS meta(version INTEGER)";
 /// Open or create a versioned diagnostics sqlite database.
 ///
 /// If an existing database has an incompatible version, the file is recreated.
-pub fn open_or_create_versioned_sqlite(path: impl AsRef<Path>, schema_version: usize) -> anyhow::Result<Connection> {
+pub fn open_or_create_versioned_sqlite(
+    path: impl AsRef<Path>,
+    schema_version: usize,
+) -> anyhow::Result<Connection> {
     let path = path.as_ref();
     let mut con = Connection::open(path)?;
     con.execute_batch(META_TABLE_SQL)?;
 
-    let current_version: Option<i64> = con
-        .query_row("SELECT version FROM meta", [], |row| row.get(0))
-        .optional()?;
+    let current_version: Option<i64> =
+        con.query_row("SELECT version FROM meta", [], |row| row.get(0)).optional()?;
 
     match current_version {
         None => {
-            con.execute(
-                "INSERT INTO meta(version) VALUES (?1)",
-                params![schema_version as i64],
-            )?;
+            con.execute("INSERT INTO meta(version) VALUES (?1)", params![schema_version as i64])?;
         }
         Some(version) if version != schema_version as i64 => {
             match con.close() {
@@ -45,10 +44,7 @@ pub fn open_or_create_versioned_sqlite(path: impl AsRef<Path>, schema_version: u
             }
             con = Connection::open(path)?;
             con.execute_batch(META_TABLE_SQL)?;
-            con.execute(
-                "INSERT INTO meta(version) VALUES (?1)",
-                params![schema_version as i64],
-            )?;
+            con.execute("INSERT INTO meta(version) VALUES (?1)", params![schema_version as i64])?;
         }
         Some(_) => {}
     }
@@ -76,10 +72,7 @@ pub struct TraceEvent {
 impl TraceEvent {
     /// Build a trace event.
     pub fn new(level: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            level: level.into(),
-            message: message.into(),
-        }
+        Self { level: level.into(), message: message.into() }
     }
 }
 
@@ -124,17 +117,12 @@ pub struct ProgressBufferSink {
 impl ProgressBufferSink {
     /// Build an empty progress sink.
     pub fn new() -> Self {
-        Self {
-            lines: Arc::new(Mutex::new(Vec::new())),
-        }
+        Self { lines: Arc::new(Mutex::new(Vec::new())) }
     }
 
     /// Snapshot all recorded lines.
     pub fn lines(&self) -> Vec<String> {
-        self.lines
-            .lock()
-            .expect("progress buffer lock should not be poisoned")
-            .clone()
+        self.lines.lock().expect("progress buffer lock should not be poisoned").clone()
     }
 }
 
@@ -162,13 +150,10 @@ impl SqliteTraceSink {
 
 impl TraceSink for SqliteTraceSink {
     fn write(&self, event: &TraceEvent) -> anyhow::Result<()> {
-        self.con
-            .lock()
-            .expect("sqlite sink lock should not be poisoned")
-            .execute(
-                "INSERT INTO trace_event(level, message) VALUES (?1, ?2)",
-                params![event.level, event.message],
-            )?;
+        self.con.lock().expect("sqlite sink lock should not be poisoned").execute(
+            "INSERT INTO trace_event(level, message) VALUES (?1, ?2)",
+            params![event.level, event.message],
+        )?;
         Ok(())
     }
 }

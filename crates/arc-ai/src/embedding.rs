@@ -67,12 +67,9 @@ fn atom_descriptor(atom: &Atom) -> String {
         Atom::Mount { path, coordinate } => {
             format!("mount path={} coordinate={}", path.join("/"), coordinate.to_uri())
         }
-        Atom::Conflict { bases, sides, at } => format!(
-            "conflict path={} bases={} sides={}",
-            at.join("/"),
-            bases.len(),
-            sides.len()
-        ),
+        Atom::Conflict { bases, sides, at } => {
+            format!("conflict path={} bases={} sides={}", at.join("/"), bases.len(), sides.len())
+        }
     }
 }
 
@@ -120,19 +117,12 @@ impl LocalEmbedder {
         let model_id = std::env::var("ARC_AI_LOCAL_MODEL")
             .unwrap_or_else(|_| "nomic-embed-text-v1.5".to_string());
 
-        Ok(Self {
-            tokenizer,
-            model_id,
-            onnx_model_path,
-            dimensions: 384,
-        })
+        Ok(Self { tokenizer, model_id, onnx_model_path, dimensions: 384 })
     }
 
     /// True when ONNX runtime can be used for native inference.
     pub fn can_use_onnx_runtime(&self) -> bool {
-        self.onnx_model_path
-            .as_ref()
-            .is_some_and(|path| Path::new(path).exists())
+        self.onnx_model_path.as_ref().is_some_and(|path| Path::new(path).exists())
     }
 
     fn embed_token_ids(&self, token_ids: &[u32]) -> Vec<f32> {
@@ -195,12 +185,7 @@ impl ApiProvider {
             .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
             .build()
             .context("failed to build HTTP client for API embedding")?;
-        Ok(Self {
-            api_key,
-            base_url,
-            model,
-            client,
-        })
+        Ok(Self { api_key, base_url, model, client })
     }
 }
 
@@ -214,9 +199,8 @@ impl EmbeddingProvider for ApiProvider {
             .send()
             .context("embedding API request failed")?;
 
-        let data: serde_json::Value = response
-            .json()
-            .context("failed to parse embedding API response")?;
+        let data: serde_json::Value =
+            response.json().context("failed to parse embedding API response")?;
 
         let embedding = data["data"][0]["embedding"]
             .as_array()
@@ -251,15 +235,11 @@ impl HybridProvider {
     pub fn new() -> Result<Self> {
         let api_fallback = ApiProvider::from_env().ok();
         match LocalEmbedder::new() {
-            Ok(local) => Ok(Self::Local {
-                local: Box::new(local),
-                fallback_api: api_fallback,
-            }),
+            Ok(local) => Ok(Self::Local { local: Box::new(local), fallback_api: api_fallback }),
             Err(local_err) => {
                 eprintln!("[arc] Local embedding unavailable ({local_err}); falling back to API.");
-                let api = ApiProvider::from_env().context(
-                    "both local embedding and API embedding providers failed",
-                )?;
+                let api = ApiProvider::from_env()
+                    .context("both local embedding and API embedding providers failed")?;
                 Ok(Self::Api(api))
             }
         }
@@ -269,10 +249,7 @@ impl HybridProvider {
 impl EmbeddingProvider for HybridProvider {
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
         match self {
-            Self::Local {
-                local,
-                fallback_api,
-            } => match local.embed(text) {
+            Self::Local { local, fallback_api } => match local.embed(text) {
                 Ok(vec) => Ok(vec),
                 Err(local_err) => {
                     if let Some(api) = fallback_api {
@@ -287,10 +264,7 @@ impl EmbeddingProvider for HybridProvider {
 
     fn embed_change(&self, change: &Change) -> Result<Vec<f32>> {
         match self {
-            Self::Local {
-                local,
-                fallback_api,
-            } => match local.embed_change(change) {
+            Self::Local { local, fallback_api } => match local.embed_change(change) {
                 Ok(vec) => Ok(vec),
                 Err(local_err) => {
                     if let Some(api) = fallback_api {

@@ -73,12 +73,7 @@ fn parse_ident(s: &str) -> Result<(String, String, i64)> {
     let gt = s.find('>').context("ident: missing '>'")?;
     let name = s[..lt].trim().to_string();
     let email = s[lt + 1..gt].to_string();
-    let ts: i64 = s[gt + 1..]
-        .split_whitespace()
-        .next()
-        .unwrap_or("0")
-        .parse()
-        .unwrap_or(0);
+    let ts: i64 = s[gt + 1..].split_whitespace().next().unwrap_or("0").parse().unwrap_or(0);
     Ok((name, email, ts))
 }
 
@@ -170,10 +165,7 @@ pub(crate) fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
     pos = next;
 
     if src_len != base.len() {
-        bail!(
-            "delta source size mismatch: header says {src_len}, base is {}",
-            base.len()
-        );
+        bail!("delta source size mismatch: header says {src_len}, base is {}", base.len());
     }
 
     let mut out = Vec::with_capacity(tgt_len);
@@ -202,17 +194,12 @@ pub(crate) fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
                 cp_len = 0x10000;
             }
             out.extend_from_slice(
-                base.get(cp_off..cp_off + cp_len)
-                    .context("delta copy out of bounds")?,
+                base.get(cp_off..cp_off + cp_len).context("delta copy out of bounds")?,
             );
         } else if cmd != 0 {
             // -- insert literal bytes -----------------------------------
             let n = cmd as usize;
-            out.extend_from_slice(
-                delta
-                    .get(pos..pos + n)
-                    .context("delta insert out of bounds")?,
-            );
+            out.extend_from_slice(delta.get(pos..pos + n).context("delta insert out of bounds")?);
             pos += n;
         } else {
             bail!("reserved zero delta opcode");
@@ -220,10 +207,7 @@ pub(crate) fn apply_delta(base: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
     }
 
     if out.len() != tgt_len {
-        bail!(
-            "delta target size mismatch: expected {tgt_len}, got {}",
-            out.len()
-        );
+        bail!("delta target size mismatch: expected {tgt_len}, got {}", out.len());
     }
     Ok(out)
 }
@@ -281,13 +265,11 @@ pub fn parse_tree(raw_data: &[u8]) -> Result<GitTree> {
             break;
         }
         let oid =
-            raw_data[oid_start..oid_end]
-                .iter()
-                .fold(String::with_capacity(40), |mut s, b| {
-                    use std::fmt::Write;
-                    let _ = write!(s, "{b:02x}");
-                    s
-                });
+            raw_data[oid_start..oid_end].iter().fold(String::with_capacity(40), |mut s, b| {
+                use std::fmt::Write;
+                let _ = write!(s, "{b:02x}");
+                s
+            });
 
         entries.push(TreeEntry { mode, name, oid });
         i = oid_end;

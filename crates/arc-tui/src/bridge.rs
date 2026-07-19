@@ -10,10 +10,7 @@ impl BackendBridge {
     pub fn channel(capacity: usize) -> Self {
         let (backend_tx, inbound_rx) = mpsc::channel::<OutputEvent>(capacity);
 
-        Self {
-            inbound: backend_tx,
-            inbound_rx,
-        }
+        Self { inbound: backend_tx, inbound_rx }
     }
 }
 
@@ -25,17 +22,9 @@ mod tests {
     #[tokio::test]
     async fn receives_backend_events_from_channel() {
         let mut bridge = BackendBridge::channel(8);
-        bridge
-            .inbound
-            .send(OutputEvent::Started("load".to_string()))
-            .await
-            .expect("send event");
+        bridge.inbound.send(OutputEvent::Started("load".to_string())).await.expect("send event");
 
-        let next = bridge
-            .inbound_rx
-            .recv()
-            .await
-            .expect("receive backend event");
+        let next = bridge.inbound_rx.recv().await.expect("receive backend event");
         match next {
             OutputEvent::Started(op) => assert_eq!(op, "load"),
             _ => panic!("unexpected message variant"),

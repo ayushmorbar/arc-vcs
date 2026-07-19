@@ -129,11 +129,8 @@ impl<'de> serde::Deserialize<'de> for Signature {
 pub fn test_keypair() -> (Author, ed25519_dalek::SigningKey) {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
     let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
-    let author = Author::Human {
-        name: "Test User".to_string(),
-        email: "test@example.com".to_string(),
-        key,
-    };
+    let author =
+        Author::Human { name: "Test User".to_string(), email: "test@example.com".to_string(), key };
     (author, signing_key)
 }
 
@@ -151,10 +148,7 @@ pub fn generate_transient_keypair_seed(session_id: &str) -> (Author, [u8; 32]) {
     use rand_core::OsRng;
     let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
     let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
-    let author = Author::Transient {
-        session_id: session_id.to_string(),
-        key,
-    };
+    let author = Author::Transient { session_id: session_id.to_string(), key };
     (author, signing_key.to_bytes())
 }
 
@@ -172,10 +166,7 @@ pub fn generate_server_keypair_seed(canonical_id: &str) -> (Author, [u8; 32]) {
     use rand_core::OsRng;
     let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
     let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
-    let author = Author::Server {
-        canonical_id: canonical_id.to_string(),
-        key,
-    };
+    let author = Author::Server { canonical_id: canonical_id.to_string(), key };
     (author, signing_key.to_bytes())
 }
 
@@ -183,10 +174,7 @@ pub fn generate_server_keypair_seed(canonical_id: &str) -> (Author, [u8; 32]) {
 pub fn server_author_from_seed(canonical_id: &str, seed: &[u8; 32]) -> Author {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(seed);
     let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
-    Author::Server {
-        canonical_id: canonical_id.to_string(),
-        key,
-    }
+    Author::Server { canonical_id: canonical_id.to_string(), key }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,11 +209,7 @@ pub fn save_identity(name: &str, email: &str) -> anyhow::Result<()> {
     let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
     let key: PublicKeyBytes = signing_key.verifying_key().to_bytes();
     let profile = IdentityProfile {
-        author: Author::Human {
-            name: name.to_string(),
-            email: email.to_string(),
-            key,
-        },
+        author: Author::Human { name: name.to_string(), email: email.to_string(), key },
         secret_key: signing_key.to_bytes(),
     };
     let path = identity_path()?;
@@ -250,8 +234,5 @@ pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
     })?;
     let profile: IdentityProfile = serde_json::from_str(&json)
         .map_err(|e| anyhow::anyhow!("identity file is corrupt: {e}"))?;
-    Ok((
-        profile.author,
-        ed25519_dalek::SigningKey::from_bytes(&profile.secret_key),
-    ))
+    Ok((profile.author, ed25519_dalek::SigningKey::from_bytes(&profile.secret_key)))
 }

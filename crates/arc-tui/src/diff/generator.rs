@@ -53,15 +53,11 @@ impl InMemoryBlobStore {
         self.blobs.insert(hash, bytes.to_vec());
         hash
     }
-
 }
 
 impl BlobStore for InMemoryBlobStore {
     fn read_blob(&self, hash: &Blake3Hash) -> Result<Vec<u8>, String> {
-        self.blobs
-            .get(hash)
-            .cloned()
-            .ok_or_else(|| format!("blob not found: {hash:?}"))
+        self.blobs.get(hash).cloned().ok_or_else(|| format!("blob not found: {hash:?}"))
     }
 
     fn contains_blob(&self, hash: &Blake3Hash) -> bool {
@@ -94,22 +90,10 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
         let before_change = self.synthetic_before_change(change)?;
 
         let mut before_state = MaterializedState::new();
-        apply_change(
-            &mut before_state,
-            &before_change,
-            self.store,
-            &Gitignore::empty(),
-            None,
-        )?;
+        apply_change(&mut before_state, &before_change, self.store, &Gitignore::empty(), None)?;
 
         let mut after_state = before_state.clone();
-        apply_change(
-            &mut after_state,
-            change,
-            self.store,
-            &Gitignore::empty(),
-            None,
-        )?;
+        apply_change(&mut after_state, change, self.store, &Gitignore::empty(), None)?;
 
         let mut before_lines = Vec::new();
         let mut after_lines = Vec::new();
@@ -161,10 +145,7 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
                 }
                 Atom::Delete { at, prior_hash } => {
                     let path = node_path_to_string(at);
-                    if paired_deletes
-                        .get(&path)
-                        .is_some_and(|hashes| !hashes.is_empty())
-                    {
+                    if paired_deletes.get(&path).is_some_and(|hashes| !hashes.is_empty()) {
                         continue;
                     }
 
@@ -193,8 +174,16 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
                 _ => {
                     let unsupported = describe_atom(atom);
                     let label = format!("semantic-unavailable: {unsupported}");
-                    before_lines.push(self.color_line("[semantic]", &label, SemanticKind::Unavailable));
-                    after_lines.push(self.color_line("[semantic]", &label, SemanticKind::Unavailable));
+                    before_lines.push(self.color_line(
+                        "[semantic]",
+                        &label,
+                        SemanticKind::Unavailable,
+                    ));
+                    after_lines.push(self.color_line(
+                        "[semantic]",
+                        &label,
+                        SemanticKind::Unavailable,
+                    ));
                     lines.push(SemanticDiffLine {
                         path: "[semantic]".to_string(),
                         kind: SemanticKind::Unavailable,
@@ -220,17 +209,11 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
         for atom in &change.atoms {
             match atom {
                 Atom::Delete { at, prior_hash } => {
-                    delete_hashes
-                        .entry(node_path_to_string(at))
-                        .or_default()
-                        .push(*prior_hash);
+                    delete_hashes.entry(node_path_to_string(at)).or_default().push(*prior_hash);
                 }
                 Atom::Insert { at, .. } => {
                     let path = node_path_to_string(at);
-                    insert_counts
-                        .entry(path)
-                        .and_modify(|count| *count += 1)
-                        .or_insert(1);
+                    insert_counts.entry(path).and_modify(|count| *count += 1).or_insert(1);
                 }
                 _ => {}
             }
@@ -252,21 +235,12 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
         let mut atoms = Vec::new();
         for atom in &change.atoms {
             if let Atom::Delete { at, prior_hash } = atom {
-                atoms.push(Atom::Insert {
-                    at: at.clone(),
-                    content_hash: *prior_hash,
-                });
+                atoms.push(Atom::Insert { at: at.clone(), content_hash: *prior_hash });
             }
         }
 
         let (author, signing_key) = author::test_keypair();
-        Ok(Change::new(
-            HashSet::new(),
-            atoms,
-            "diff-before-state",
-            author,
-            &signing_key,
-        ))
+        Ok(Change::new(HashSet::new(), atoms, "diff-before-state", author, &signing_key))
     }
 
     fn decode_hash(&self, hash: &Blake3Hash) -> String {
@@ -289,10 +263,7 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
             SemanticKind::Unavailable => Style::default().fg(Color::Yellow),
         };
         let label = format!("{path}: ");
-        Line::from(vec![
-            Span::styled(label, style),
-            Span::styled(value.to_string(), style),
-        ])
+        Line::from(vec![Span::styled(label, style), Span::styled(value.to_string(), style)])
     }
 }
 

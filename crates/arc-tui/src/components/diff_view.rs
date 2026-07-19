@@ -47,7 +47,8 @@ impl DiffView {
             return;
         }
 
-        let split = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).split(area);
+        let split = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(area);
         side_by_side.render(frame, split[0], diff);
         Self::render_atom_selector(frame, split[1], diff, cursor, selected_atoms);
     }
@@ -69,9 +70,7 @@ impl DiffView {
         let max_visible = (area.height / 3).max(1) as usize;
         let start = cursor.saturating_sub(max_visible.saturating_sub(1));
         let end = (start + max_visible).min(diff.lines.len());
-        let constraints = (start..end)
-            .map(|_| Constraint::Length(3))
-            .collect::<Vec<_>>();
+        let constraints = (start..end).map(|_| Constraint::Length(3)).collect::<Vec<_>>();
         let chunks = Layout::vertical(constraints).split(area);
 
         for (chunk_idx, line_idx) in (start..end).enumerate() {
@@ -88,11 +87,8 @@ impl DiffView {
                 .borders(Borders::ALL);
 
             if selected_atoms.contains(&line_idx) {
-                block = block.border_style(
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::BOLD),
-                );
+                block = block
+                    .border_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD));
             } else if line_idx == cursor {
                 block = block.border_style(Style::default().fg(Color::Yellow));
             }
@@ -115,10 +111,7 @@ fn detect_image_protocol() -> Option<ProtocolType> {
     if std::env::var("ITERM_SESSION_ID").is_ok() {
         return Some(ProtocolType::Iterm2);
     }
-    if std::env::var("TERM")
-        .map(|v| v.to_ascii_lowercase().contains("sixel"))
-        .unwrap_or(false)
-    {
+    if std::env::var("TERM").map(|v| v.to_ascii_lowercase().contains("sixel")).unwrap_or(false) {
         return Some(ProtocolType::Sixel);
     }
     None

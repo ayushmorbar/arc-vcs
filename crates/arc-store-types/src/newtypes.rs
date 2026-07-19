@@ -231,10 +231,7 @@ mod tests {
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         )
         .expect("valid hex must parse");
-        assert_eq!(
-            id.to_hex(),
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        );
+        assert_eq!(id.to_hex(), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
     }
 
     #[test]
@@ -249,10 +246,7 @@ mod tests {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
         .expect("valid hex must parse");
-        assert_eq!(
-            id.to_hex(),
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        );
+        assert_eq!(id.to_hex(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     }
 
     #[test]
@@ -261,9 +255,6 @@ mod tests {
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         )
         .expect("valid hex must parse");
-        assert_eq!(
-            id.to_hex(),
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-        );
+        assert_eq!(id.to_hex(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     }
 }

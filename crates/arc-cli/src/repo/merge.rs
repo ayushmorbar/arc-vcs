@@ -43,10 +43,7 @@ impl Repository {
         check_working_dir_clean(&self.work_root, &current_state, &self.store, "merging")?;
 
         // Find LCA.
-        let lca_heads = self
-            .graph
-            .load()
-            .merge_base(&current_view.heads, target_heads);
+        let lca_heads = self.graph.load().merge_base(&current_view.heads, target_heads);
 
         // Compute ancestors from each side and from the LCA.
         let ancestors_current = self.graph.load().ancestors(&current_view.heads);
@@ -58,16 +55,12 @@ impl Repository {
         };
 
         // Delta A = changes in current but not in LCA ancestry.
-        let delta_a: Vec<Blake3Hash> = ancestors_current
-            .difference(&ancestors_lca)
-            .copied()
-            .collect();
+        let delta_a: Vec<Blake3Hash> =
+            ancestors_current.difference(&ancestors_lca).copied().collect();
 
         // Delta B = changes in target but not in LCA ancestry.
-        let delta_b: Vec<Blake3Hash> = ancestors_target
-            .difference(&ancestors_lca)
-            .copied()
-            .collect();
+        let delta_b: Vec<Blake3Hash> =
+            ancestors_target.difference(&ancestors_lca).copied().collect();
 
         let mut delta_a = delta_a;
         let mut delta_b = delta_b;
@@ -78,13 +71,11 @@ impl Repository {
         let mut conflicting_pairs = Vec::new();
         let g = self.graph.load_full();
         for &id_a in &delta_a {
-            let change_a = g
-                .get(&id_a)
-                .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
+            let change_a =
+                g.get(&id_a).ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
             for &id_b in &delta_b {
-                let change_b = g
-                    .get(&id_b)
-                    .ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
+                let change_b =
+                    g.get(&id_b).ok_or_else(|| anyhow::anyhow!("change missing from graph"))?;
                 if !arc_algebra::commute::commutes(change_a, change_b) {
                     conflicting_pairs.push((id_a, id_b));
                 }
@@ -151,11 +142,7 @@ impl Repository {
                 bases.sort();
                 sides.sort();
 
-                conflict_atoms.push(Atom::Conflict {
-                    bases,
-                    sides,
-                    at: overlap,
-                });
+                conflict_atoms.push(Atom::Conflict { bases, sides, at: overlap });
             }
 
             conflict_atoms.sort_by(|a, b| {

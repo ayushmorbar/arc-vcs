@@ -13,9 +13,7 @@ impl InterruptState {
     /// Create a new non-interrupted state.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            interrupted: Arc::new(AtomicBool::new(false)),
-        }
+        Self { interrupted: Arc::new(AtomicBool::new(false)) }
     }
 
     /// Mark process state as interrupted.
@@ -50,8 +48,8 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
         use signal_hook::consts::signal::SIGTERM;
         use signal_hook::iterator::Signals;
 
-        let mut signals = Signals::new([SIGTERM])
-            .context("failed to register SIGTERM cleanup handler")?;
+        let mut signals =
+            Signals::new([SIGTERM]).context("failed to register SIGTERM cleanup handler")?;
         let signal_state = state.clone();
         std::thread::Builder::new()
             .name("arc-sigterm-cleanup".to_string())

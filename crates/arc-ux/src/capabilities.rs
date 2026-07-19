@@ -41,9 +41,5 @@ pub fn detect_capabilities(force_json: bool, quiet: bool) -> TerminalCapabilitie
             || term.contains("xterm")
             || term.contains("kitty"));
 
-    TerminalCapabilities {
-        mode,
-        supports_osc8,
-        supports_unicode: !dumb_term,
-    }
+    TerminalCapabilities { mode, supports_osc8, supports_unicode: !dumb_term }
 }

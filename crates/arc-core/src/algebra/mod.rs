@@ -1,9 +1,9 @@
 pub use arc_algebra::*;
 
-/// Semantic policy engine: config loading and delta-impact evaluation traits.
-pub mod policy;
 /// tree-sitter-based delta-impact evaluator.
 pub mod evaluator;
+/// Semantic policy engine: config loading and delta-impact evaluation traits.
+pub mod policy;
 /// AI adapter resolver pipeline for policy errors.
 pub mod resolver;
 

@@ -12,16 +12,9 @@ mod text;
 #[derive(Debug, Error)]
 pub enum PolicyStoreError {
     #[error("failed to read '{path}': {source}")]
-    Read {
-        path: PathBuf,
-        source: std::io::Error,
-    },
+    Read { path: PathBuf, source: std::io::Error },
     #[error("invalid include pattern '{pattern}' in '{path}': {details}")]
-    InvalidGlob {
-        path: PathBuf,
-        pattern: String,
-        details: String,
-    },
+    InvalidGlob { path: PathBuf, pattern: String, details: String },
     #[error("include cycle detected: {cycle}")]
     IncludeCycle { cycle: String },
     #[error("included file escapes workspace root: '{path}'")]
@@ -83,9 +76,8 @@ impl ArcIgnoreMatcher {
     }
 
     pub fn load(workspace_root: &Path) -> Result<Self, PolicyStoreError> {
-        let workspace_root = workspace_root
-            .canonicalize()
-            .unwrap_or_else(|_| workspace_root.to_path_buf());
+        let workspace_root =
+            workspace_root.canonicalize().unwrap_or_else(|_| workspace_root.to_path_buf());
         let mut lattice: PolicyLattice<'static, bool> = PolicyLattice::new();
         let mut rules: HashMap<String, IgnoreRule> = HashMap::new();
 
@@ -107,9 +99,7 @@ impl ArcIgnoreMatcher {
 
     pub fn matched_path_or_any_parents(&self, path: &str, is_dir: bool) -> MatchResult {
         let decision = self.explain_path_kind(path, is_dir).decision;
-        MatchResult {
-            ignore: matches!(decision, PathPolicyDecision::Ignored),
-        }
+        MatchResult { ignore: matches!(decision, PathPolicyDecision::Ignored) }
     }
 
     pub fn explain_path(&self, path: &str) -> IgnorePolicyTrace {
@@ -120,9 +110,7 @@ impl ArcIgnoreMatcher {
         let normalized = text::normalize_slashes(path).into_owned();
         let trace = self.lattice.resolve_with(&normalized, |atom, query| {
             self.rules.get(atom.key.as_ref()).is_some_and(|rule| {
-                rule.matcher
-                    .matched_path_or_any_parents(query, is_dir)
-                    .is_ignore()
+                rule.matcher.matched_path_or_any_parents(query, is_dir).is_ignore()
             })
         });
 
@@ -149,11 +137,7 @@ impl ArcIgnoreMatcher {
             });
         }
 
-        IgnorePolicyTrace {
-            query_path: normalized,
-            decision,
-            entries,
-        }
+        IgnorePolicyTrace { query_path: normalized, decision, entries }
     }
 }
 
@@ -176,9 +160,8 @@ pub fn explain_config_key(
     workspace_root: &Path,
     key: &str,
 ) -> Result<ConfigPolicyTrace, PolicyStoreError> {
-    let workspace_root = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let workspace_root =
+        workspace_root.canonicalize().unwrap_or_else(|_| workspace_root.to_path_buf());
     let lattice = load_config_lattice(&workspace_root)?;
     let trace = lattice.resolve(key);
     let winner = trace.winner.map(|w| match w.value {
@@ -202,11 +185,7 @@ pub fn explain_config_key(
         })
         .collect();
 
-    Ok(ConfigPolicyTrace {
-        key: key.to_string(),
-        winner,
-        entries,
-    })
+    Ok(ConfigPolicyTrace { key: key.to_string(), winner, entries })
 }
 
 /// Rewrite policy/config text line-by-line while preserving all untouched bytes.
@@ -267,10 +246,8 @@ impl<'a> ConfigLoader<'a> {
         };
 
         let result = (|| {
-            let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
-                path: canonical.clone(),
-                source,
-            })?;
+            let bytes = fs::read(&canonical)
+                .map_err(|source| PolicyStoreError::Read { path: canonical.clone(), source })?;
             for include in parse_config_includes(&bytes, &canonical, self.workspace_root) {
                 let include = include?;
                 if !include.path.starts_with(self.workspace_root) {
@@ -296,10 +273,7 @@ fn config_candidates(workspace_root: &Path) -> Vec<(PathBuf, TrustLevel)> {
         out.push((dirs.config_dir().join("config.toml"), TrustLevel::User));
     }
 
-    out.push((
-        workspace_root.join(".arc").join("config.toml"),
-        repo_trust_level(workspace_root),
-    ));
+    out.push((workspace_root.join(".arc").join("config.toml"), repo_trust_level(workspace_root)));
 
     out
 }
@@ -357,20 +331,12 @@ fn flatten_config_value(
     match value {
         toml::Value::Table(table) => {
             for (k, v) in table {
-                let next = if prefix.is_empty() {
-                    k.to_string()
-                } else {
-                    format!("{prefix}.{k}")
-                };
+                let next = if prefix.is_empty() { k.to_string() } else { format!("{prefix}.{k}") };
                 flatten_config_value(v, &next, source_path, depth, trust, lattice);
             }
         }
         toml::Value::Array(arr) => {
-            let as_text = arr
-                .iter()
-                .map(toml_scalar_to_string)
-                .collect::<Vec<_>>()
-                .join(",");
+            let as_text = arr.iter().map(toml_scalar_to_string).collect::<Vec<_>>().join(",");
             lattice.push(PolicyAtom {
                 domain: PolicyDomain::Config,
                 key: Cow::Owned(prefix.to_string()),
@@ -422,36 +388,23 @@ struct IncludeState {
 
 impl IncludeState {
     fn new(max_depth: u16) -> Self {
-        Self {
-            max_depth,
-            visited: HashSet::new(),
-            stack: Vec::new(),
-        }
+        Self { max_depth, visited: HashSet::new(), stack: Vec::new() }
     }
 
     fn enter(&mut self, file_path: &Path, depth: u16) -> Result<Option<PathBuf>, PolicyStoreError> {
         let canonical = file_path
             .canonicalize()
-            .map_err(|source| PolicyStoreError::Read {
-                path: file_path.to_path_buf(),
-                source,
-            })?;
+            .map_err(|source| PolicyStoreError::Read { path: file_path.to_path_buf(), source })?;
 
         if depth > self.max_depth {
-            return Err(PolicyStoreError::MaxDepth {
-                path: canonical.clone(),
-            });
+            return Err(PolicyStoreError::MaxDepth { path: canonical.clone() });
         }
 
         if let Some(idx) = self.stack.iter().position(|p| p == &canonical) {
-            let mut cycle: Vec<String> = self.stack[idx..]
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect();
+            let mut cycle: Vec<String> =
+                self.stack[idx..].iter().map(|p| p.display().to_string()).collect();
             cycle.push(canonical.display().to_string());
-            return Err(PolicyStoreError::IncludeCycle {
-                cycle: cycle.join(" -> "),
-            });
+            return Err(PolicyStoreError::IncludeCycle { cycle: cycle.join(" -> ") });
         }
 
         if !self.visited.insert(canonical.clone()) {
@@ -517,10 +470,7 @@ fn resolve_include(
     let include_path = source_path.parent().unwrap_or(workspace_root).join(include);
     let canonical = include_path
         .canonicalize()
-        .map_err(|source| PolicyStoreError::Read {
-            path: include_path.clone(),
-            source,
-        })?;
+        .map_err(|source| PolicyStoreError::Read { path: include_path.clone(), source })?;
     if !canonical.starts_with(workspace_root) {
         return Err(PolicyStoreError::OutsideWorkspace { path: canonical });
     }
@@ -541,10 +491,8 @@ impl<'a> IgnoreLoader<'a> {
         };
 
         let result = (|| {
-            let bytes = fs::read(&canonical).map_err(|source| PolicyStoreError::Read {
-                path: canonical.clone(),
-                source,
-            })?;
+            let bytes = fs::read(&canonical)
+                .map_err(|source| PolicyStoreError::Read { path: canonical.clone(), source })?;
 
             for line_view in text::iter_lines(&bytes) {
                 let line_cow = String::from_utf8_lossy(line_view.content);
@@ -562,10 +510,8 @@ impl<'a> IgnoreLoader<'a> {
                 }
 
                 if let Some(rest) = line.strip_prefix("#includeIf.exists ") {
-                    let candidate = canonical
-                        .parent()
-                        .unwrap_or(self.workspace_root)
-                        .join(rest.trim());
+                    let candidate =
+                        canonical.parent().unwrap_or(self.workspace_root).join(rest.trim());
                     if candidate.exists() {
                         let include_file =
                             resolve_ignore_include(&canonical, self.workspace_root, rest.trim())?;
@@ -589,23 +535,19 @@ impl<'a> IgnoreLoader<'a> {
                 }
 
                 let mut builder = GitignoreBuilder::new(self.workspace_root);
-                builder
-                    .add_line(Some(canonical.clone()), pattern)
-                    .map_err(|source| PolicyStoreError::InvalidGlob {
+                builder.add_line(Some(canonical.clone()), pattern).map_err(|source| {
+                    PolicyStoreError::InvalidGlob {
                         path: canonical.clone(),
                         pattern: pattern.to_string(),
                         details: source.to_string(),
-                    })?;
+                    }
+                })?;
                 let matcher = builder.build().unwrap_or_else(|_| Gitignore::empty());
 
                 let key = format!("{}:{}:{}", canonical.display(), line_view.line_no, pattern);
                 self.rules.insert(
                     key.clone(),
-                    IgnoreRule {
-                        pattern: pattern.to_string(),
-                        matcher,
-                        line: line_view.line_no,
-                    },
+                    IgnoreRule { pattern: pattern.to_string(), matcher, line: line_view.line_no },
                 );
                 self.lattice.push(PolicyAtom {
                     domain: PolicyDomain::Ignore,
@@ -635,10 +577,7 @@ fn resolve_ignore_include(
     let include_path = source_path.parent().unwrap_or(workspace_root).join(include);
     let canonical = include_path
         .canonicalize()
-        .map_err(|source| PolicyStoreError::Read {
-            path: include_path.clone(),
-            source,
-        })?;
+        .map_err(|source| PolicyStoreError::Read { path: include_path.clone(), source })?;
     if !canonical.starts_with(workspace_root) {
         return Err(PolicyStoreError::OutsideWorkspace { path: canonical });
     }
@@ -670,18 +609,8 @@ mod tests {
         let matcher = ArcIgnoreMatcher::load(root).expect("matcher");
         let trace = matcher.explain_path("src/main.rs");
         assert!(matches!(trace.decision, PathPolicyDecision::Included));
-        assert!(
-            trace
-                .entries
-                .iter()
-                .any(|e| e.outcome == arc_policy::TraceOutcome::Winning)
-        );
-        assert!(
-            trace
-                .entries
-                .iter()
-                .any(|e| e.outcome == arc_policy::TraceOutcome::Overridden)
-        );
+        assert!(trace.entries.iter().any(|e| e.outcome == arc_policy::TraceOutcome::Winning));
+        assert!(trace.entries.iter().any(|e| e.outcome == arc_policy::TraceOutcome::Overridden));
     }
 
     #[test]
@@ -695,11 +624,7 @@ mod tests {
     fn lossless_rewrite_preserves_newlines_and_comments() {
         let input = b"# header\r\nkey = old\n# footer";
         let out = rewrite_policy_text_lossless(input, |line| {
-            if line.trim() == "key = old" {
-                Some("key = new".to_string())
-            } else {
-                None
-            }
+            if line.trim() == "key = old" { Some("key = new".to_string()) } else { None }
         });
         assert_eq!(out, b"# header\r\nkey = new\n# footer");
     }

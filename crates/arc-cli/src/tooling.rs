@@ -91,10 +91,7 @@ fn read_nextest(path: &Path) -> anyhow::Result<NextestSummary> {
         .and_then(|profile| profile.slow_timeout.as_ref())
         .and_then(|timeout| timeout.terminate_after);
 
-    Ok(NextestSummary {
-        default_period: default_profile.period.clone(),
-        ci_terminate_after,
-    })
+    Ok(NextestSummary { default_period: default_profile.period.clone(), ci_terminate_after })
 }
 
 #[instrument]
@@ -173,11 +170,8 @@ mod tests {
             "[profile.default]\nslow-timeout = { period = \"10s\" }\n\n[profile.ci]\nslow-timeout = { period = \"10s\", terminate-after = 4 }\n",
         )
         .expect("write nextest");
-        fs::write(
-            config_dir.join("codespell-additional-dict"),
-            "co-locate->colocate\n",
-        )
-        .expect("write dict");
+        fs::write(config_dir.join("codespell-additional-dict"), "co-locate->colocate\n")
+            .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
             "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
@@ -215,11 +209,8 @@ mod tests {
             "[profile.default]\nslow-timeout = { period = \"10s\" }\n",
         )
         .expect("write nextest");
-        fs::write(
-            config_dir.join("codespell-additional-dict"),
-            "invalid-line\n",
-        )
-        .expect("write dict");
+        fs::write(config_dir.join("codespell-additional-dict"), "invalid-line\n")
+            .expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
             "[tasks.\"check:test\"]\nrun = \"cargo test --workspace\"\n\n[tasks.\"check:clippy\"]\nrun = \"cargo clippy --workspace --all-targets -- -D warnings\"\n\n[tasks.\"check:format\"]\nrun = \"cargo fmt --all -- --check\"\n",
@@ -228,19 +219,13 @@ mod tests {
 
         let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
             .expect_err("audit should fail");
-        assert!(
-            err.to_string().contains("invalid codespell rule"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("invalid codespell rule"), "unexpected error: {err}");
     }
 
     #[test]
     fn tooling_audit_current_workspace() {
         let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = crate_dir
-            .ancestors()
-            .nth(2)
-            .expect("arc workspace root should exist");
+        let repo_root = crate_dir.ancestors().nth(2).expect("arc workspace root should exist");
 
         let report = audit_workspace_tooling(repo_root, Vec::new(), Vec::new())
             .expect("current workspace tooling policy must be valid");

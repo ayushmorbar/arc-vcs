@@ -68,11 +68,7 @@ impl PendingRewrite {
 
     /// Return the desired order with any known rewrite bindings projected.
     pub fn resolved_order(&self) -> Vec<ChangeId> {
-        self.desired_order
-            .iter()
-            .copied()
-            .map(|id| remap_change(id, &self.rewrite_map))
-            .collect()
+        self.desired_order.iter().copied().map(|id| remap_change(id, &self.rewrite_map)).collect()
     }
 
     /// Return a copy marked with one additional execution attempt.
@@ -83,9 +79,7 @@ impl PendingRewrite {
 
     /// Return a copy updated to conflict status.
     pub fn with_conflict(mut self, message: impl Into<String>) -> Self {
-        self.status = RewriteStatus::Conflict {
-            message: message.into(),
-        };
+        self.status = RewriteStatus::Conflict { message: message.into() };
         self
     }
 
@@ -164,9 +158,7 @@ mod tests {
         assert_eq!(pending.attempts, 1);
         assert_eq!(
             pending.status,
-            RewriteStatus::Conflict {
-                message: "merge conflict".to_string()
-            }
+            RewriteStatus::Conflict { message: "merge conflict".to_string() }
         );
     }
 }

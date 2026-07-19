@@ -18,12 +18,8 @@ pub struct WorkspacePolicyReport {
     pub synthesis_snapshots: Vec<SnapshotId>,
 }
 
-const REQUIRED_POLICY_FILES: [&str; 4] = [
-    ".editorconfig",
-    ".gitattributes",
-    ".watchmanconfig",
-    "rustfmt.toml",
-];
+const REQUIRED_POLICY_FILES: [&str; 4] =
+    [".editorconfig", ".gitattributes", ".watchmanconfig", "rustfmt.toml"];
 
 const REQUIRED_GITIGNORE_PATTERNS: [&str; 4] = ["/target", ".direnv", ".envrc", "/rendered-docs"];
 
@@ -85,10 +81,7 @@ fn ensure_gitattributes(repo_root: &Path) -> anyhow::Result<()> {
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let lines = effective_lines(&raw);
 
-    if !lines
-        .iter()
-        .any(|line| line == "Cargo.lock linguist-generated=true merge=binary")
-    {
+    if !lines.iter().any(|line| line == "Cargo.lock linguist-generated=true merge=binary") {
         anyhow::bail!(
             "{} must mark Cargo.lock as generated with binary merge strategy",
             path.display()
@@ -108,11 +101,7 @@ fn ensure_gitignore(repo_root: &Path) -> anyhow::Result<usize> {
         if raw.lines().any(|line| line.trim() == pattern) {
             count += 1;
         } else {
-            anyhow::bail!(
-                "{} missing required ignore pattern '{}'",
-                path.display(),
-                pattern
-            );
+            anyhow::bail!("{} missing required ignore pattern '{}'", path.display(), pattern);
         }
     }
 
@@ -156,22 +145,13 @@ mod tests {
             "root = true\n\n[*.rs]\nindent_style = space\nindent_size = 4\n",
         )
         .expect("write editorconfig");
-        fs::write(
-            root.join(".gitattributes"),
-            "Cargo.lock linguist-generated=true merge=binary\n",
-        )
-        .expect("write gitattributes");
-        fs::write(
-            root.join(".gitignore"),
-            "/target\n/rendered-docs\n.direnv\n.envrc\n",
-        )
-        .expect("write gitignore");
+        fs::write(root.join(".gitattributes"), "Cargo.lock linguist-generated=true merge=binary\n")
+            .expect("write gitattributes");
+        fs::write(root.join(".gitignore"), "/target\n/rendered-docs\n.direnv\n.envrc\n")
+            .expect("write gitignore");
         fs::write(root.join(".watchmanconfig"), "{}\n").expect("write watchman");
-        fs::write(
-            root.join("rustfmt.toml"),
-            "edition = \"2024\"\nmax_width = 100\n",
-        )
-        .expect("write rustfmt");
+        fs::write(root.join("rustfmt.toml"), "edition = \"2024\"\nmax_width = 100\n")
+            .expect("write rustfmt");
     }
 
     #[test]
@@ -203,18 +183,12 @@ mod tests {
     fn workspace_policy_audit_rejects_commented_editorconfig_directives() {
         let dir = tempfile::tempdir().expect("tempdir");
         write_valid_workspace_policy(dir.path());
-        fs::write(
-            rooted(&dir, ".editorconfig"),
-            "root = true\n# [*.rs]\n# indent_size = 4\n",
-        )
-        .expect("rewrite editorconfig");
+        fs::write(rooted(&dir, ".editorconfig"), "root = true\n# [*.rs]\n# indent_size = 4\n")
+            .expect("rewrite editorconfig");
 
         let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
             .expect_err("audit should fail");
-        assert!(
-            err.to_string().contains("must define [*.rs] section"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("must define [*.rs] section"), "unexpected error: {err}");
     }
 
     #[test]
@@ -230,8 +204,7 @@ mod tests {
         let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
             .expect_err("audit should fail");
         assert!(
-            err.to_string()
-                .contains("must mark Cargo.lock as generated"),
+            err.to_string().contains("must mark Cargo.lock as generated"),
             "unexpected error: {err}"
         );
     }
@@ -239,10 +212,7 @@ mod tests {
     #[test]
     fn workspace_policy_audit_current_workspace() {
         let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = crate_dir
-            .ancestors()
-            .nth(2)
-            .expect("arc workspace root should exist");
+        let repo_root = crate_dir.ancestors().nth(2).expect("arc workspace root should exist");
 
         let report = audit_workspace_policy(repo_root, Vec::new(), Vec::new())
             .expect("current workspace policy must be valid");

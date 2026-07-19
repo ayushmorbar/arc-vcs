@@ -43,14 +43,11 @@ impl Repository {
             signing_key,
         );
 
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.store.write_change(&change).map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph_add_change(change.clone());
 
         view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
         self.log_operation(
             "snapshot working copy",
@@ -103,8 +100,7 @@ impl Repository {
         let _ = self.try_embed_change(&new_change);
 
         view.heads = HashSet::from([new_change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
         self.log_operation(
             "snap",
@@ -136,14 +132,11 @@ impl Repository {
             signing_key,
         );
 
-        self.store
-            .write_change(&wc_change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        self.store.write_change(&wc_change).map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph_add_change(wc_change.clone());
 
         view.heads = HashSet::from([wc_change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
         self.log_operation(
             "snapshot working copy",
@@ -242,16 +235,9 @@ impl Repository {
         // Persist raw bytes for every Atom::Blob before committing the change.
         self.write_blob_atoms(&all_atoms)?;
 
-        let change = Change::new(
-            view.heads.clone(),
-            all_atoms,
-            message,
-            author.clone(),
-            signing_key,
-        );
-        self.store
-            .write_change(&change)
-            .map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
+        let change =
+            Change::new(view.heads.clone(), all_atoms, message, author.clone(), signing_key);
+        self.store.write_change(&change).map_err(|e| anyhow::anyhow!("CAS write error: {e}"))?;
         self.graph_add_change(change.clone());
 
         // Update the semantic intent index (no-op if index not yet initialised).
@@ -262,8 +248,7 @@ impl Repository {
 
         // Advance the frontier: new change becomes the sole head.
         view.heads = HashSet::from([change.id]);
-        view.save(&self.shared_root)
-            .map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
+        view.save(&self.shared_root).map_err(|e| anyhow::anyhow!("failed to save view: {e}"))?;
 
         // Record the completed snap in the spacetime log.
         self.log_operation("snap", &view_name, before_heads, HashSet::from([change.id]))?;
@@ -309,11 +294,8 @@ impl Repository {
 
         // -- Pass 2: Non-Rust files - parallel BLAKE3 blob diff
         let all_files = collect_all_files(&self.work_root, &arcignore)?;
-        let tracked_files: HashSet<String> = state
-            .keys()
-            .filter(|k| k.len() == 2 && k[0] == "file")
-            .map(|k| k[1].clone())
-            .collect();
+        let tracked_files: HashSet<String> =
+            state.keys().filter(|k| k.len() == 2 && k[0] == "file").map(|k| k[1].clone()).collect();
         let non_rs_files: Vec<String> = all_files
             .into_iter()
             .filter(|f| sparse_matcher.matches_file_path(f))
@@ -367,10 +349,7 @@ impl Repository {
                         let prior_hash = self.store.write_blob(&prior_bytes).map_err(|e| {
                             anyhow::anyhow!("CAS write error for deleted file: {e}")
                         })?;
-                        atoms.push(Atom::Delete {
-                            at: key.clone(),
-                            prior_hash,
-                        });
+                        atoms.push(Atom::Delete { at: key.clone(), prior_hash });
                     }
                 }
             }
@@ -389,9 +368,7 @@ impl Repository {
                 continue;
             }
             if !existing_dirs.contains(&rel_dir) {
-                atoms.push(Atom::Directory {
-                    path: dir_key(&rel_dir),
-                });
+                atoms.push(Atom::Directory { path: dir_key(&rel_dir) });
             }
         }
         for rel_dir in &existing_dirs {
@@ -402,10 +379,7 @@ impl Repository {
                     .store
                     .write_blob(&prior_bytes)
                     .map_err(|e| anyhow::anyhow!("CAS write error for deleted dir: {e}"))?;
-                atoms.push(Atom::Delete {
-                    at: key,
-                    prior_hash,
-                });
+                atoms.push(Atom::Delete { at: key, prior_hash });
             }
         }
 

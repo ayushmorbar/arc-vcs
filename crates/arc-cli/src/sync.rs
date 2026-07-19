@@ -305,9 +305,8 @@ fn push_local(local: &Repository, remote_path: &str, view_name: &str) -> anyhow:
     let remote = Repository::open(remote_path)?;
     let local_view = View::load(&local.shared_root, view_name)
         .map_err(|e| anyhow::anyhow!("failed to load local view '{view_name}': {e}"))?;
-    let remote_heads: HashSet<Blake3Hash> = View::load(&remote.shared_root, view_name)
-        .map(|v| v.heads)
-        .unwrap_or_default();
+    let remote_heads: HashSet<Blake3Hash> =
+        View::load(&remote.shared_root, view_name).map(|v| v.heads).unwrap_or_default();
 
     // BFS from local heads; cut when we reach a change already in remote CAS.
     let mut queue: VecDeque<Blake3Hash> = local_view.heads.iter().copied().collect();
@@ -373,17 +372,11 @@ fn push_local(local: &Repository, remote_path: &str, view_name: &str) -> anyhow:
         .save(&remote.shared_root)
         .map_err(|e| anyhow::anyhow!("failed to save remote view: {e}"))?;
 
-    println!(
-        "Pushed {} change(s) to {} [view: {}].",
-        delta.len(),
-        remote_path,
-        view_name
-    );
+    println!("Pushed {} change(s) to {} [view: {}].", delta.len(), remote_path, view_name);
     Ok(())
 }
 
 fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyhow::Result<()> {
-
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("arc-vcs/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -458,23 +451,13 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
     if n_blobs > 0 {
         let total_blob_bytes: u64 = blob_hashes
             .iter()
-            .map(|h| {
-                local
-                    .store
-                    .blob_file_path(h)
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0)
-            })
+            .map(|h| local.store.blob_file_path(h).metadata().map(|m| m.len()).unwrap_or(0))
             .sum();
         upload_blobs(&client, remote_url, local, &blob_hashes, total_blob_bytes)?;
     }
 
     // Phase 2: POST DeltaPayload (metadata only, no inline blobs).
-    let payload = DeltaPayload {
-        changes: delta,
-        view_heads: local_view.heads.clone(),
-    };
+    let payload = DeltaPayload { changes: delta, view_heads: local_view.heads.clone() };
     let pb = indicatif::ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(80));
     pb.set_message(format!("Pushing {n_changes} change(s) to {remote_url}..."));
@@ -523,11 +506,9 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
     if !sync_resp.rewritten_map.is_empty() {
         pb.set_message("Fetching canonical objects after identity collapse...");
         bfs_fetch_changes(&client, remote_url, local, &sync_resp.view_heads, &pb)?;
-        View::new(view_name, sync_resp.view_heads)
-            .save(&local.shared_root)
-            .map_err(|e| {
-                anyhow::anyhow!("failed to update local view after identity collapse: {e}")
-            })?;
+        View::new(view_name, sync_resp.view_heads).save(&local.shared_root).map_err(|e| {
+            anyhow::anyhow!("failed to update local view after identity collapse: {e}")
+        })?;
         if let Err(e) = local.gc() {
             // Non-fatal: repository is fully consistent; old metadata lingers
             // in the CAS until the next OpLog compaction prunes the references.
@@ -549,9 +530,8 @@ fn pull_http_signed(
     let identity = load_active_identity_for_sync()?;
     let remote_author_public_key = load_expected_remote_author_key()?;
 
-    let local_frontier = View::load(&local.shared_root, view_name)
-        .map(|view| view.heads)
-        .unwrap_or_default();
+    let local_frontier =
+        View::load(&local.shared_root, view_name).map(|view| view.heads).unwrap_or_default();
 
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("failed to create tokio runtime: {e}"))?;
@@ -601,9 +581,7 @@ fn load_active_identity_for_sync() -> anyhow::Result<ArcIdentity> {
         .active_alias()
         .map_err(|e| anyhow::anyhow!("failed to read active identity alias: {e}"))?
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no active identity selected; run 'arc auth login' before push/pull"
-            )
+            anyhow::anyhow!("no active identity selected; run 'arc auth login' before push/pull")
         })?;
     let passphrase = std::env::var("ARC_KEYRING_PASSPHRASE").map_err(|_| {
         anyhow::anyhow!(
@@ -651,10 +629,7 @@ impl FirstErrorSlot {
     }
 
     fn is_set(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|slot| slot.is_some())
-            .unwrap_or(true)
+        self.inner.lock().map(|slot| slot.is_some()).unwrap_or(true)
     }
 
     fn take(&self) -> Option<anyhow::Error> {
@@ -662,28 +637,27 @@ impl FirstErrorSlot {
     }
 }
 
-fn validate_blob_sources_parallel(local: &Repository, blob_hashes: &[Blake3Hash]) -> anyhow::Result<()> {
+fn validate_blob_sources_parallel(
+    local: &Repository,
+    blob_hashes: &[Blake3Hash],
+) -> anyhow::Result<()> {
     if blob_hashes.is_empty() {
         return Ok(());
     }
 
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get().min(4))
-        .unwrap_or(1);
+    let workers = std::thread::available_parallelism().map(|n| n.get().min(4)).unwrap_or(1);
     if workers <= 1 || blob_hashes.len() <= 1 {
         for hash in blob_hashes {
             let blob_path = local.store.blob_file_path(hash);
-            let _ = blob_path
-                .metadata()
-                .map_err(|e| anyhow::anyhow!("cannot stat local blob at '{}': {e}", blob_path.display()))?;
+            let _ = blob_path.metadata().map_err(|e| {
+                anyhow::anyhow!("cannot stat local blob at '{}': {e}", blob_path.display())
+            })?;
         }
         return Ok(());
     }
 
-    let inputs: Vec<std::path::PathBuf> = blob_hashes
-        .iter()
-        .map(|hash| local.store.blob_file_path(hash))
-        .collect();
+    let inputs: Vec<std::path::PathBuf> =
+        blob_hashes.iter().map(|hash| local.store.blob_file_path(hash)).collect();
     let slot = FirstErrorSlot::default();
     let chunk_size = inputs.len().div_ceil(workers).max(1);
 
@@ -747,10 +721,8 @@ fn upload_blobs(
         let blob_path = local.store.blob_file_path(hash);
         let file = std::fs::File::open(&blob_path)
             .map_err(|e| anyhow::anyhow!("cannot open local blob {hex}: {e}"))?;
-        let size = file
-            .metadata()
-            .map_err(|e| anyhow::anyhow!("cannot stat blob {hex}: {e}"))?
-            .len();
+        let size =
+            file.metadata().map_err(|e| anyhow::anyhow!("cannot stat blob {hex}: {e}"))?.len();
         let url = format!("{remote_url}/blobs/{hex}");
 
         let resp = if size > HEAVY_BLOB_THRESHOLD {
@@ -919,14 +891,8 @@ mod tests {
         pull(&mut repo_b, path_a.to_str().unwrap(), "main").unwrap();
 
         // B should now have a.rs on disk.
-        assert!(
-            path_b.join("a.rs").exists(),
-            "a.rs must exist in repo B after pull"
-        );
-        assert_eq!(
-            fs::read_to_string(path_b.join("a.rs")).unwrap(),
-            "fn a() {}"
-        );
+        assert!(path_b.join("a.rs").exists(), "a.rs must exist in repo B after pull");
+        assert_eq!(fs::read_to_string(path_b.join("a.rs")).unwrap(), "fn a() {}");
 
         // --- Diverge: A adds c.rs, B adds b.rs ---
         fs::write(path_a.join("c.rs"), "fn c() {}").unwrap();
@@ -940,14 +906,8 @@ mod tests {
 
         // B's working directory should have all three files.
         assert!(path_b.join("a.rs").exists(), "a.rs must survive the merge");
-        assert!(
-            path_b.join("b.rs").exists(),
-            "b.rs (local to B) must survive the merge"
-        );
-        assert!(
-            path_b.join("c.rs").exists(),
-            "c.rs (from A) must appear after pull"
-        );
+        assert!(path_b.join("b.rs").exists(), "b.rs (local to B) must survive the merge");
+        assert!(path_b.join("c.rs").exists(), "c.rs (from A) must appear after pull");
 
         // Verify graph completeness: B's graph should have all of A's changes.
         let view_b = arc_store_view::View::load(&path_b, "main").unwrap();
@@ -958,18 +918,9 @@ mod tests {
         );
 
         // Verify content.
-        assert_eq!(
-            fs::read_to_string(path_b.join("a.rs")).unwrap(),
-            "fn a() {}"
-        );
-        assert_eq!(
-            fs::read_to_string(path_b.join("b.rs")).unwrap(),
-            "fn b() {}"
-        );
-        assert_eq!(
-            fs::read_to_string(path_b.join("c.rs")).unwrap(),
-            "fn c() {}"
-        );
+        assert_eq!(fs::read_to_string(path_b.join("a.rs")).unwrap(), "fn a() {}");
+        assert_eq!(fs::read_to_string(path_b.join("b.rs")).unwrap(), "fn b() {}");
+        assert_eq!(fs::read_to_string(path_b.join("c.rs")).unwrap(), "fn c() {}");
     }
 
     /// `push_local` round-trip: after pushing A → B, B's view heads must match A's
@@ -998,10 +949,7 @@ mod tests {
         // B's view heads must exactly match A's after push.
         let view_a = arc_store_view::View::load(&path_a, "main").unwrap();
         let view_b = arc_store_view::View::load(&path_b, "main").unwrap();
-        assert_eq!(
-            view_a.heads, view_b.heads,
-            "pushed view heads must match A's heads"
-        );
+        assert_eq!(view_a.heads, view_b.heads, "pushed view heads must match A's heads");
 
         // B's CAS must contain every change reachable from A's heads.
         for &head in &view_a.heads {

@@ -51,11 +51,7 @@ pub struct SloTimer {
 impl SloTimer {
     /// Build a new SLO timer for one named sync operation.
     pub fn new(operation: impl Into<String>, threshold: Duration) -> Self {
-        Self {
-            operation: operation.into(),
-            threshold,
-            started_at: Instant::now(),
-        }
+        Self { operation: operation.into(), threshold, started_at: Instant::now() }
     }
 
     /// Build a timer from `ARC_SYNC_SLO_MS` environment override.

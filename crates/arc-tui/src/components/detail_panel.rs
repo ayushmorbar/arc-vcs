@@ -15,7 +15,8 @@ impl DetailPanel {
             "No change selected".to_string()
         };
 
-        let panel = Paragraph::new(body).block(Block::default().title("Detail").borders(Borders::ALL));
+        let panel =
+            Paragraph::new(body).block(Block::default().title("Detail").borders(Borders::ALL));
         frame.render_widget(panel, area);
     }
 }

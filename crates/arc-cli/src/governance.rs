@@ -22,11 +22,8 @@ pub struct GovernanceAuditReport {
 
 const REQUIRED_WORKFLOWS: [&str; 3] = ["ci.yml", "docs.yml", "release.yml"];
 const REQUIRED_DEPENDABOT_ECOSYSTEMS: [&str; 2] = ["cargo", "github-actions"];
-const ALLOWED_TAGGED_ACTIONS: [&str; 3] = [
-    "actions/upload-pages-artifact",
-    "actions/deploy-pages",
-    "Swatinem/rust-cache",
-];
+const ALLOWED_TAGGED_ACTIONS: [&str; 3] =
+    ["actions/upload-pages-artifact", "actions/deploy-pages", "Swatinem/rust-cache"];
 
 /// Audit repository GitHub governance files in read-only mode.
 #[instrument(skip(frontier, synthesis_snapshots))]
@@ -83,16 +80,10 @@ fn ensure_pinned_actions(workflows_dir: &Path) -> anyhow::Result<usize> {
     let mut pinned_count = 0usize;
 
     for entry in fs::read_dir(workflows_dir).with_context(|| {
-        format!(
-            "failed to read workflows directory {}",
-            workflows_dir.display()
-        )
+        format!("failed to read workflows directory {}", workflows_dir.display())
     })? {
         let entry = entry.with_context(|| {
-            format!(
-                "failed to read entry in workflows directory {}",
-                workflows_dir.display()
-            )
+            format!("failed to read entry in workflows directory {}", workflows_dir.display())
         })?;
         let path = entry.path();
         if !is_yaml_file(&path) {
@@ -128,12 +119,8 @@ fn ensure_pinned_actions(workflows_dir: &Path) -> anyhow::Result<usize> {
 #[instrument]
 fn ensure_dependabot_ecosystems(github_root: &Path) -> anyhow::Result<Vec<String>> {
     let dependabot = github_root.join("dependabot.yml");
-    let raw = fs::read_to_string(&dependabot).with_context(|| {
-        format!(
-            "failed to read dependabot config at {}",
-            dependabot.display()
-        )
-    })?;
+    let raw = fs::read_to_string(&dependabot)
+        .with_context(|| format!("failed to read dependabot config at {}", dependabot.display()))?;
 
     let mut ecosystems = Vec::new();
     for line in raw.lines() {
@@ -162,10 +149,7 @@ fn ensure_dependabot_ecosystems(github_root: &Path) -> anyhow::Result<Vec<String
 }
 
 fn is_yaml_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|ext| ext.to_str()),
-        Some("yml" | "yaml")
-    )
+    matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml"))
 }
 
 fn parse_uses_line(line: &str) -> Option<&str> {
@@ -247,12 +231,7 @@ mod tests {
         assert_eq!(report.required_workflows.len(), 3);
         assert_eq!(report.pinned_action_references, 3);
         assert!(report.dependabot_ecosystems.iter().any(|s| s == "cargo"));
-        assert!(
-            report
-                .dependabot_ecosystems
-                .iter()
-                .any(|s| s == "github-actions")
-        );
+        assert!(report.dependabot_ecosystems.iter().any(|s| s == "github-actions"));
         assert_eq!(report.frontier, frontier);
         assert_eq!(report.synthesis_snapshots, snapshots);
     }
@@ -262,11 +241,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         write_valid_governance_tree(dir.path());
 
-        let docs_workflow = dir
-            .path()
-            .join(".github")
-            .join("workflows")
-            .join("docs.yml");
+        let docs_workflow = dir.path().join(".github").join("workflows").join("docs.yml");
         fs::write(
             docs_workflow,
             "name: docs\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
@@ -275,19 +250,13 @@ mod tests {
 
         let err = audit_github_governance(dir.path(), Vec::new(), Vec::new())
             .expect_err("audit should fail");
-        assert!(
-            err.to_string().contains("disallowed action reference"),
-            "unexpected error: {err}"
-        );
+        assert!(err.to_string().contains("disallowed action reference"), "unexpected error: {err}");
     }
 
     #[test]
     fn governance_audit_current_workspace() {
         let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = crate_dir
-            .ancestors()
-            .nth(2)
-            .expect("arc workspace root should exist");
+        let repo_root = crate_dir.ancestors().nth(2).expect("arc workspace root should exist");
 
         let report = audit_github_governance(repo_root, Vec::new(), Vec::new())
             .expect("current workspace governance policy must be valid");

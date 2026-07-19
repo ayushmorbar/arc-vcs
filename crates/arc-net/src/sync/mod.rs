@@ -3,10 +3,10 @@
 //! This module defines a compact framed transport and handshake payloads for
 //! direct TCP synchronization between arc repositories, bypassing the Git bridge.
 
-/// Native TCP sync client.
-pub mod client;
 /// Backoff utilities used by sync retries.
 pub mod backoff;
+/// Native TCP sync client.
+pub mod client;
 /// Length-prefixed binary frame codec used over TCP streams.
 pub mod codec;
 /// Endpoint parsing and redacted display helpers.

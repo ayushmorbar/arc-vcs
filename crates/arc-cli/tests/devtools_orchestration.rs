@@ -15,10 +15,7 @@ fn env_lock() -> &'static Mutex<()> {
 fn multicall_normalization_injects_known_mode() {
     let args = vec!["arc-sync".to_string(), "--help".to_string()];
     let normalized = normalize_invocation_args(args);
-    assert_eq!(
-        normalized,
-        vec!["arc".to_string(), "sync".to_string(), "--help".to_string()]
-    );
+    assert_eq!(normalized, vec!["arc".to_string(), "sync".to_string(), "--help".to_string()]);
 }
 
 #[test]
@@ -63,9 +60,8 @@ fn fixture_orchestrator_produces_writable_copy() {
 
     let orchestrator = FixtureOrchestrator::new(cache_root.path().to_path_buf());
     let options = FixtureOptions::new("sample").with_mode(FixtureMode::WritableCopy);
-    let writable_path = orchestrator
-        .materialize(source.path(), &options)
-        .expect("materialize writable fixture");
+    let writable_path =
+        orchestrator.materialize(source.path(), &options).expect("materialize writable fixture");
 
     std::fs::write(writable_path.join("payload.txt"), "mutated").expect("write mutable copy");
     let source_contents =

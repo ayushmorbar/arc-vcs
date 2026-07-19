@@ -4,11 +4,7 @@ use crate::devtools::interrupt::InterruptState;
 use crate::progress::Progress;
 
 /// Execute CLI work with shared telemetry and progress lifecycle.
-pub fn run_with_telemetry<F>(
-    mode: &str,
-    interrupts: &InterruptState,
-    run: F,
-) -> anyhow::Result<()>
+pub fn run_with_telemetry<F>(mode: &str, interrupts: &InterruptState, run: F) -> anyhow::Result<()>
 where
     F: FnOnce() -> anyhow::Result<()>,
 {

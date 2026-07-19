@@ -35,10 +35,7 @@ pub fn read_tag_heads(shared_root: &Path) -> anyhow::Result<BTreeSet<ChangeId>> 
 
 /// Resolve all remote-tracking branch heads to a strongly-typed set.
 pub fn read_remote_branch_heads(shared_root: &Path) -> anyhow::Result<BTreeSet<ChangeId>> {
-    Ok(read_remote_branch_map(shared_root)?
-        .keys()
-        .copied()
-        .collect())
+    Ok(read_remote_branch_map(shared_root)?.keys().copied().collect())
 }
 
 /// Resolve all bookmark heads to a strongly-typed set.
@@ -50,10 +47,9 @@ pub fn read_bookmark_heads(shared_root: &Path) -> anyhow::Result<BTreeSet<Change
 pub fn read_tag_map(shared_root: &Path) -> anyhow::Result<BTreeMap<ChangeId, Vec<String>>> {
     let mut out: BTreeMap<ChangeId, Vec<String>> = BTreeMap::new();
 
-    for base in [
-        shared_root.join(".arc").join("refs").join("tags"),
-        shared_root.join(".arc").join("tags"),
-    ] {
+    for base in
+        [shared_root.join(".arc").join("refs").join("tags"), shared_root.join(".arc").join("tags")]
+    {
         if !base.exists() {
             continue;
         }
@@ -158,10 +154,7 @@ fn parse_tag_record(path: &Path, bytes: &[u8]) -> Option<(String, ChangeId)> {
         return Some((tag.name, ChangeId::from(tag.target)));
     }
 
-    parse_reference_targets(bytes)
-        .into_iter()
-        .next()
-        .map(|id| (file_stem_or_name(path), id))
+    parse_reference_targets(bytes).into_iter().next().map(|id| (file_stem_or_name(path), id))
 }
 
 fn file_stem_or_name(path: &Path) -> String {
@@ -203,10 +196,7 @@ fn parse_reference_targets(bytes: &[u8]) -> Vec<ChangeId> {
 
     if let Ok(raw) = serde_json::from_slice::<GenericRefFile>(bytes) {
         let mut out = Vec::new();
-        for candidate in [raw.target, raw.head, raw.hash, raw.change_id]
-            .into_iter()
-            .flatten()
-        {
+        for candidate in [raw.target, raw.head, raw.hash, raw.change_id].into_iter().flatten() {
             if let Ok(id) = ChangeId::from_hex(candidate.trim()) {
                 out.push(id);
             }

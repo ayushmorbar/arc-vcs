@@ -27,10 +27,7 @@ pub fn run_tour() -> Result<()> {
 
         println!("\n[1/4] Setting up a tiny project...");
         thread::sleep(Duration::from_millis(700));
-        std::fs::write(
-            "math.rs",
-            "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
-        )?;
+        std::fs::write("math.rs", "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n")?;
         if repo.snapshot()? {
             let _ = repo.finalize_snapshot("Initial commit")?;
             let _ = repo.fork_empty_snapshot()?;
@@ -40,10 +37,7 @@ pub fn run_tour() -> Result<()> {
         thread::sleep(Duration::from_millis(700));
         repo.create_view("feature-a")?;
         repo.switch_view("feature-a")?;
-        std::fs::write(
-            "math.rs",
-            "pub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
-        )?;
+        std::fs::write("math.rs", "pub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n")?;
         if repo.snapshot()? {
             let _ = repo.finalize_snapshot("Rename add to sum")?;
             let _ = repo.fork_empty_snapshot()?;
@@ -61,8 +55,7 @@ pub fn run_tour() -> Result<()> {
             let _ = repo.fork_empty_snapshot()?;
         }
 
-        repo.merge_view("feature-a")
-            .context("failed to set up conflict state for tour")?;
+        repo.merge_view("feature-a").context("failed to set up conflict state for tour")?;
 
         println!("\n[3/4] Conflict reveal...");
         thread::sleep(Duration::from_millis(700));

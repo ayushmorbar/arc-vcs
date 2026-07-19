@@ -65,9 +65,7 @@ pub fn squash_into(
     target_id: Blake3Hash,
     signer: &(Author, ed25519_dalek::SigningKey),
 ) -> Result<Change, SpacetimeError> {
-    let target = graph
-        .get(&target_id)
-        .ok_or(SpacetimeError::TargetNotFound(target_id))?;
+    let target = graph.get(&target_id).ok_or(SpacetimeError::TargetNotFound(target_id))?;
 
     // Verify target is an ancestor of the view heads.
     let all_ancestors = graph.ancestors(view_heads);
@@ -113,13 +111,7 @@ pub fn squash_into(
     let intent = format!("Squash: {} changes into \"{}\"", count, target.intent);
 
     let (author, signing_key) = signer;
-    let squashed = Change::new(
-        target.deps.clone(),
-        all_atoms,
-        intent,
-        author.clone(),
-        signing_key,
-    );
+    let squashed = Change::new(target.deps.clone(), all_atoms, intent, author.clone(), signing_key);
 
     Ok(squashed)
 }
@@ -147,10 +139,7 @@ mod tests {
         let (author, signing_key) = test_keypair();
         Change::new(
             deps,
-            vec![Atom::Insert {
-                at: vec![label.to_string()],
-                content_hash,
-            }],
+            vec![Atom::Insert { at: vec![label.to_string()], content_hash }],
             label,
             author,
             &signing_key,
@@ -180,25 +169,12 @@ mod tests {
             .expect("linear chain must squash without error");
 
         // Squashed change must carry all 3 atoms.
-        assert_eq!(
-            squashed.atoms.len(),
-            3,
-            "squashed change must contain all atoms"
-        );
+        assert_eq!(squashed.atoms.len(), 3, "squashed change must contain all atoms");
         // Must have the same deps as the target (a has empty deps).
-        assert!(
-            squashed.deps.is_empty(),
-            "squashed must inherit target's deps"
-        );
+        assert!(squashed.deps.is_empty(), "squashed must inherit target's deps");
         // Must be cryptographically valid.
-        assert!(
-            squashed.verify_signature(),
-            "squashed change must have valid signature"
-        );
-        assert!(
-            squashed.intent.contains("Squash"),
-            "intent must mention Squash"
-        );
+        assert!(squashed.verify_signature(), "squashed change must have valid signature");
+        assert!(squashed.intent.contains("Squash"), "intent must mention Squash");
     }
 
     #[test]

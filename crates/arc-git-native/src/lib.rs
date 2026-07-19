@@ -9,12 +9,12 @@ use std::borrow::Cow;
 
 use arc_core::store::ChangeGraph;
 
-pub mod hash;
 pub mod commit;
+pub mod hash;
 pub mod tree;
 
-pub use hash::{GitObjectKind, GitOid, git_hash};
 pub use commit::{GitCommit, GitSignature, synthesize_commit};
+pub use hash::{GitObjectKind, GitOid, git_hash};
 pub use tree::{GitTreeEntry, synthesize_tree};
 
 /// In-memory representation of a synthesized Git object.

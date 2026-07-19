@@ -44,14 +44,8 @@ pub struct OpRecord {
 
 /// Build a lightweight auto-generated intent summary from parsed symbols.
 pub fn auto_intent_summary(symbols: &[String]) -> String {
-    let descriptor = if symbols.is_empty() {
-        "workspace".to_string()
-    } else {
-        symbols.join(", ")
-    };
-    format!(
-        "[auto-snap] Structural changes to {descriptor} detected via tree-sitter."
-    )
+    let descriptor = if symbols.is_empty() { "workspace".to_string() } else { symbols.join(", ") };
+    format!("[auto-snap] Structural changes to {descriptor} detected via tree-sitter.")
 }
 
 /// Backward-compatible alias for existing docs and older call-sites.
@@ -69,9 +63,7 @@ pub type Error = std::convert::Infallible;
 impl OpLog {
     /// Create an empty operation log.
     pub fn new() -> Self {
-        Self {
-            records: Vec::new(),
-        }
+        Self { records: Vec::new() }
     }
 
     /// Create an operation log from pre-existing records.
@@ -108,11 +100,8 @@ impl OpLog {
 
     /// Pop one trailing local record and return the new tip state for undo.
     pub fn pop_local_for_undo(&mut self) -> Option<GitOid> {
-        let is_local_tip = self
-            .records
-            .last()
-            .map(|r| r.causality == Causality::Local)
-            .unwrap_or(false);
+        let is_local_tip =
+            self.records.last().map(|r| r.causality == Causality::Local).unwrap_or(false);
         if !is_local_tip {
             return None;
         }
@@ -152,16 +141,10 @@ mod tests {
         ];
         let mut log = OpLog::from_records(records);
 
-        let compacted = log
-            .compact_local_history()
-            .expect("in-memory compaction is infallible");
+        let compacted = log.compact_local_history().expect("in-memory compaction is infallible");
         assert_eq!(compacted, 3);
         assert_eq!(log.records().len(), 2);
-        assert!(
-            log.records()
-                .iter()
-                .all(|r| r.causality == Causality::NetworkStable)
-        );
+        assert!(log.records().iter().all(|r| r.causality == Causality::NetworkStable));
     }
 
     #[test]
@@ -172,9 +155,7 @@ mod tests {
         ];
         let mut log = OpLog::from_records(records);
 
-        let previous = log
-            .pop_local_for_undo()
-            .expect("local tip should be undoable");
+        let previous = log.pop_local_for_undo().expect("local tip should be undoable");
         assert_eq!(previous, oid(7));
         assert_eq!(log.records().len(), 1);
         assert_eq!(log.records()[0].id, "stable");
@@ -201,9 +182,7 @@ mod tests {
             },
         ]);
 
-        let compacted = log
-            .compact_local_history()
-            .expect("in-memory compaction is infallible");
+        let compacted = log.compact_local_history().expect("in-memory compaction is infallible");
         assert_eq!(compacted, 1);
         assert_eq!(log.records().len(), 1);
         assert_eq!(log.records()[0].intent_summary.as_deref(), Some("keep me"));
@@ -211,7 +190,8 @@ mod tests {
 
     #[test]
     fn auto_summary_template_is_stable() {
-        let summary = super::auto_intent_summary(&["compute_total".to_string(), "Invoice".to_string()]);
+        let summary =
+            super::auto_intent_summary(&["compute_total".to_string(), "Invoice".to_string()]);
         assert_eq!(
             summary,
             "[auto-snap] Structural changes to compute_total, Invoice detected via tree-sitter."

@@ -59,13 +59,7 @@ pub fn init() {
 #[must_use]
 pub fn register(path: PathBuf) -> usize {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    REGISTRY.insert(
-        id,
-        TempEntry {
-            path,
-            owning_pid: std::process::id(),
-        },
-    );
+    REGISTRY.insert(id, TempEntry { path, owning_pid: std::process::id() });
     id
 }
 
@@ -129,10 +123,7 @@ mod tests {
         cleanup_signal_safe();
         deregister(id);
 
-        assert!(
-            !path.exists(),
-            "cleanup_signal_safe must remove registered files"
-        );
+        assert!(!path.exists(), "cleanup_signal_safe must remove registered files");
     }
 
     #[test]

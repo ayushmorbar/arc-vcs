@@ -44,11 +44,7 @@ pub(crate) async fn serve_with_listener(listener: TcpListener, repo_path: PathBu
 
     loop {
         let (socket, peer_addr) = listener.accept().await.context("accept failed")?;
-        let permit = limiter
-            .clone()
-            .acquire_owned()
-            .await
-            .context("connection limiter closed")?;
+        let permit = limiter.clone().acquire_owned().await.context("connection limiter closed")?;
         let task_repo_path = repo_path.clone();
         tokio::spawn(async move {
             let _permit = permit;
@@ -118,9 +114,7 @@ async fn handle_connection(
         .context("failed to send handshake response")?;
 
     if response.status == 0 && !required_changes.is_empty() {
-        let allow_keepalive = response
-            .negotiated_capabilities
-            .contains(&SyncCapability::KeepAlive);
+        let allow_keepalive = response.negotiated_capabilities.contains(&SyncCapability::KeepAlive);
         ingest_payload_stream(&mut framed, &repo_path, &required_changes, allow_keepalive).await?;
     }
 
@@ -182,13 +176,9 @@ async fn maybe_stream_requested_blocks(
         let bytes = store
             .read_change_bytes(id)
             .with_context(|| format!("failed to read requested CAS block {}", id.to_hex()))?;
-        let block = CasWireBlock {
-            hash,
-            bytes: bytes.to_vec(),
-        };
-        let payload = Bytes::from(
-            bincode::serialize(&block).context("failed to encode cas wire block")?,
-        );
+        let block = CasWireBlock { hash, bytes: bytes.to_vec() };
+        let payload =
+            Bytes::from(bincode::serialize(&block).context("failed to encode cas wire block")?);
         framed
             .send(SyncFrame::new(MessageType::PayloadStream, payload))
             .await
@@ -292,10 +282,7 @@ fn ensure_dependency_closure_present(
         }
 
         let raw = store.read_change_bytes(id).with_context(|| {
-            format!(
-                "failed to read change while verifying dependency closure {}",
-                id.to_hex()
-            )
+            format!("failed to read change while verifying dependency closure {}", id.to_hex())
         })?;
         let change: Change = bincode::deserialize(&raw)
             .context("failed to decode change while verifying dependency closure")?;
@@ -351,6 +338,5 @@ fn is_valid_view_name(name: &str) -> bool {
         }
     }
 
-    name.chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
+    name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
 }

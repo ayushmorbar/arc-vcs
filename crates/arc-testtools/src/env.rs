@@ -41,22 +41,16 @@ impl EnvGuard {
         unsafe {
             std::env::set_var(&key, value.into());
         }
-        Self {
-            key,
-            previous,
-            _lock: lock,
-        }
+        Self { key, previous, _lock: lock }
     }
 }
 
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         match &self.previous {
-            Some(value) => {
-                unsafe {
-                    std::env::set_var(&self.key, value);
-                }
-            }
+            Some(value) => unsafe {
+                std::env::set_var(&self.key, value);
+            },
             None => unsafe {
                 std::env::remove_var(&self.key);
             },

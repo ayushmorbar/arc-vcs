@@ -72,11 +72,8 @@ pub enum SyncCapability {
 }
 
 /// Server capabilities currently implemented by this binary.
-pub const SERVER_CAPABILITIES: &[SyncCapability] = &[
-    SyncCapability::PayloadStreamV1,
-    SyncCapability::KeepAlive,
-    SyncCapability::TypedChangeId,
-];
+pub const SERVER_CAPABILITIES: &[SyncCapability] =
+    &[SyncCapability::PayloadStreamV1, SyncCapability::KeepAlive, SyncCapability::TypedChangeId];
 
 /// Initial client hello for native arc sync.
 #[derive(Clone, Serialize, Deserialize)]
@@ -222,7 +219,10 @@ pub fn compute_missing_hashes(
     Ok(missing)
 }
 
-fn reachable_set(store: &ObjectStore, frontier: &[blake3::Hash]) -> Result<HashSet<[u8; 32]>, NetError> {
+fn reachable_set(
+    store: &ObjectStore,
+    frontier: &[blake3::Hash],
+) -> Result<HashSet<[u8; 32]>, NetError> {
     let mut seen = HashSet::new();
     let mut stack: Vec<[u8; 32]> = frontier.iter().map(|h| *h.as_bytes()).collect();
 

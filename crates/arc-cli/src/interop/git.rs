@@ -44,17 +44,11 @@ pub fn import_repo(
     pb.set_message("Importing git history...");
 
     for commit in &analysis.commits {
-        pb.set_message(format!(
-            "Importing commit {}...",
-            &git_bridge::oid_hex(&commit.oid)[..8]
-        ));
+        pb.set_message(format!("Importing commit {}...", &git_bridge::oid_hex(&commit.oid)[..8]));
 
         // Map parent OIDs to arc deps.
-        let deps: HashSet<arc_algebra_types::Blake3Hash> = commit
-            .parents
-            .iter()
-            .filter_map(|p| oid_to_arc.get(p).copied())
-            .collect();
+        let deps: HashSet<arc_algebra_types::Blake3Hash> =
+            commit.parents.iter().filter_map(|p| oid_to_arc.get(p).copied()).collect();
 
         // Load parent file snapshot (empty for root commits).
         let old_files: HashMap<String, Vec<u8>> =
@@ -181,11 +175,7 @@ mod tests {
         import_repo(git_path, &mut arc_repo, &author, &signing_key).unwrap();
 
         // Verify the arc graph has exactly 2 changes.
-        assert_eq!(
-            arc_repo.graph.load().len(),
-            2,
-            "arc graph must have 2 changes"
-        );
+        assert_eq!(arc_repo.graph.load().len(), 2, "arc graph must have 2 changes");
 
         // Discover the branch name that Git created (could be "master" or "main").
         let output = Command::new("git")
@@ -209,13 +199,7 @@ mod tests {
         // Verify unparse reconstructs both functions.
         let plugin = RustPlugin::new();
         let source = plugin.unparse(&state, "main.rs").unwrap();
-        assert!(
-            source.contains("fn a()"),
-            "unparsed source must contain fn a(), got: {source}"
-        );
-        assert!(
-            source.contains("fn b()"),
-            "unparsed source must contain fn b(), got: {source}"
-        );
+        assert!(source.contains("fn a()"), "unparsed source must contain fn a(), got: {source}");
+        assert!(source.contains("fn b()"), "unparsed source must contain fn b(), got: {source}");
     }
 }

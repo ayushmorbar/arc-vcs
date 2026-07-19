@@ -57,14 +57,13 @@ impl SyncEndpoint {
             trimmed
         };
 
-        let (host, port_text) = split_host_port(authority).ok_or(EndpointParseError::MissingPort)?;
+        let (host, port_text) =
+            split_host_port(authority).ok_or(EndpointParseError::MissingPort)?;
         if host.is_empty() {
             return Err(EndpointParseError::MissingHost);
         }
 
-        let port: u16 = port_text
-            .parse()
-            .map_err(|_| EndpointParseError::InvalidPort)?;
+        let port: u16 = port_text.parse().map_err(|_| EndpointParseError::InvalidPort)?;
         if port == 0 {
             return Err(EndpointParseError::InvalidPort);
         }
@@ -76,10 +75,7 @@ impl SyncEndpoint {
         };
 
         let socket_addr = format!("{normalized_host}:{port}");
-        Ok(Self {
-            redacted: socket_addr.clone(),
-            socket_addr,
-        })
+        Ok(Self { redacted: socket_addr.clone(), socket_addr })
     }
 
     /// Socket address suitable for `TcpStream::connect()`.
@@ -155,11 +151,7 @@ mod tests {
 
     #[test]
     fn parses_supported_schemes() {
-        for value in [
-            "tcp://localhost:4200",
-            "arc://localhost:4200",
-            "arc+tcp://localhost:4200",
-        ] {
+        for value in ["tcp://localhost:4200", "arc://localhost:4200", "arc+tcp://localhost:4200"] {
             let endpoint = SyncEndpoint::parse(value).expect("valid endpoint");
             assert_eq!(endpoint.socket_addr(), "localhost:4200");
         }
@@ -173,8 +165,7 @@ mod tests {
             EndpointParseError::CredentialsNotAllowed
         );
         assert_eq!(
-            SyncEndpoint::parse("tcp://host:7777?token=abc")
-                .expect_err("must reject query"),
+            SyncEndpoint::parse("tcp://host:7777?token=abc").expect_err("must reject query"),
             EndpointParseError::UnexpectedQueryOrFragment
         );
     }
@@ -203,9 +194,6 @@ mod tests {
         for sample in samples {
             let _ = SyncEndpoint::parse(&sample);
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(1),
-            "endpoint parsing exceeded budget"
-        );
+        assert!(start.elapsed() < Duration::from_secs(1), "endpoint parsing exceeded budget");
     }
 }

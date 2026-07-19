@@ -15,12 +15,8 @@ pub fn encode_packfile(objects: &[(u8, &[u8])]) -> Vec<u8> {
         write_object_header(&mut out, *obj_type, payload.len());
 
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder
-            .write_all(payload)
-            .expect("writing to in-memory zlib encoder cannot fail");
-        let compressed = encoder
-            .finish()
-            .expect("finishing in-memory zlib encoder cannot fail");
+        encoder.write_all(payload).expect("writing to in-memory zlib encoder cannot fail");
+        let compressed = encoder.finish().expect("finishing in-memory zlib encoder cannot fail");
         out.extend_from_slice(&compressed);
     }
 
@@ -59,10 +55,7 @@ mod tests {
         let objects = vec![(3u8, b"hello".as_slice())];
         let pack = encode_packfile(&objects);
 
-        assert!(
-            pack.starts_with(b"PACK\0\0\0\x02"),
-            "packfile must start with PACK + v2 header"
-        );
+        assert!(pack.starts_with(b"PACK\0\0\0\x02"), "packfile must start with PACK + v2 header");
         assert_eq!(&pack[8..12], &1u32.to_be_bytes());
         assert!(pack.len() > 12 + 20, "pack must include body and checksum");
     }

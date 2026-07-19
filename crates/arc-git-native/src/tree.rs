@@ -24,15 +24,14 @@ impl GitTreeEntry {
 
 impl Ord for GitTreeEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        let name_cmp = cmp_git_tree_sort_key(&self.name, self.is_dir(), &other.name, other.is_dir());
+        let name_cmp =
+            cmp_git_tree_sort_key(&self.name, self.is_dir(), &other.name, other.is_dir());
         if name_cmp != Ordering::Equal {
             return name_cmp;
         }
 
         // Deterministic tie-breakers for total ordering.
-        self.mode
-            .cmp(&other.mode)
-            .then_with(|| self.oid.as_bytes().cmp(&other.oid.as_bytes()))
+        self.mode.cmp(&other.mode).then_with(|| self.oid.as_bytes().cmp(&other.oid.as_bytes()))
     }
 }
 
@@ -105,27 +104,15 @@ mod tests {
 
     #[test]
     fn arcane_sort_respects_directory_trailing_slash_rule() {
-        let file_foo = GitTreeEntry {
-            mode: 0o100644,
-            name: "foo".to_string(),
-            oid: oid(1),
-        };
-        let file_foo_c = GitTreeEntry {
-            mode: 0o100644,
-            name: "foo.c".to_string(),
-            oid: oid(2),
-        };
+        let file_foo = GitTreeEntry { mode: 0o100644, name: "foo".to_string(), oid: oid(1) };
+        let file_foo_c = GitTreeEntry { mode: 0o100644, name: "foo.c".to_string(), oid: oid(2) };
 
         let mut file_entries = [file_foo_c.clone(), file_foo.clone()];
         file_entries.sort();
         assert_eq!(file_entries[0].name, "foo");
         assert_eq!(file_entries[1].name, "foo.c");
 
-        let dir_foo = GitTreeEntry {
-            mode: 0o040000,
-            name: "foo".to_string(),
-            oid: oid(3),
-        };
+        let dir_foo = GitTreeEntry { mode: 0o040000, name: "foo".to_string(), oid: oid(3) };
         let mut mixed_entries = [file_foo_c, dir_foo];
         mixed_entries.sort();
         assert_eq!(mixed_entries[0].name, "foo.c");
@@ -136,11 +123,7 @@ mod tests {
     fn single_entry_tree_matches_git_oracle() {
         let hello_blob = GitOid::from_str("8ab686eafeb1f44702738c8b0f24f2567c36da6d")
             .expect("valid hello blob oid");
-        let entry = GitTreeEntry {
-            mode: 0o100644,
-            name: "hello.txt".to_string(),
-            oid: hello_blob,
-        };
+        let entry = GitTreeEntry { mode: 0o100644, name: "hello.txt".to_string(), oid: hello_blob };
 
         let (_payload, tree_oid) = synthesize_tree(vec![entry]);
         assert_eq!(tree_oid.to_string(), "bc225ea23f53f06c0c5bd3ba2be85c2120d68417");

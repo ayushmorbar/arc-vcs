@@ -95,11 +95,7 @@ fn internal_error(message: impl Into<String>) -> jsonrpc::Error {
 impl ArcLanguageServer {
     /// Build a new language server with an MCP tooling adapter.
     pub fn new(client: Client, mcp_tooling: Arc<dyn McpTooling>) -> Self {
-        Self {
-            client,
-            mcp_tooling,
-            _atom_marker: PhantomData,
-        }
+        Self { client, mcp_tooling, _atom_marker: PhantomData }
     }
 
     async fn handle_get_semantic_diff(
@@ -135,8 +131,8 @@ impl ArcLanguageServer {
             intent_graph,
         };
 
-        let value = serde_json::to_value(result)
-            .map_err(|_err| internal_error("serialization failed"))?;
+        let value =
+            serde_json::to_value(result).map_err(|_err| internal_error("serialization failed"))?;
         Ok(Some(value))
     }
 }
@@ -146,7 +142,9 @@ impl LanguageServer for ArcLanguageServer {
     async fn initialize(&self, _: InitializeParams) -> jsonrpc::Result<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![COMMAND_GET_SEMANTIC_DIFF.to_string()],
                     ..ExecuteCommandOptions::default()

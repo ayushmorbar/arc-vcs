@@ -95,11 +95,7 @@ impl LockMarker {
                     let _ = writeln!(file, "pid={}", std::process::id());
                     let _ = file.sync_all();
                     let registry_id = register_temp(path.to_path_buf());
-                    return Ok(Self {
-                        path: path.to_path_buf(),
-                        registry_id,
-                        released: false,
-                    });
+                    return Ok(Self { path: path.to_path_buf(), registry_id, released: false });
                 }
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => {
                     if can_reap_marker(path)? {
@@ -121,11 +117,7 @@ impl LockMarker {
 
         Err(std::io::Error::new(
             ErrorKind::TimedOut,
-            format!(
-                "timed out acquiring lock {} after {} attempt(s)",
-                path.display(),
-                attempts
-            ),
+            format!("timed out acquiring lock {} after {} attempt(s)", path.display(), attempts),
         ))
     }
 
@@ -179,7 +171,10 @@ impl LockFile {
 
     /// Acquire a lock file using explicit contention behavior.
     #[instrument(skip_all)]
-    pub fn acquire_for_update_with(target_path: &Path, mode: LockFailMode) -> std::io::Result<Self> {
+    pub fn acquire_for_update_with(
+        target_path: &Path,
+        mode: LockFailMode,
+    ) -> std::io::Result<Self> {
         let parent = target_path.parent().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -194,11 +189,7 @@ impl LockFile {
         let mut attempts = 0usize;
         loop {
             attempts += 1;
-            match OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&lock_path)
-            {
+            match OpenOptions::new().create_new(true).write(true).open(&lock_path) {
                 Ok(file) => {
                     if let Err(err) = write_owner_file(&owner_path) {
                         let _ = fs::remove_file(&lock_path);
@@ -300,18 +291,12 @@ fn deregister_temp(id: Option<usize>) {
 }
 
 fn lock_path_for(target_path: &Path) -> PathBuf {
-    let file_name = target_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("state");
+    let file_name = target_path.file_name().and_then(|n| n.to_str()).unwrap_or("state");
     target_path.with_file_name(format!("{file_name}.lock"))
 }
 
 fn owner_path_for(lock_path: &Path) -> PathBuf {
-    let file_name = lock_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("state.lock");
+    let file_name = lock_path.file_name().and_then(|n| n.to_str()).unwrap_or("state.lock");
     lock_path.with_file_name(format!("{file_name}.owner"))
 }
 
@@ -385,9 +370,7 @@ fn is_pid_alive(pid: u32) -> bool {
     #[cfg(windows)]
     {
         let filter = format!("PID eq {pid}");
-        let output = Command::new("tasklist")
-            .args(["/FI", &filter, "/NH"])
-            .output();
+        let output = Command::new("tasklist").args(["/FI", &filter, "/NH"]).output();
         match output {
             Ok(out) => {
                 let text = String::from_utf8_lossy(&out.stdout);
@@ -411,10 +394,8 @@ fn publish_lockfile(lock_path: &Path, target_path: &Path) -> std::io::Result<()>
     #[cfg(windows)]
     {
         if target_path.exists() {
-            let file_name = target_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("state");
+            let file_name =
+                target_path.file_name().and_then(|name| name.to_str()).unwrap_or("state");
             let backup_path = target_path.with_file_name(format!("{file_name}.bak"));
             let staged_backup_path = target_path.with_file_name(format!("{file_name}.bak.new"));
 
@@ -454,11 +435,7 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
     {
         use std::os::windows::fs::OpenOptionsExt;
         const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
-        match OpenOptions::new()
-            .read(true)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(path)
-        {
+        match OpenOptions::new().read(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path) {
             Ok(file) => match file.sync_all() {
                 Ok(()) => Ok(()),
                 Err(err) if err.kind() == ErrorKind::PermissionDenied => Ok(()),
@@ -508,9 +485,7 @@ fn create_dir_all_retry(parent: &Path) -> std::io::Result<()> {
         }
     }
 
-    Err(std::io::Error::other(
-        "exhausted lock parent directory creation retries",
-    ))
+    Err(std::io::Error::other("exhausted lock parent directory creation retries"))
 }
 
 fn default_lock_timeout() -> Duration {
@@ -552,14 +527,8 @@ mod tests {
             lock.write_all(b"abc").expect("write");
         }
 
-        assert!(
-            !dir.path().join("state.bin.lock").exists(),
-            "drop should clean staged lock file"
-        );
-        assert!(
-            !target.exists(),
-            "target should not be published without commit"
-        );
+        assert!(!dir.path().join("state.bin.lock").exists(), "drop should clean staged lock file");
+        assert!(!target.exists(), "target should not be published without commit");
     }
 
     #[test]
@@ -573,10 +542,7 @@ mod tests {
 
         let got = std::fs::read(&target).expect("read target");
         assert_eq!(got, b"abc");
-        assert!(
-            !dir.path().join("state.bin.lock").exists(),
-            "commit should remove lock file"
-        );
+        assert!(!dir.path().join("state.bin.lock").exists(), "commit should remove lock file");
     }
 
     #[test]
@@ -608,10 +574,7 @@ mod tests {
         }
 
         for handle in handles {
-            handle
-                .join()
-                .expect("thread join")
-                .expect("lock acquire/release");
+            handle.join().expect("thread join").expect("lock acquire/release");
         }
         assert!(parent.is_dir());
     }

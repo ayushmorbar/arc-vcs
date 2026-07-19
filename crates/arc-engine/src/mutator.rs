@@ -60,16 +60,13 @@ pub fn squash_into(
     target_id: Blake3Hash,
     signer: &(Author, ed25519_dalek::SigningKey),
 ) -> Result<SquashOutcome, MutatorError> {
-    let target = graph
-        .get(&target_id)
-        .ok_or(MutatorError::TargetNotFound(ChangeId::from(target_id)))?;
+    let target =
+        graph.get(&target_id).ok_or(MutatorError::TargetNotFound(ChangeId::from(target_id)))?;
 
     let spine = collect_linear_spine(graph, view_heads, target_id)?;
     let mut atoms = Vec::new();
     for id in &spine {
-        let change = graph
-            .get(id)
-            .ok_or(MutatorError::TargetNotFound(ChangeId::from(*id)))?;
+        let change = graph.get(id).ok_or(MutatorError::TargetNotFound(ChangeId::from(*id)))?;
         atoms.extend(change.atoms.clone());
     }
 
@@ -90,10 +87,7 @@ pub fn squash_into(
         rewrite_map.insert(ChangeId::from(id), ChangeId::from(squashed.id));
     }
 
-    Ok(SquashOutcome {
-        squashed,
-        rewrite_map,
-    })
+    Ok(SquashOutcome { squashed, rewrite_map })
 }
 
 /// Reorder a contiguous linear chain into `desired_order`.
@@ -144,12 +138,10 @@ pub fn reorder(
     for _ in 0..len {
         let mut swapped = false;
         for i in 0..(len - 1) {
-            let left_pos = *desired_pos
-                .get(&working[i].origin)
-                .ok_or(MutatorError::InvalidReorderSet)?;
-            let right_pos = *desired_pos
-                .get(&working[i + 1].origin)
-                .ok_or(MutatorError::InvalidReorderSet)?;
+            let left_pos =
+                *desired_pos.get(&working[i].origin).ok_or(MutatorError::InvalidReorderSet)?;
+            let right_pos =
+                *desired_pos.get(&working[i + 1].origin).ok_or(MutatorError::InvalidReorderSet)?;
 
             if left_pos <= right_pos {
                 continue;
@@ -164,14 +156,8 @@ pub fn reorder(
                 )?;
 
             let left_origin = working[i].origin;
-            working[i] = WorkingChange {
-                origin: working[i + 1].origin,
-                change: new_left,
-            };
-            working[i + 1] = WorkingChange {
-                origin: left_origin,
-                change: new_right,
-            };
+            working[i] = WorkingChange { origin: working[i + 1].origin, change: new_left };
+            working[i + 1] = WorkingChange { origin: left_origin, change: new_right };
             swapped = true;
         }
         if !swapped {
@@ -223,16 +209,10 @@ pub fn reorder(
         rewrite_map.insert(ChangeId::from(old), ChangeId::from(new));
     }
 
-    let new_head = rewritten
-        .last()
-        .map(|c| ChangeId::from(c.id))
-        .ok_or(MutatorError::InvalidReorderSet)?;
+    let new_head =
+        rewritten.last().map(|c| ChangeId::from(c.id)).ok_or(MutatorError::InvalidReorderSet)?;
 
-    Ok(ReorderOutcome {
-        rewritten,
-        rewrite_map,
-        new_head,
-    })
+    Ok(ReorderOutcome { rewritten, rewrite_map, new_head })
 }
 
 fn commute_linear_pair(
@@ -336,9 +316,7 @@ fn resolve_linear_chain(
         }
         ordered.push(current);
 
-        let children = children_by_id
-            .get(&current)
-            .ok_or(MutatorError::NonLinearChain)?;
+        let children = children_by_id.get(&current).ok_or(MutatorError::NonLinearChain)?;
         if children.is_empty() {
             break;
         }
@@ -392,18 +370,9 @@ mod tests {
 
         assert_eq!(out.squashed.atoms.len(), 3);
         assert_eq!(out.rewrite_map.len(), 3);
-        assert_eq!(
-            out.rewrite_map[&ChangeId::from(a.id)],
-            ChangeId::from(out.squashed.id)
-        );
-        assert_eq!(
-            out.rewrite_map[&ChangeId::from(b.id)],
-            ChangeId::from(out.squashed.id)
-        );
-        assert_eq!(
-            out.rewrite_map[&ChangeId::from(c.id)],
-            ChangeId::from(out.squashed.id)
-        );
+        assert_eq!(out.rewrite_map[&ChangeId::from(a.id)], ChangeId::from(out.squashed.id));
+        assert_eq!(out.rewrite_map[&ChangeId::from(b.id)], ChangeId::from(out.squashed.id));
+        assert_eq!(out.rewrite_map[&ChangeId::from(c.id)], ChangeId::from(out.squashed.id));
     }
 
     #[test]
@@ -425,10 +394,7 @@ mod tests {
         assert_eq!(out.rewrite_map.len(), 3);
         assert_eq!(out.new_head, out.rewrite_map[&ChangeId::from(b.id)]);
         let rewritten_ids: HashSet<ChangeId> = out.rewrite_map.values().copied().collect();
-        assert!(
-            rewritten_ids.len() >= 2,
-            "reorder should produce at least one rewritten id"
-        );
+        assert!(rewritten_ids.len() >= 2, "reorder should produce at least one rewritten id");
     }
 
     #[test]

@@ -122,10 +122,7 @@ pub fn group_and_render(
 /// 7. **Summary footer** — `∑ +N -N ~N refactorings`.
 pub fn render_diff(atoms: &[&Atom], old_text: &str, new_text: &str, file_path: &str) -> Result<()> {
     // ── 1. Header ────────────────────────────────────────────────────────────
-    println!(
-        "{}",
-        format!("diff --arc a/{file_path} b/{file_path}").bold()
-    );
+    println!("{}", format!("diff --arc a/{file_path} b/{file_path}").bold());
 
     // ── 2. Refactoring intent annotation ─────────────────────────────────────
     let mut insertions: usize = 0;
@@ -165,10 +162,7 @@ pub fn render_diff(atoms: &[&Atom], old_text: &str, new_text: &str, file_path: &
     // Only collapse when *both* sides are non-empty (an entirely new file made
     // of use-statements should still be shown, not silently suppressed).
     if !old_text.is_empty() && !new_text.is_empty() && is_pure_import_change(old_text, new_text) {
-        println!(
-            "{}",
-            "@@ [Boilerplate] Import / use declarations modified @@".cyan()
-        );
+        println!("{}", "@@ [Boilerplate] Import / use declarations modified @@".cyan());
         println!(
             "  {} +{} -{}",
             "∑".magenta(),
@@ -450,9 +444,7 @@ fn infer_node_kind(path: &[String]) -> &'static str {
 /// underlying Myers/Histogram algorithm from misaligning opening braces across
 /// logical code blocks.
 fn sesame_align(text: &str) -> String {
-    text.replace(" {", "\n{")
-        .replace("} ", "}\n")
-        .replace("; ", ";\n")
+    text.replace(" {", "\n{").replace("} ", "}\n").replace("; ", ";\n")
 }
 
 /// Return `true` if this line counts as import/use boilerplate.
@@ -485,12 +477,9 @@ fn format_atom_brief(atom: &Atom) -> String {
     match atom {
         Atom::Directory { path } => format!("++ dir {}", path.join("/")).green().to_string(),
         Atom::Blob { path, .. } => format!("~~ blob {path}").yellow().to_string(),
-        Atom::Mount {
-            path,
-            coordinate,
-        } => format!("~~ mount {} @ {}", path.join("/"), coordinate.to_uri())
-            .cyan()
-            .to_string(),
+        Atom::Mount { path, coordinate } => {
+            format!("~~ mount {} @ {}", path.join("/"), coordinate.to_uri()).cyan().to_string()
+        }
         // File atoms are handled by group_and_render — this arm is a safety net.
         other => format!("{other:?}").dimmed().to_string(),
     }
@@ -510,10 +499,7 @@ mod tests {
             aligned.contains('\n'),
             "sesame_align should inject newlines at structural boundaries"
         );
-        assert!(
-            aligned.contains("\n{"),
-            "opening brace should be on its own line"
-        );
+        assert!(aligned.contains("\n{"), "opening brace should be on its own line");
     }
 
     #[test]
@@ -560,18 +546,12 @@ mod tests {
             infer_node_kind(&["file".into(), "lib.rs".into(), "struct_Config".into()]),
             "struct"
         );
-        assert_eq!(
-            infer_node_kind(&["file".into(), "lib.rs".into(), "enum_State".into()]),
-            "enum"
-        );
+        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "enum_State".into()]), "enum");
         assert_eq!(
             infer_node_kind(&["file".into(), "lib.rs".into(), "trait_Display".into()]),
             "trait"
         );
-        assert_eq!(
-            infer_node_kind(&["file".into(), "lib.rs".into(), "field_id".into()]),
-            "field"
-        );
+        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "field_id".into()]), "field");
         assert_eq!(
             infer_node_kind(&["file".into(), "lib.rs".into(), "const_MAX".into()]),
             "constant"

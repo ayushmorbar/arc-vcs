@@ -137,10 +137,7 @@ mod tests {
     #[test]
     fn hash_blob_matches_known_git_sha1() {
         let (id, payload) = hash_blob(b"hello world\n");
-        assert_eq!(
-            id,
-            GitSha1::from_hex("3b18e512dba79e4c8300dd08aeb37f8e728b8dad").unwrap()
-        );
+        assert_eq!(id, GitSha1::from_hex("3b18e512dba79e4c8300dd08aeb37f8e728b8dad").unwrap());
         assert_eq!(payload, b"hello world\n");
     }
 
@@ -149,14 +146,10 @@ mod tests {
         let file = GitSha1::from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let dir = GitSha1::from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap();
 
-        let entries_a = vec![
-            ("foo.bar".to_string(), file, 0o100644),
-            ("foo".to_string(), dir, 0o040000),
-        ];
-        let entries_b = vec![
-            ("foo".to_string(), dir, 0o040000),
-            ("foo.bar".to_string(), file, 0o100644),
-        ];
+        let entries_a =
+            vec![("foo.bar".to_string(), file, 0o100644), ("foo".to_string(), dir, 0o040000)];
+        let entries_b =
+            vec![("foo".to_string(), dir, 0o040000), ("foo.bar".to_string(), file, 0o100644)];
 
         let (a, _) = hash_tree(&entries_a);
         let (b, _) = hash_tree(&entries_b);

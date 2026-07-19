@@ -36,7 +36,11 @@ impl Default for WindowPolicy {
 /// Compute the next batch window from the previous value.
 ///
 /// If `current` is `None`, the policy initializes the window to `min_window`.
-pub fn next_window_size(transport_is_stateless: bool, current: Option<usize>, policy: WindowPolicy) -> usize {
+pub fn next_window_size(
+    transport_is_stateless: bool,
+    current: Option<usize>,
+    policy: WindowPolicy,
+) -> usize {
     let current_size = match current {
         None => return policy.min_window,
         Some(size) => size.max(policy.min_window),
@@ -77,11 +81,7 @@ impl AdaptiveWindow {
 
     /// Create a controller with a custom policy and explicit initial size.
     pub fn with_policy(transport_is_stateless: bool, initial: usize, policy: WindowPolicy) -> Self {
-        Self {
-            transport_is_stateless,
-            policy,
-            current: initial.max(policy.min_window),
-        }
+        Self { transport_is_stateless, policy, current: initial.max(policy.min_window) }
     }
 
     /// Current window size.
@@ -91,7 +91,8 @@ impl AdaptiveWindow {
 
     /// Grow the window after a successful round.
     pub fn on_success(&mut self) {
-        self.current = next_window_size(self.transport_is_stateless, Some(self.current), self.policy);
+        self.current =
+            next_window_size(self.transport_is_stateless, Some(self.current), self.policy);
     }
 
     /// Shrink the window after a failed or backpressured round.

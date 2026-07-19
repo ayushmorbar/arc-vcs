@@ -45,9 +45,7 @@ where
 {
     /// Create an empty traversal state map.
     pub fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
+        Self { entries: HashMap::new() }
     }
 
     /// Return metadata for `key`, if present.
@@ -74,9 +72,7 @@ where
 
     /// Check if `key` contains all `bits`.
     pub fn contains(&self, key: &K, bits: TraversalBits) -> bool {
-        self.entries
-            .get(key)
-            .is_some_and(|meta| meta.bits.contains(bits))
+        self.entries.get(key).is_some_and(|meta| meta.bits.contains(bits))
     }
 
     /// Update TTL metadata for `key` if `original_ttl` should increase.

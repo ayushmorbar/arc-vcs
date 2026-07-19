@@ -62,29 +62,20 @@ mod tests {
 
     #[test]
     fn dispatches_sync_mode_from_windows_exe_stem() {
-        assert_eq!(
-            mode_from_executable(r"C:\\bin\\arc-sync.exe"),
-            InvocationMode::Sync
-        );
+        assert_eq!(mode_from_executable(r"C:\\bin\\arc-sync.exe"), InvocationMode::Sync);
     }
 
     #[test]
     fn normalizes_arc_daemon_invocation() {
         let args = vec!["arc-daemon".to_string(), "--help".to_string()];
         let normalized = normalize_invocation_args(args);
-        assert_eq!(
-            normalized,
-            vec!["arc".to_string(), "daemon".to_string(), "--help".to_string()]
-        );
+        assert_eq!(normalized, vec!["arc".to_string(), "daemon".to_string(), "--help".to_string()]);
     }
 
     #[test]
     fn preserves_explicit_subcommand() {
         let args = vec!["arc-daemon".to_string(), "status".to_string()];
         let normalized = normalize_invocation_args(args);
-        assert_eq!(
-            normalized,
-            vec!["arc".to_string(), "status".to_string()]
-        );
+        assert_eq!(normalized, vec!["arc".to_string(), "status".to_string()]);
     }
 }

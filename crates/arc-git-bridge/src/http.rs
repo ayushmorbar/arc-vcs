@@ -15,10 +15,7 @@ pub async fn discover_refs(url: &str) -> Result<HashMap<String, String>> {
         .with_context(|| format!("failed to GET {endpoint}"))?
         .error_for_status()
         .with_context(|| format!("remote returned error for {endpoint}"))?;
-    let body = response
-        .bytes()
-        .await
-        .context("failed to read refs response")?;
+    let body = response.bytes().await.context("failed to read refs response")?;
     parse_info_refs_response(&body)
 }
 
@@ -35,10 +32,7 @@ pub async fn push_packfile(
     let client = reqwest::Client::new();
     let response = client
         .post(&endpoint)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-git-receive-pack-request",
-        )
+        .header(reqwest::header::CONTENT_TYPE, "application/x-git-receive-pack-request")
         .body(body)
         .send()
         .await
@@ -46,10 +40,7 @@ pub async fn push_packfile(
         .error_for_status()
         .with_context(|| format!("remote returned error for {endpoint}"))?;
 
-    let payload = response
-        .bytes()
-        .await
-        .context("failed to read receive-pack response")?;
+    let payload = response.bytes().await.context("failed to read receive-pack response")?;
     validate_receive_pack_response(&payload)?;
 
     Ok(())
@@ -189,10 +180,7 @@ mod tests {
         let flush = pkt_flush();
 
         assert!(body.starts_with(&expected_prefix));
-        assert_eq!(
-            &body[expected_prefix.len()..expected_prefix.len() + flush.len()],
-            flush
-        );
+        assert_eq!(&body[expected_prefix.len()..expected_prefix.len() + flush.len()], flush);
         assert_eq!(&body[expected_prefix.len() + flush.len()..], packfile);
     }
 

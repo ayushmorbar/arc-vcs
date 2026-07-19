@@ -50,12 +50,7 @@ impl Tag {
         let name = name.into();
         let commitment = Self::compute_commitment(&name, &target, &author);
         let sig: ed25519_dalek::Signature = signing_key.sign(&commitment);
-        Self {
-            name,
-            target,
-            author,
-            signature: Signature(sig.to_bytes()),
-        }
+        Self { name, target, author, signature: Signature(sig.to_bytes()) }
     }
 
     /// Verify the tag's cryptographic signature.

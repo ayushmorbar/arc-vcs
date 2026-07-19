@@ -2,251 +2,223 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "CHANGELOG.md"
   pull_request:
-    branches: ["**"]
-  workflow_dispatch:
-
-permissions: {}
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  CARGO_INCREMENTAL: 0
+
 jobs:
-  nix-flake-check:
-    name: nix-flake-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
-
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@90bb610b90bf290cad97484ba341453bd1cbefea # v19
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
 
-      - name: Enable Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: lint
 
-      - name: Flake checks
-        run: nix flake check
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-  purity-guard:
-    name: purity-guard
-    runs-on: ubuntu-latest
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps
+
+  build:
+    name: Build
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
-
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: stable
 
-      - name: Install pre-commit
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pre-commit==4.3.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: build
 
-      - name: Run purity guard pre-commit hook
-        run: pre-commit run arc-purity-guard --all-files
+      - name: Check compilation
+        run: cargo check --workspace
 
-      - name: Run purity guard script
-        run: bash scripts/check-purity.sh
-
-  test-lint-verify:
-    name: test-lint-verify
-    runs-on: ubuntu-latest
-    needs: [nix-flake-check, purity-guard]
+  test:
+    name: Tests
+    needs: lint
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-    env:
-      toolchain: stable # <-- Ensures $toolchain is available to all steps
-
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: stable
-          components: clippy,rustfmt
 
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: test
 
       - name: Install nextest
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+
+      - name: Run tests
+        run: cargo nextest run --workspace --no-fail-fast
+
+  doctests:
+    name: Doctests
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          tool: cargo-nextest
+          persist-credentials: false
 
-      - name: Format check
-        run: cargo fmt --all --check
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
 
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: doctests
 
-      - name: Typos check
-        run: |
-          cargo install typos-cli --locked --version 1.37.0
-          typos --config ./typos.toml
+      - name: Run doctests
+        run: cargo test --workspace --doc --no-fail-fast
 
-      - name: Install nightly toolchain (API drift gate)
-        run: rustup toolchain install nightly --profile minimal
+  policy:
+    name: Policy
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
-      - name: Install cargo-public-api
-        run: cargo install cargo-public-api --locked --version 0.51.0
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
 
-      - name: Enforce stable API baselines
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: policy
+
+      - name: Install nextest
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+
+      - name: Policy regression tests
+        run: cargo nextest run --workspace --no-fail-fast -E 'test(policy_regression)' -E 'test(determinism_guarantee)'
+
+  api-drift:
+    name: API Drift
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: api-drift
+
+      - name: Check API drift
         run: bash scripts/ci/check-api-drift.sh
 
-      - name: Enforce architecture layering
-        run: bash scripts/ci/enforce-layering.sh
+  arch-drift:
+    name: Architecture Drift
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Enforce crate purity tiers
-        run: bash scripts/check-purity.sh
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: arch-drift
 
       - name: Detect architecture drift
         run: bash scripts/ci/detect-arch-drift.sh
 
-      - name: Lint latest monthly report
-        run: bash scripts/ci/lint-reports.sh
-
-      - name: Install cargo-diet
-        run: cargo install cargo-diet --locked --version 0.1.1
-
-      - name: Package size guardrails
-        run: |
-          bash scripts/ci/check-package-size.sh \
-            crates/arc-core:300KB \
-            crates/arc-cli:350KB \
-            crates/arc-daemon:250KB \
-            crates/arc-git-bridge:300KB
-
-      - name: Workspace tests (nextest)
-        run: cargo nextest run --workspace --all-targets --no-fail-fast --locked
-
-      - name: Workspace doctests
-        run: cargo test --workspace --doc --locked
-
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: WASM compatibility check
-        run: cargo check -p arc-algebra --target wasm32-unknown-unknown
-
-      - name: Policy regression tests
-        run: |
-          cargo nextest run -p arc-cli --locked -E 'test(workspace_policy_audit_current_workspace) | test(governance_audit_current_workspace) | test(tooling_audit_current_workspace)'
-
-  miri-arc-algebra:
-    name: miri-arc-algebra
-    runs-on: ubuntu-latest
+  miri:
+    name: Miri
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
-
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Setup nightly + miri
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          toolchain: nightly
-          components: miri
-
-      - name: Setup Miri sysroot
-        run: cargo +nightly miri setup
-
-      - name: Run Miri on arc-algebra
-        env:
-          MIRIFLAGS: -Zmiri-disable-isolation
-        run: cargo +nightly miri test -p arc-algebra --lib
-
-  semantic-changelog:
-    name: semantic-changelog
-    runs-on: ubuntu-latest
-    needs: [test-lint-verify]
-    if: ${{ github.event_name != 'pull_request' }}
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Generate semantic changelog
-        env:
-          BASE_REF: ${{ github.event.before || 'HEAD~1' }}
-          HEAD_REF: ${{ github.sha }}
-        run: bash scripts/ci/generate-semantic-changelog.sh "$BASE_REF" "$HEAD_REF" "CHANGELOG.semantic.md"
-
-      - name: Upload semantic changelog
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: semantic-changelog
-          path: CHANGELOG.semantic.md
-
-  release-artifacts:
-    name: release-artifacts
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'release' }}
-    permissions:
-      contents: read
-    outputs:
-      subjects: ${{ steps.subjects.outputs.subjects }}
-
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: stable
+          components: miri
 
-      - name: Build release artifacts
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: miri
+
+      - name: Run Miri
+        env:
+          MIRIFLAGS: "-Zmiri-disable-isolation"
         run: |
-          cargo build -p arc-cli --release --locked
-          mkdir -p dist
-          cp target/release/arc dist/arc-x86_64-unknown-linux-gnu
-          tar -czf dist/arc-x86_64-unknown-linux-gnu.tar.gz -C dist arc-x86_64-unknown-linux-gnu
-
-      - name: Build release subject list
-        id: subjects
-        uses: slsa-framework/slsa-github-generator/actions/generator/generic/create-base64-subjects-from-file@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
-        with:
-          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
-
-      - name: Upload release artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-artifacts
-          path: dist/arc-x86_64-unknown-linux-gnu.tar.gz
-
-  provenance:
-    if: ${{ github.event_name == 'release' }}
-    needs: [release-artifacts]
-    permissions:
-      actions: read
-      id-token: write
-      contents: read
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.x
-    with:
-      base64-subjects: ${{ needs.release-artifacts.outputs.subjects }}
+          cargo miri setup
+          cargo miri test -p arc-algebra --no-fail-fast

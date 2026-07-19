@@ -102,7 +102,9 @@ mod tests {
             causality: Causality::Local,
             timestamp: 1_700_000_000,
             target_oid: [7u8; 20],
-            intent_summary: Some("[auto-snap] Structural changes to core detected via tree-sitter.".to_string()),
+            intent_summary: Some(
+                "[auto-snap] Structural changes to core detected via tree-sitter.".to_string(),
+            ),
         }
     }
 
@@ -112,15 +114,11 @@ mod tests {
         let store = MetadataStore::open(dir.path()).expect("metadata store should open");
         let record = sample_record();
 
-        store
-            .put_op_record(&record)
-            .expect("record should persist");
+        store.put_op_record(&record).expect("record should persist");
 
         let key = record.id.clone();
-        let loaded = store
-            .get_op_record(&key)
-            .expect("read should succeed")
-            .expect("record should exist");
+        let loaded =
+            store.get_op_record(&key).expect("read should succeed").expect("record should exist");
         assert_eq!(loaded, record);
     }
 }

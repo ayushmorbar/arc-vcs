@@ -197,9 +197,7 @@ impl SharedRepository {
             policy_matcher,
         };
 
-        Ok(Self {
-            inner: Arc::new(state),
-        })
+        Ok(Self { inner: Arc::new(state) })
     }
 
     /// Return the repository root path.
@@ -303,10 +301,7 @@ impl Repository {
 
     /// Create a local handle from a shared repository.
     pub fn from_shared(shared: SharedRepository) -> Self {
-        Self {
-            shared,
-            local_blob_cache: RefCell::new(HashMap::new()),
-        }
+        Self { shared, local_blob_cache: RefCell::new(HashMap::new()) }
     }
 
     /// Return the shared state handle backing this repository.
@@ -324,9 +319,7 @@ impl Repository {
     /// Persist a blob for a logical repository path after policy enforcement.
     pub fn write_blob_for_path(&self, relative_path: &str, bytes: &[u8]) -> ArcResult<Blake3Hash> {
         if self.policy_denies(relative_path) {
-            return Err(ArcError::PolicyDenied {
-                path: relative_path.to_string(),
-            });
+            return Err(ArcError::PolicyDenied { path: relative_path.to_string() });
         }
         self.write_blob(bytes)
     }
@@ -366,16 +359,9 @@ impl Repository {
     fn policy_denies(&self, relative_path: &str) -> bool {
         #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
         {
-            self
-                .shared
-                .inner
-                .policy_matcher
-                .as_ref()
-                .is_some_and(|matcher| {
-                    matcher
-                        .matched_path_or_any_parents(relative_path, false)
-                        .is_ignore()
-                })
+            self.shared.inner.policy_matcher.as_ref().is_some_and(|matcher| {
+                matcher.matched_path_or_any_parents(relative_path, false).is_ignore()
+            })
         }
 
         #[cfg(any(not(feature = "native"), target_arch = "wasm32"))]
@@ -423,9 +409,7 @@ mod tests {
         )
         .expect("open with options must succeed");
 
-        let hash = repo
-            .write_blob(b"capstone")
-            .expect("blob write must succeed");
+        let hash = repo.write_blob(b"capstone").expect("blob write must succeed");
         let first = repo.read_blob(&hash).expect("first read must succeed");
         let second = repo.read_blob(&hash).expect("second read must succeed");
 

@@ -1,66 +1,166 @@
-name: release
+name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
 
 jobs:
-  preflight-release-guards:
-    name: preflight-release-guards
+  release-preflight:
+    name: Release Preflight
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          ref: ${{ github.ref }}
 
-      - name: Ensure unique release tag
-        run: bash scripts/ci/enforce-unique-tag.sh
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          toolchain: stable
-
-      - name: Install cargo-diet
-        run: cargo install cargo-diet --locked
-
-      - name: Package size preflight
+      - name: Preflight checks
         run: |
+          bash scripts/ci/enforce-unique-tag.sh "$GITHUB_REF_NAME"
           bash scripts/ci/check-package-size.sh \
-            crates/arc-core:300KB \
-            crates/arc-cli:350KB \
-            crates/arc-daemon:250KB \
-            crates/arc-git-bridge:300KB
+            "crates/arc-core:300KB" \
+            "crates/arc-algebra:400KB" \
+            "crates/arc-crypto:400KB" \
+            "crates/arc-intent:300KB" \
+            "crates/arc-graph:300KB" \
+            "crates/arc-store-graph:300KB" \
+            "crates/arc-causal:300KB" \
+            "crates/arc-sync:300KB" \
+            "crates/arc-daemon:400KB" \
+            "crates/arc-cli:400KB"
 
-  build-release:
-    needs: [preflight-release-guards]
+  build:
+    name: Build (${{ matrix.target }})
+    needs: release-preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.os }}
-
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          shared-key: release-${{ matrix.target }}
+          save-if: false
+
+      - name: Install cross-compilation tools
+        run: |
+          bash scripts/ci/install-cross-tools.sh "${{ matrix.target }}"
 
       - name: Build release binary
-        run: cargo build --workspace --release --target ${{ matrix.target }}
+        run: bash scripts/ci/build-release.sh "${{ matrix.target }}"
+
+      - name: Create checksums
+        run: |
+          cd target/${{ matrix.target }}/release
+          sha256sum arc arc.exe 2>/dev/null | tee SHA256SUMS.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: arc-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/arc
+            target/${{ matrix.target }}/release/arc.exe
+            target/${{ matrix.target }}/release/SHA256SUMS.txt
+          if-no-files-found: error
+
+  provenance:
+    name: SLSA Provenance
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Collect subjects
+        id: subjects
+        run: |
+          cd artifacts
+          echo "subjects<<"EOF"
+          find . -type f \( -name "arc" -o -name "arc.exe" \) -exec sha256sum {} \; | while read -r hash path; do
+            name=$(basename "$path")
+            echo "{\"hash\": \"sha256:${hash#  }\", \"name\": \"${name}\", \"uri\": \"git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}\"}"
+          done
+          EOF
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SLSA provenance
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+        with:
+          base-subjects: ${{ steps.subjects.outputs.subjects }}
+          upload-assets: true
+          draft-release: true
+          continue-on-error: true
+
+  github-release:
+    name: GitHub Release
+    needs: [build, provenance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          bash scripts/ci/generate-semantic-changelog.sh > CHANGELOG_RELEASE.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          body_path: CHANGELOG_RELEASE.md
+          draft: true
+          generate_release_notes: false
+          files: |
+            artifacts/**/*
+          fail_on_unmatched_files: false

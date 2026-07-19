@@ -166,30 +166,20 @@ impl<T: PartialEq> EditScriptGenerator<T> for BasicDiffer {
             let delete_score = dp[Self::idx(i + 1, j, cols)];
             let insert_score = dp[Self::idx(i, j + 1, cols)];
             if delete_score >= insert_score {
-                script.push(Edit::Delete {
-                    before: i..(i + 1),
-                });
+                script.push(Edit::Delete { before: i..(i + 1) });
                 i += 1;
             } else {
-                script.push(Edit::Insert {
-                    at: i,
-                    after: j..(j + 1),
-                });
+                script.push(Edit::Insert { at: i, after: j..(j + 1) });
                 j += 1;
             }
         }
 
         while i < n {
-            script.push(Edit::Delete {
-                before: i..(i + 1),
-            });
+            script.push(Edit::Delete { before: i..(i + 1) });
             i += 1;
         }
         while j < m {
-            script.push(Edit::Insert {
-                at: i,
-                after: j..(j + 1),
-            });
+            script.push(Edit::Insert { at: i, after: j..(j + 1) });
             j += 1;
         }
 
@@ -208,10 +198,7 @@ fn coalesce_replace(script: EditScript) -> EditScript {
             && let Edit::Insert { at, after } = &edits[idx + 1]
             && (*at == before.start || *at == before.end)
         {
-            out.push(Edit::Replace {
-                before: before.clone(),
-                after: after.clone(),
-            });
+            out.push(Edit::Replace { before: before.clone(), after: after.clone() });
             idx += 2;
             continue;
         }
@@ -240,10 +227,7 @@ mod tests {
                     out.extend_from_slice(&new[ar.start..ar.end]);
                     cursor = *at;
                 }
-                Edit::Replace {
-                    before: br,
-                    after: ar,
-                } => {
+                Edit::Replace { before: br, after: ar } => {
                     out.extend_from_slice(&old[cursor..br.start]);
                     out.extend_from_slice(&new[ar.start..ar.end]);
                     cursor = br.end;

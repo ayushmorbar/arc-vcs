@@ -42,24 +42,15 @@ pub fn invert_atom(atom: &Atom, store: &impl BlobStore) -> Result<Atom, InvertEr
             if !store.contains_blob(content_hash) {
                 return Err(InvertError::CasMissing(*content_hash));
             }
-            Ok(Atom::Delete {
-                at: at.clone(),
-                prior_hash: *content_hash,
-            })
+            Ok(Atom::Delete { at: at.clone(), prior_hash: *content_hash })
         }
         Atom::Delete { at, prior_hash } => {
             if !store.contains_blob(prior_hash) {
                 return Err(InvertError::CasMissing(*prior_hash));
             }
-            Ok(Atom::Insert {
-                at: at.clone(),
-                content_hash: *prior_hash,
-            })
+            Ok(Atom::Insert { at: at.clone(), content_hash: *prior_hash })
         }
-        Atom::Move { from, to } => Ok(Atom::Move {
-            from: to.clone(),
-            to: from.clone(),
-        }),
+        Atom::Move { from, to } => Ok(Atom::Move { from: to.clone(), to: from.clone() }),
         _ => Err(InvertError::Unsupported),
     }
 }
@@ -84,13 +75,7 @@ pub fn invert_change(
 
     let (author, signing_key) = signer;
     let intent = format!("Revert: {}", change.intent);
-    Ok(Change::new(
-        HashSet::from([change.id]),
-        inverted_atoms,
-        intent,
-        author.clone(),
-        signing_key,
-    ))
+    Ok(Change::new(HashSet::from([change.id]), inverted_atoms, intent, author.clone(), signing_key))
 }
 
 #[cfg(test)]
@@ -114,10 +99,7 @@ mod tests {
         let content = b"fn main() {}";
         let content_hash = store.write_blob(content).unwrap();
 
-        let atom = Atom::Insert {
-            at: vec!["fn_main".to_string()],
-            content_hash,
-        };
+        let atom = Atom::Insert { at: vec!["fn_main".to_string()], content_hash };
 
         let inv = invert_atom(&atom, &store).unwrap();
         match inv {
@@ -135,10 +117,7 @@ mod tests {
         let content = b"let x = 42;";
         let prior_hash = store.write_blob(content).unwrap();
 
-        let atom = Atom::Delete {
-            at: vec!["fn_a".to_string(), "body".to_string()],
-            prior_hash,
-        };
+        let atom = Atom::Delete { at: vec!["fn_a".to_string(), "body".to_string()], prior_hash };
 
         let inv = invert_atom(&atom, &store).unwrap();
         match inv {
@@ -156,17 +135,11 @@ mod tests {
         let content = b"hello world";
         let content_hash = store.write_blob(content).unwrap();
 
-        let original = Atom::Insert {
-            at: vec!["node".to_string()],
-            content_hash,
-        };
+        let original = Atom::Insert { at: vec!["node".to_string()], content_hash };
 
         let inv = invert_atom(&original, &store).unwrap();
         let inv_inv = invert_atom(&inv, &store).unwrap();
-        assert_eq!(
-            original, inv_inv,
-            "double inversion must produce the original atom"
-        );
+        assert_eq!(original, inv_inv, "double inversion must produce the original atom");
     }
 
     #[test]
@@ -175,10 +148,7 @@ mod tests {
         // Use a hash for a blob that was never written.
         let ghost_hash = [0xde_u8; 32];
 
-        let atom = Atom::Insert {
-            at: vec!["fn_foo".to_string()],
-            content_hash: ghost_hash,
-        };
+        let atom = Atom::Insert { at: vec!["fn_foo".to_string()], content_hash: ghost_hash };
 
         let result = invert_atom(&atom, &store);
         assert!(
@@ -195,10 +165,7 @@ mod tests {
 
         let original = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["fn_x".to_string()],
-                content_hash: hash,
-            }],
+            vec![Atom::Insert { at: vec!["fn_x".to_string()], content_hash: hash }],
             "add fn_x",
             author.clone(),
             &signing_key,
@@ -210,10 +177,7 @@ mod tests {
             inverted.deps.contains(&original.id),
             "inverted change must depend on the original"
         );
-        assert!(
-            inverted.intent.contains("Revert"),
-            "inverted intent must contain 'Revert'"
-        );
+        assert!(inverted.intent.contains("Revert"), "inverted intent must contain 'Revert'");
         assert_eq!(inverted.atoms.len(), original.atoms.len());
     }
 }

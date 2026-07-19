@@ -17,12 +17,7 @@ impl Default for QuadraticBackoff<fn(usize) -> usize> {
 impl QuadraticBackoff<fn(usize) -> usize> {
     /// Build a backoff iterator without jitter.
     pub fn new() -> Self {
-        Self {
-            multiplier: 1,
-            max_multiplier: 1000,
-            exponent: 1,
-            transform: std::convert::identity,
-        }
+        Self { multiplier: 1, max_multiplier: 1000, exponent: 1, transform: std::convert::identity }
     }
 }
 
@@ -32,12 +27,7 @@ where
 {
     /// Build a backoff iterator with an explicit transform.
     pub fn with_transform(transform: Transform) -> Self {
-        Self {
-            multiplier: 1,
-            max_multiplier: 1000,
-            exponent: 1,
-            transform,
-        }
+        Self { multiplier: 1, max_multiplier: 1000, exponent: 1, transform }
     }
 }
 
@@ -84,11 +74,7 @@ mod tests {
         let waits: Vec<Duration> = QuadraticBackoff::with_transform(|v| v * 2).take(3).collect();
         assert_eq!(
             waits,
-            vec![
-                Duration::from_millis(2),
-                Duration::from_millis(8),
-                Duration::from_millis(18)
-            ]
+            vec![Duration::from_millis(2), Duration::from_millis(8), Duration::from_millis(18)]
         );
     }
 }

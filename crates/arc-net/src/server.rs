@@ -21,10 +21,7 @@ use arc_store_view::View;
 
 fn write_change(store: &ObjectStore, change: &Change) -> Result<(), ()> {
     let bytes = bincode::serialize(change).map_err(|_| ())?;
-    store
-        .write_object(&change.id, &bytes)
-        .map(|_| ())
-        .map_err(|_| ())
+    store.write_object(&change.id, &bytes).map(|_| ()).map_err(|_| ())
 }
 
 #[derive(Clone)]
@@ -88,9 +85,7 @@ async fn get_view(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<View>, StatusCode> {
-    View::load(&state.repo_root, &name)
-        .map(Json)
-        .map_err(|_| StatusCode::NOT_FOUND)
+    View::load(&state.repo_root, &name).map(Json).map_err(|_| StatusCode::NOT_FOUND)
 }
 
 async fn get_object(State(state): State<AppState>, Path(hash): Path<String>) -> impl IntoResponse {
@@ -99,17 +94,9 @@ async fn get_object(State(state): State<AppState>, Path(hash): Path<String>) -> 
     if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let path = state
-        .repo_root
-        .join(".arc")
-        .join("store")
-        .join(&hash[..2])
-        .join(&hash[2..]);
+    let path = state.repo_root.join(".arc").join("store").join(&hash[..2]).join(&hash[2..]);
     match std::fs::read(&path) {
-        Ok(bytes) => (
-            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-            bytes,
-        )
+        Ok(bytes) => ([(axum::http::header::CONTENT_TYPE, "application/octet-stream")], bytes)
             .into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -122,10 +109,7 @@ async fn get_blob(State(state): State<AppState>, Path(hash): Path<String>) -> im
     }
     let path = state.repo_root.join(".arc").join("blobs").join(&hash);
     match std::fs::read(&path) {
-        Ok(bytes) => (
-            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-            bytes,
-        )
+        Ok(bytes) => ([(axum::http::header::CONTENT_TYPE, "application/octet-stream")], bytes)
             .into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -197,12 +181,8 @@ async fn put_blob(
     drop(tmp_file);
 
     // Verify the BLAKE3 hash matches the path parameter.
-    let computed_hex: String = hasher
-        .finalize()
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let computed_hex: String =
+        hasher.finalize().as_bytes().iter().map(|b| format!("{b:02x}")).collect();
     if computed_hex != hash {
         let _ = tokio::fs::remove_file(&tmp_path).await;
         return (
@@ -291,11 +271,8 @@ async fn post_sync(
     }
 
     // Kahn queue: start with all zero-in-degree nodes.
-    let mut queue: VecDeque<Blake3Hash> = in_degree
-        .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(id, _)| *id)
-        .collect();
+    let mut queue: VecDeque<Blake3Hash> =
+        in_degree.iter().filter(|(_, deg)| **deg == 0).map(|(id, _)| *id).collect();
 
     let change_map: HashMap<Blake3Hash, &Change> =
         payload.changes.iter().map(|c| (c.id, c)).collect();
@@ -362,24 +339,15 @@ async fn post_sync(
     }
 
     // Stage 4: CRDT view union with remapped heads.
-    let existing_heads: HashSet<Blake3Hash> = View::load(&state.repo_root, &view_name)
-        .map(|v| v.heads)
-        .unwrap_or_default();
+    let existing_heads: HashSet<Blake3Hash> =
+        View::load(&state.repo_root, &view_name).map(|v| v.heads).unwrap_or_default();
     // Map transient payload heads to their canonical equivalents before union.
-    let canonical_payload_heads: HashSet<Blake3Hash> = payload
-        .view_heads
-        .iter()
-        .map(|&h| rewritten_map.get(&h).copied().unwrap_or(h))
-        .collect();
-    let new_heads: HashSet<Blake3Hash> = existing_heads
-        .union(&canonical_payload_heads)
-        .copied()
-        .collect();
+    let canonical_payload_heads: HashSet<Blake3Hash> =
+        payload.view_heads.iter().map(|&h| rewritten_map.get(&h).copied().unwrap_or(h)).collect();
+    let new_heads: HashSet<Blake3Hash> =
+        existing_heads.union(&canonical_payload_heads).copied().collect();
 
-    if View::new(&view_name, new_heads.clone())
-        .save(&state.repo_root)
-        .is_err()
-    {
+    if View::new(&view_name, new_heads.clone()).save(&state.repo_root).is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
@@ -393,11 +361,7 @@ async fn post_sync(
         })
         .collect();
 
-    Json(SyncResponse {
-        view_heads: new_heads,
-        rewritten_map: rewritten_map_str,
-    })
-    .into_response()
+    Json(SyncResponse { view_heads: new_heads, rewritten_map: rewritten_map_str }).into_response()
 }
 
 /// Start the arc HTTP server exposing this repository's CAS.
@@ -416,11 +380,7 @@ async fn post_sync(
 pub async fn serve(port: u16) -> anyhow::Result<()> {
     let repo_root = std::env::current_dir()?;
     let (server_author, server_signing_seed) = load_or_generate_server_identity(&repo_root)?;
-    let state = AppState {
-        repo_root,
-        server_author,
-        server_signing_seed,
-    };
+    let state = AppState { repo_root, server_author, server_signing_seed };
     let app = Router::new()
         .route("/views/{name}", get(get_view))
         .route("/objects/{hash}", get(get_object))

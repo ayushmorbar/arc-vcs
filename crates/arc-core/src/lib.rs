@@ -45,12 +45,12 @@ pub mod repository;
 /// Async CRDT network transport (push/pull via HTTP + rustls TLS) when `native` is enabled.
 #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use arc_network as network;
-/// Revset grammar and parser for DAG query expressions.
-pub mod revset;
 /// Generic operation contexts with dual output channels.
 pub mod operation_context;
 /// Shared taxonomy for staged operations and tracing semantics.
 pub mod ops;
+/// Revset grammar and parser for DAG query expressions.
+pub mod revset;
 pub mod store;
 /// Virtual filesystem abstraction for CAS-backed materialized views.
 pub mod vfs;

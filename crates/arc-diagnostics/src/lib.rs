@@ -25,11 +25,7 @@ pub fn init_tracing(service_name: &str) {
             .unwrap_or_else(|_| format!("{service_name}=debug,info"));
 
         if let Ok(path) = std::env::var("ARC_TRACE_EVENT") {
-            if let Ok(file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-            {
+            if let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
                 let _ = tracing_subscriber::fmt()
                     .json()
                     .with_writer(std::sync::Mutex::new(file))
@@ -58,10 +54,7 @@ pub struct ArcHint {
 impl ArcHint {
     /// Create a hint with a human-readable explanation.
     pub fn new(explanation: impl Into<String>) -> Self {
-        Self {
-            explanation: explanation.into(),
-            suggested_command: None,
-        }
+        Self { explanation: explanation.into(), suggested_command: None }
     }
 
     /// Add a suggested follow-up command.
@@ -107,11 +100,7 @@ impl ArcError {
             causes.push(rendered);
         }
 
-        Self {
-            message,
-            causes,
-            hint: extract_hint(error),
-        }
+        Self { message, causes, hint: extract_hint(error) }
     }
 
     /// Core error message.
@@ -161,10 +150,7 @@ fn attach_hint(error: anyhow::Error, hint: ArcHint) -> anyhow::Error {
     if extract_hint(&error).is_some() {
         return error;
     }
-    anyhow::Error::new(HintedError {
-        source: error,
-        hint,
-    })
+    anyhow::Error::new(HintedError { source: error, hint })
 }
 
 /// Extension trait for attaching structured hints to fallible results.
@@ -218,14 +204,8 @@ mod tests {
             .expect_err("error expected");
         let modeled = ArcError::from_anyhow(&out);
         assert_eq!(modeled.message(), "disk failed");
-        assert_eq!(
-            modeled.hint().map(|hint| hint.explanation()),
-            Some("Check write permissions.")
-        );
-        assert_eq!(
-            modeled.hint().and_then(|hint| hint.suggested_command()),
-            Some("arc doctor")
-        );
+        assert_eq!(modeled.hint().map(|hint| hint.explanation()), Some("Check write permissions."));
+        assert_eq!(modeled.hint().and_then(|hint| hint.suggested_command()), Some("arc doctor"));
     }
 
     #[test]

@@ -12,9 +12,5 @@ pub fn split_bento(area: Rect) -> BentoLayout {
     let top = Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(vertical[0]);
 
-    BentoLayout {
-        dag: top[0],
-        detail: top[1],
-        status: vertical[1],
-    }
+    BentoLayout { dag: top[0], detail: top[1], status: vertical[1] }
 }

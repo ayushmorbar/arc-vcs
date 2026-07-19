@@ -99,10 +99,8 @@ impl SynthesisSnapshot {
         files: &[PathBuf],
     ) -> anyhow::Result<Self> {
         let source = source.into();
-        let mut artifacts: Vec<SynthArtifact> = files
-            .iter()
-            .map(|p| build_artifact(root, p))
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut artifacts: Vec<SynthArtifact> =
+            files.iter().map(|p| build_artifact(root, p)).collect::<anyhow::Result<Vec<_>>>()?;
         artifacts.sort_by(|a, b| a.path.cmp(&b.path));
 
         let created_at_unix = std::time::SystemTime::now()
@@ -112,12 +110,7 @@ impl SynthesisSnapshot {
 
         let id = compute_snapshot_id(&source, &artifacts)?;
 
-        Ok(Self {
-            id,
-            source,
-            created_at_unix,
-            artifacts,
-        })
+        Ok(Self { id, source, created_at_unix, artifacts })
     }
 
     /// Persist this snapshot atomically at `<shared_root>/.arc/synthesis/<prefix>/<suffix>.bin`.
@@ -129,9 +122,8 @@ impl SynthesisSnapshot {
             return Ok(());
         }
 
-        let parent = path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("invalid snapshot path without parent"))?;
+        let parent =
+            path.parent().ok_or_else(|| anyhow::anyhow!("invalid snapshot path without parent"))?;
         fs::create_dir_all(parent)?;
 
         let bytes = bincode::serialize(self)
@@ -260,16 +252,9 @@ pub fn list_snapshot_ids(shared_root: &Path) -> anyhow::Result<Vec<SnapshotId>> 
 }
 
 fn build_artifact(root: &Path, input: &Path) -> anyhow::Result<SynthArtifact> {
-    let full_path = if input.is_absolute() {
-        input.to_path_buf()
-    } else {
-        root.join(input)
-    };
+    let full_path = if input.is_absolute() { input.to_path_buf() } else { root.join(input) };
     let bytes = fs::read(&full_path).map_err(|e| {
-        anyhow::anyhow!(
-            "failed to read synthesis input '{}': {e}",
-            full_path.display()
-        )
+        anyhow::anyhow!("failed to read synthesis input '{}': {e}", full_path.display())
     })?;
 
     let rel = full_path
@@ -293,11 +278,7 @@ fn compute_snapshot_id(source: &str, artifacts: &[SynthArtifact]) -> anyhow::Res
 
 fn snapshot_path(shared_root: &Path, id: SnapshotId) -> PathBuf {
     let hex = id.to_hex();
-    shared_root
-        .join(".arc")
-        .join("synthesis")
-        .join(&hex[..2])
-        .join(format!("{}.bin", &hex[2..]))
+    shared_root.join(".arc").join("synthesis").join(&hex[..2]).join(format!("{}.bin", &hex[2..]))
 }
 
 #[cfg(not(windows))]
@@ -360,14 +341,8 @@ mod tests {
         let root = tmp.path();
         fs::create_dir_all(root.join(".arc").join("synthesis").join("zz"))
             .expect("junk dir create must succeed");
-        fs::write(
-            root.join(".arc")
-                .join("synthesis")
-                .join("zz")
-                .join("junk.bin"),
-            b"x",
-        )
-        .expect("junk file write must succeed");
+        fs::write(root.join(".arc").join("synthesis").join("zz").join("junk.bin"), b"x")
+            .expect("junk file write must succeed");
 
         fs::write(root.join("one.txt"), b"one").expect("file write must succeed");
         fs::write(root.join("two.txt"), b"two").expect("file write must succeed");

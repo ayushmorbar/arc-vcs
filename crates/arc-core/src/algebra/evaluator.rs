@@ -10,16 +10,14 @@ impl PolicyError {
     /// Convert a policy error into an MCP-friendly structured payload.
     pub fn to_mcp_payload(&self) -> serde_json::Value {
         match self {
-            PolicyError::SignatureMismatch {
-                broken_functions,
-                old_signature,
-                new_signature,
-            } => json!({
-                "type": "SignatureMismatch",
-                "broken_functions": broken_functions,
-                "old_signature": old_signature,
-                "new_signature": new_signature,
-            }),
+            PolicyError::SignatureMismatch { broken_functions, old_signature, new_signature } => {
+                json!({
+                    "type": "SignatureMismatch",
+                    "broken_functions": broken_functions,
+                    "old_signature": old_signature,
+                    "new_signature": new_signature,
+                })
+            }
             PolicyError::MissingDependency { dependency } => json!({
                 "type": "MissingDependency",
                 "dependency": dependency,
@@ -71,7 +69,11 @@ impl TreeSitterEvaluator {
         Self { policy }
     }
 
-    fn extract_foreign_sources(&self, local_ast: &Ast, incoming_atoms: &[SemanticAtom]) -> Vec<String> {
+    fn extract_foreign_sources(
+        &self,
+        local_ast: &Ast,
+        incoming_atoms: &[SemanticAtom],
+    ) -> Vec<String> {
         let mut out = local_ast.foreign_rust_sources.clone();
         for atom in incoming_atoms {
             if let SemanticAtom::SemanticsPreserving { description, .. } = atom
@@ -91,9 +93,7 @@ impl Evaluator for TreeSitterEvaluator {
         incoming_atoms: &[SemanticAtom],
     ) -> Result<(), PolicyError> {
         if self.policy.require_ghost_node_sponsor
-            && incoming_atoms
-                .iter()
-                .any(|atom| matches!(atom, SemanticAtom::Mount { .. }))
+            && incoming_atoms.iter().any(|atom| matches!(atom, SemanticAtom::Mount { .. }))
         {
             return Err(PolicyError::SignatureMismatch {
                 broken_functions: vec!["<ghost-node-sponsor>".to_string()],
@@ -107,11 +107,11 @@ impl Evaluator for TreeSitterEvaluator {
         }
 
         let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .map_err(|e| PolicyError::MissingDependency {
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).map_err(|e| {
+            PolicyError::MissingDependency {
                 dependency: format!("tree-sitter-rust language init failed: {e}"),
-            })?;
+            }
+        })?;
 
         let boundary_query = Query::new(&tree_sitter_rust::LANGUAGE.into(), RUST_BOUNDARY_QUERY)
             .map_err(|e| PolicyError::MissingDependency {
@@ -143,11 +143,8 @@ impl Evaluator for TreeSitterEvaluator {
                 let mut api_return: Option<String> = None;
                 for capture in m.captures {
                     let cap = &capture_names[capture.index as usize];
-                    let text = capture
-                        .node
-                        .utf8_text(source.as_bytes())
-                        .ok()
-                        .map(ToOwned::to_owned);
+                    let text =
+                        capture.node.utf8_text(source.as_bytes()).ok().map(ToOwned::to_owned);
                     match *cap {
                         "api.name" => api_name = text,
                         "api.params" => api_params = text,
@@ -174,11 +171,8 @@ impl Evaluator for TreeSitterEvaluator {
                 let ret = api_return.unwrap_or_else(|| "()".to_string());
                 let new_sig = format!("{} -> {}", params.trim(), ret.trim());
                 let new_hash = blake3::hash(new_sig.as_bytes()).to_hex().to_string();
-                let old_sig = local_ast
-                    .expected_api_signatures
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or_default();
+                let old_sig =
+                    local_ast.expected_api_signatures.get(&name).cloned().unwrap_or_default();
                 let old_hash = blake3::hash(old_sig.as_bytes()).to_hex().to_string();
 
                 if new_hash != old_hash {
@@ -204,7 +198,8 @@ impl Evaluator for TreeSitterEvaluator {
             };
             let mut cursor = QueryCursor::new();
             let capture_names = invocation_query.capture_names();
-            let mut matches = cursor.matches(&invocation_query, tree.root_node(), source.as_bytes());
+            let mut matches =
+                cursor.matches(&invocation_query, tree.root_node(), source.as_bytes());
             while let Some(m) = matches.next() {
                 for capture in m.captures {
                     let cap = &capture_names[capture.index as usize];
@@ -233,10 +228,7 @@ impl Evaluator for TreeSitterEvaluator {
                 format!(
                     "{}:{}",
                     name,
-                    old_signatures
-                        .get(name)
-                        .cloned()
-                        .unwrap_or_else(|| "<missing>".to_string())
+                    old_signatures.get(name).cloned().unwrap_or_else(|| "<missing>".to_string())
                 )
             })
             .collect::<Vec<_>>()
@@ -247,19 +239,12 @@ impl Evaluator for TreeSitterEvaluator {
                 format!(
                     "{}:{}",
                     name,
-                    new_signatures
-                        .get(name)
-                        .cloned()
-                        .unwrap_or_else(|| "<missing>".to_string())
+                    new_signatures.get(name).cloned().unwrap_or_else(|| "<missing>".to_string())
                 )
             })
             .collect::<Vec<_>>()
             .join("; ");
 
-        Err(PolicyError::SignatureMismatch {
-            broken_functions,
-            old_signature,
-            new_signature,
-        })
+        Err(PolicyError::SignatureMismatch { broken_functions, old_signature, new_signature })
     }
 }

@@ -52,10 +52,7 @@ pub struct SyncFrame {
 impl SyncFrame {
     /// Construct a frame from type and payload.
     pub fn new(message_type: MessageType, payload: Bytes) -> Self {
-        Self {
-            message_type,
-            payload,
-        }
+        Self { message_type, payload }
     }
 }
 
@@ -100,10 +97,7 @@ impl Decoder for ArcSyncCodec {
         src.advance(5);
         let payload = src.split_to(length).freeze();
 
-        Ok(Some(SyncFrame {
-            message_type,
-            payload,
-        }))
+        Ok(Some(SyncFrame { message_type, payload }))
     }
 }
 
@@ -183,9 +177,7 @@ mod tests {
         let oversized = (MAX_FRAME_LEN as u32).saturating_add(1);
         let mut src = BytesMut::from(&[MessageType::PayloadStream as u8][..]);
         src.extend_from_slice(&oversized.to_be_bytes());
-        let err = codec
-            .decode(&mut src)
-            .expect_err("oversized frame must error");
+        let err = codec.decode(&mut src).expect_err("oversized frame must error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 }

@@ -219,12 +219,7 @@ impl GraphRenderer {
             let has_conflict = change_has_conflict(change);
             let is_current = decorations.current == Some(id);
             let is_active_head = decorations.active_heads.contains(&id);
-            let flags = RowFlags {
-                is_ai,
-                has_conflict,
-                is_current,
-                is_active_head,
-            };
+            let flags = RowFlags { is_ai, has_conflict, is_current, is_active_head };
             let symbol = self.node_symbol(change, id, decorations);
             let mut graph_prefix = String::new();
             for (idx, _) in active.iter().enumerate() {
@@ -316,11 +311,7 @@ impl GraphRenderer {
 
     fn elision_row(&self, dropped: usize) -> String {
         let row = format!("┆ … {} commits elided …", dropped);
-        if self.use_color {
-            row.bright_black().to_string()
-        } else {
-            row
-        }
+        if self.use_color { row.bright_black().to_string() } else { row }
     }
 
     fn merge_edge_line(&self, active: &[ChangeId], from_col: usize, parent_count: usize) -> String {
@@ -469,10 +460,7 @@ impl GraphRenderer {
         let label = if badges_text.is_empty() {
             format!("{} {} | {}", short_id, author, change.intent)
         } else {
-            format!(
-                "{} {} {} | {}",
-                short_id, badges_text, author, change.intent
-            )
+            format!("{} {} {} | {}", short_id, badges_text, author, change.intent)
         };
 
         if self.use_color
@@ -493,11 +481,7 @@ impl GraphRenderer {
         if !self.use_color {
             return text;
         }
-        if is_tag {
-            text.cyan().to_string()
-        } else {
-            text.yellow().to_string()
-        }
+        if is_tag { text.cyan().to_string() } else { text.yellow().to_string() }
     }
 }
 
@@ -507,10 +491,7 @@ fn dedupe_columns(active: &mut Vec<ChangeId>) {
 }
 
 fn change_has_conflict(change: &Change) -> bool {
-    change
-        .atoms
-        .iter()
-        .any(|atom| matches!(atom, Atom::Conflict { .. }))
+    change.atoms.iter().any(|atom| matches!(atom, Atom::Conflict { .. }))
 }
 
 fn change_is_ai(change: &Change) -> bool {
@@ -520,10 +501,7 @@ fn change_is_ai(change: &Change) -> bool {
 fn author_label(author: &Author) -> String {
     match author {
         Author::Human { name, email, .. } => format!("{} <{}>", name, email),
-        Author::AI {
-            model,
-            human_sponsor,
-        } => {
+        Author::AI { model, human_sponsor } => {
             let sponsor: String = human_sponsor.iter().map(|b| format!("{:02x}", b)).collect();
             format!("{} sponsor:{}", model, &sponsor[..8])
         }
@@ -567,11 +545,7 @@ mod tests {
             }
         } else {
             Atom::Insert {
-                at: vec![
-                    "file".to_string(),
-                    format!("{}.rs", label),
-                    "fn_x".to_string(),
-                ],
+                at: vec!["file".to_string(), format!("{}.rs", label), "fn_x".to_string()],
                 content_hash: *blake3::hash(label.as_bytes()).as_bytes(),
             }
         };
@@ -587,13 +561,8 @@ mod tests {
         let merge = mk_change(HashSet::from([left.id, right.id]), "merge", false, false);
 
         let lines = GraphRenderer::monochrome().render(&[merge, right, left, root]);
-        let has_merge_edge = lines
-            .iter()
-            .any(|line| line.contains("├") && line.contains("╮"));
-        assert!(
-            has_merge_edge,
-            "merge output must include branch edge connectors"
-        );
+        let has_merge_edge = lines.iter().any(|line| line.contains("├") && line.contains("╮"));
+        assert!(has_merge_edge, "merge output must include branch edge connectors");
     }
 
     #[test]
@@ -613,12 +582,8 @@ mod tests {
         let head = mk_change(HashSet::from([root.id]), "head", false, false);
 
         let mut decorations = GraphDecorations::default();
-        decorations
-            .tags
-            .insert(ChangeId::from(head.id), vec!["v1.0.0".to_string()]);
-        decorations
-            .remotes
-            .insert(ChangeId::from(head.id), vec!["origin/main".to_string()]);
+        decorations.tags.insert(ChangeId::from(head.id), vec!["v1.0.0".to_string()]);
+        decorations.remotes.insert(ChangeId::from(head.id), vec!["origin/main".to_string()]);
 
         let lines =
             GraphRenderer::monochrome().render_with_decorations(&[head, root], &decorations);

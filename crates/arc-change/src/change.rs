@@ -25,14 +25,8 @@ impl PartialEq for AuthorType {
         match (self, other) {
             (AuthorType::Human, AuthorType::Human) => true,
             (
-                AuthorType::AI {
-                    confidence: a,
-                    human_sponsor: as_,
-                },
-                AuthorType::AI {
-                    confidence: b,
-                    human_sponsor: bs,
-                },
+                AuthorType::AI { confidence: a, human_sponsor: as_ },
+                AuthorType::AI { confidence: b, human_sponsor: bs },
             ) => a.to_bits() == b.to_bits() && as_ == bs,
             _ => false,
         }
@@ -118,11 +112,7 @@ impl Change {
                 Atom::Conflict { bases, sides, at } => {
                     let mut canonical_sides = sides.clone();
                     canonical_sides.sort();
-                    Atom::Conflict {
-                        bases: bases.clone(),
-                        sides: canonical_sides,
-                        at: at.clone(),
-                    }
+                    Atom::Conflict { bases: bases.clone(), sides: canonical_sides, at: at.clone() }
                 }
                 _ => atom.clone(),
             })
@@ -141,15 +131,7 @@ impl Change {
         author: Author,
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Self {
-        Self::new_with_metadata(
-            deps,
-            atoms,
-            intent,
-            author,
-            AuthorType::Human,
-            false,
-            signing_key,
-        )
+        Self::new_with_metadata(deps, atoms, intent, author, AuthorType::Human, false, signing_key)
     }
 
     /// Create a new `Change` with explicit ghost-node governance metadata.
@@ -362,20 +344,14 @@ mod tests {
         // --- Build a valid change ---
         let change = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["fn_main".into()],
-                content_hash: [0u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["fn_main".into()], content_hash: [0u8; 32] }],
             "add main",
             author,
             &signing_key,
         );
 
         // A freshly created change must pass both verification layers.
-        assert!(
-            change.verify_signature(),
-            "fresh change must pass cryptographic verification"
-        );
+        assert!(change.verify_signature(), "fresh change must pass cryptographic verification");
 
         // --- Layer-1 tampering: mutate intent without re-signing ---
         let mut tampered_intent = change.clone();
@@ -387,10 +363,8 @@ mod tests {
 
         // --- Layer-1 tampering: replace an atom's content without re-signing ---
         let mut tampered_atom = change.clone();
-        tampered_atom.atoms[0] = Atom::Insert {
-            at: vec!["fn_main".into()],
-            content_hash: [0xde; 32],
-        };
+        tampered_atom.atoms[0] =
+            Atom::Insert { at: vec!["fn_main".into()], content_hash: [0xde; 32] };
         assert!(
             !tampered_atom.verify_signature(),
             "tampered atom content must fail layer-1 content re-hash check"
@@ -406,40 +380,25 @@ mod tests {
 
         let with_dep = Change::new(
             HashSet::from([dep_id]),
-            vec![Atom::Insert {
-                at: vec!["fn_child".into()],
-                content_hash: [0u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["fn_child".into()], content_hash: [0u8; 32] }],
             "child change",
             author.clone(),
             &signing_key,
         );
 
-        assert!(
-            with_dep.deps.contains(&dep_id),
-            "deps must be present in the Change"
-        );
-        assert!(
-            with_dep.verify_signature(),
-            "change with deps must carry a valid signature"
-        );
+        assert!(with_dep.deps.contains(&dep_id), "deps must be present in the Change");
+        assert!(with_dep.verify_signature(), "change with deps must carry a valid signature");
 
         // A change with the same atoms/intent/author but no deps must get a different id.
         let no_dep = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["fn_child".into()],
-                content_hash: [0u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["fn_child".into()], content_hash: [0u8; 32] }],
             "child change",
             author,
             &signing_key,
         );
 
-        assert_ne!(
-            with_dep.id, no_dep.id,
-            "including deps must change the content-addressed id"
-        );
+        assert_ne!(with_dep.id, no_dep.id, "including deps must change the content-addressed id");
     }
 
     /// A `Change` must survive a `bincode` serialise → deserialise roundtrip.
@@ -450,14 +409,8 @@ mod tests {
         let original = Change::new(
             HashSet::from([[1u8; 32], [2u8; 32]]),
             vec![
-                Atom::Insert {
-                    at: vec!["fn_a".into()],
-                    content_hash: [0u8; 32],
-                },
-                Atom::Delete {
-                    at: vec!["fn_b".into()],
-                    prior_hash: [0u8; 32],
-                },
+                Atom::Insert { at: vec!["fn_a".into()], content_hash: [0u8; 32] },
+                Atom::Delete { at: vec!["fn_b".into()], prior_hash: [0u8; 32] },
             ],
             "roundtrip",
             author,
@@ -468,10 +421,7 @@ mod tests {
         let decoded: Change = bincode::deserialize(&bytes).expect("deserialization must succeed");
 
         assert_eq!(original, decoded, "Change must survive a bincode roundtrip");
-        assert!(
-            decoded.verify_signature(),
-            "decoded Change must still verify"
-        );
+        assert!(decoded.verify_signature(), "decoded Change must still verify");
     }
 
     #[test]
@@ -479,10 +429,7 @@ mod tests {
         let (author, signing_key) = test_keypair();
         let original = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["main".into()],
-                content_hash: [7u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["main".into()], content_hash: [7u8; 32] }],
             "same",
             author.clone(),
             &signing_key,
@@ -507,10 +454,7 @@ mod tests {
         let (author, signing_key) = test_keypair();
         let original = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["main".into()],
-                content_hash: [7u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["main".into()], content_hash: [7u8; 32] }],
             "same",
             author.clone(),
             &signing_key,
@@ -538,10 +482,7 @@ mod tests {
 
         let base = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["main".into()],
-                content_hash: [0u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["main".into()], content_hash: [0u8; 32] }],
             "add main",
             author,
             &signing_key,
@@ -574,10 +515,7 @@ mod tests {
         let (original_author, original_key) = test_keypair();
         let original = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["lib".into()],
-                content_hash: [1u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["lib".into()], content_hash: [1u8; 32] }],
             "add lib",
             original_author,
             &original_key,
@@ -631,10 +569,7 @@ mod tests {
 
         let change = Change::new(
             HashSet::new(),
-            vec![Atom::Insert {
-                at: vec!["lib.rs".into()],
-                content_hash: [0u8; 32],
-            }],
+            vec![Atom::Insert { at: vec!["lib.rs".into()], content_hash: [0u8; 32] }],
             "ephemeral CI commit",
             author,
             &signing_key,
@@ -649,10 +584,7 @@ mod tests {
     #[test]
     fn test_compute_id_stable_under_dependency_insertion_order() {
         let (author, _signing_key) = test_keypair();
-        let atoms = vec![Atom::Insert {
-            at: vec!["node".into()],
-            content_hash: [3u8; 32],
-        }];
+        let atoms = vec![Atom::Insert { at: vec!["node".into()], content_hash: [3u8; 32] }];
 
         let mut deps_a = HashSet::new();
         deps_a.insert([1u8; 32]);
@@ -694,9 +626,6 @@ mod tests {
         let id_ab = Change::compute_id(&deps, &atoms_ab, "merge", &author);
         let id_ba = Change::compute_id(&deps, &atoms_ba, "merge", &author);
 
-        assert_eq!(
-            id_ab, id_ba,
-            "Change::compute_id must canonicalize conflict side ordering"
-        );
+        assert_eq!(id_ab, id_ba, "Change::compute_id must canonicalize conflict side ordering");
     }
 }

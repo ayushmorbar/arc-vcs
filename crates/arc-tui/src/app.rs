@@ -4,17 +4,19 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arc_keyring::{IdentityManager, KeyringSessionFacade};
+use arc_ux::OutputEvent;
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::{execute, ExecutableCommand};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
+use crossterm::{ExecutableCommand, execute};
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tuirealm::application::{Application, PollStrategy};
 use tuirealm::event::NoUserEvent;
 use tuirealm::listener::EventListenerCfg;
-use arc_ux::OutputEvent;
 
 use crate::components::commit_input::CommitInput;
 use crate::components::dag_explorer::DagExplorer;
@@ -255,17 +257,13 @@ impl App {
             }
             Message::ToggleAtom => {
                 self.state.toggle_selected_atom();
-                self.state.status_line = format!(
-                    "Selected atoms: {}",
-                    self.state.selected_atom_count()
-                );
+                self.state.status_line =
+                    format!("Selected atoms: {}", self.state.selected_atom_count());
             }
             Message::SponsorshipNext => {
                 self.state.cycle_sponsorship();
-                self.state.status_line = format!(
-                    "Sponsorship set to {}",
-                    self.state.sponsorship.as_label()
-                );
+                self.state.status_line =
+                    format!("Sponsorship set to {}", self.state.sponsorship.as_label());
             }
             Message::SnapNow => {
                 let intent_text = self.commit_input.intent_text();
@@ -356,8 +354,8 @@ fn fallback_ghost_intent(diff_summary: &str) -> String {
 }
 
 fn sign_intent_metadata(payload: &[u8]) -> Result<String, String> {
-    let manager = IdentityManager::init()
-        .map_err(|error| format!("keyring init failed: {error}"))?;
+    let manager =
+        IdentityManager::init().map_err(|error| format!("keyring init failed: {error}"))?;
     let facade = KeyringSessionFacade::new(manager);
     let alias = facade
         .active_alias()
@@ -377,19 +375,19 @@ fn sign_intent_metadata(payload: &[u8]) -> Result<String, String> {
         .load(&alias, &passphrase)
         .map_err(|error| format!("identity load failed: {error}"))?;
 
-    let signature = facade
-        .manager()
-        .sign(payload)
-        .map_err(|error| format!("signing failed: {error}"))?;
+    let signature =
+        facade.manager().sign(payload).map_err(|error| format!("signing failed: {error}"))?;
     Ok(hex_encode(&signature.to_bytes()))
 }
 
-fn build_intent_metadata(intent: &str, sponsorship: &str, selected_atoms: &std::collections::HashSet<usize>) -> String {
+fn build_intent_metadata(
+    intent: &str,
+    sponsorship: &str,
+    selected_atoms: &std::collections::HashSet<usize>,
+) -> String {
     let mut selected = selected_atoms.iter().copied().collect::<Vec<_>>();
     selected.sort_unstable();
-    format!(
-        "intent={intent}\nsponsorship={sponsorship}\nselected_atoms={selected:?}\n"
-    )
+    format!("intent={intent}\nsponsorship={sponsorship}\nselected_atoms={selected:?}\n")
 }
 
 fn hex_encode(bytes: &[u8]) -> String {

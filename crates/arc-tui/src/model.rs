@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use arc_ux::OutputEvent;
 use arc_change::Change;
+use arc_ux::OutputEvent;
 
 use crate::diff::generator::SemanticDiff;
 
@@ -94,11 +94,7 @@ impl AppState {
         if self.changes.is_empty() {
             return;
         }
-        self.selected = if self.selected == 0 {
-            self.changes.len() - 1
-        } else {
-            self.selected - 1
-        };
+        self.selected = if self.selected == 0 { self.changes.len() - 1 } else { self.selected - 1 };
         self.diff_cursor = 0;
         self.selected_atoms.clear();
     }
@@ -133,11 +129,8 @@ impl AppState {
             self.diff_cursor = 0;
             return;
         }
-        self.diff_cursor = if self.diff_cursor == 0 {
-            line_count - 1
-        } else {
-            self.diff_cursor - 1
-        };
+        self.diff_cursor =
+            if self.diff_cursor == 0 { line_count - 1 } else { self.diff_cursor - 1 };
     }
 
     pub fn toggle_selected_atom(&mut self) {
@@ -192,11 +185,8 @@ impl AppState {
     }
 
     pub fn start_success_nudge(&mut self, hash_short: String) {
-        self.success_nudge = Some(SuccessNudge {
-            hash_short,
-            started_at: Instant::now(),
-            frame: 0,
-        });
+        self.success_nudge =
+            Some(SuccessNudge { hash_short, started_at: Instant::now(), frame: 0 });
     }
 
     pub fn tick_animations(&mut self) {
@@ -260,7 +250,10 @@ pub enum Message {
 
 impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
-        use Message::{Backend, IntentEvent, MoveDown, MoveUp, OpenDiff, Quit, SnapNow, SponsorshipNext, Tick, ToggleAtom, ToggleSelectionMode};
+        use Message::{
+            Backend, IntentEvent, MoveDown, MoveUp, OpenDiff, Quit, SnapNow, SponsorshipNext, Tick,
+            ToggleAtom, ToggleSelectionMode,
+        };
         match (self, other) {
             (Tick, Tick)
             | (Quit, Quit)
@@ -362,9 +355,6 @@ mod tests {
         state.apply_output_event(OutputEvent::Warning(
             "intent: Refactor: Optimized blake3 hashing in core".to_string(),
         ));
-        assert_eq!(
-            state.ghost_text(),
-            "Refactor: Optimized blake3 hashing in core"
-        );
+        assert_eq!(state.ghost_text(), "Refactor: Optimized blake3 hashing in core");
     }
 }

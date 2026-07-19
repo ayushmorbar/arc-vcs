@@ -32,9 +32,7 @@ pub struct TaskRegistry {
 impl TaskRegistry {
     /// Create an empty task registry.
     pub fn new() -> Self {
-        Self {
-            tasks: BTreeMap::new(),
-        }
+        Self { tasks: BTreeMap::new() }
     }
 
     /// Register a new task by id.
@@ -54,18 +52,12 @@ impl TaskRegistry {
 
     /// Run one task by id.
     pub fn run_one(&self, id: &str) -> anyhow::Result<TaskRunResult> {
-        let task = self
-            .tasks
-            .get(id)
-            .ok_or_else(|| anyhow!("task '{id}' not found"))?;
+        let task = self.tasks.get(id).ok_or_else(|| anyhow!("task '{id}' not found"))?;
 
         let start = Instant::now();
         task.run()?;
 
-        Ok(TaskRunResult {
-            id: id.to_string(),
-            duration: start.elapsed(),
-        })
+        Ok(TaskRunResult { id: id.to_string(), duration: start.elapsed() })
     }
 
     /// Run all registered tasks in deterministic order.
@@ -109,9 +101,7 @@ mod tests {
     #[test]
     fn registration_rejects_duplicates() {
         let mut registry = TaskRegistry::new();
-        registry
-            .register(Box::new(NoopTask))
-            .expect("first registration should succeed");
+        registry.register(Box::new(NoopTask)).expect("first registration should succeed");
         let duplicate = registry.register(Box::new(NoopTask));
         assert!(duplicate.is_err());
     }
@@ -119,13 +109,9 @@ mod tests {
     #[test]
     fn run_one_returns_duration() {
         let mut registry = TaskRegistry::new();
-        registry
-            .register(Box::new(NoopTask))
-            .expect("registration should succeed");
+        registry.register(Box::new(NoopTask)).expect("registration should succeed");
 
-        let result = registry
-            .run_one("noop")
-            .expect("task run should succeed");
+        let result = registry.run_one("noop").expect("task run should succeed");
         assert_eq!(result.id, "noop");
         assert!(result.duration >= Duration::from_nanos(0));
     }
@@ -133,12 +119,8 @@ mod tests {
     #[test]
     fn run_all_is_deterministic_and_propagates_error() {
         let mut registry = TaskRegistry::new();
-        registry
-            .register(Box::new(NoopTask))
-            .expect("registration should succeed");
-        registry
-            .register(Box::new(FailingTask))
-            .expect("registration should succeed");
+        registry.register(Box::new(NoopTask)).expect("registration should succeed");
+        registry.register(Box::new(FailingTask)).expect("registration should succeed");
 
         let err = registry.run_all().expect_err("failing task should bubble up");
         assert!(err.to_string().contains("boom"));
