@@ -54,6 +54,7 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
         std::thread::Builder::new()
             .name("arc-sigterm-cleanup".to_string())
             .spawn(move || {
+                #[allow(clippy::never_loop)]
                 for _ in signals.forever() {
                     signal_state.mark_interrupted();
                     arc_store_view::tempfile::cleanup_signal_safe();

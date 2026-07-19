@@ -4960,7 +4960,7 @@ fn conflict_projection_for_file(
         return Ok(None);
     }
 
-    projections.sort_by(|(a, _), (b, _)| a.cmp(b));
+    projections.sort_by_key(|(a, _)| *a);
     if projections.len() > 1 {
         anyhow::bail!(
             "multiple conflict projections found for '{filepath}'; multi-conflict file rendering is not yet supported"

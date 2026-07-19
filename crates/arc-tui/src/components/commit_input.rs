@@ -8,6 +8,12 @@ pub struct CommitInput {
     textarea: TextArea<'static>,
 }
 
+impl Default for CommitInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommitInput {
     pub fn new() -> Self {
         let mut textarea = TextArea::default();
