@@ -69,6 +69,23 @@ bench-save BASELINE='main':
 bench-compare BASELINE='main':
     cargo bench -p arc-core --bench core_ops -- --baseline {{ BASELINE }} --load-baseline {{ BASELINE }}
 
+# Chaos stress: run concurrent tests with high thread count + random scheduling
+# Exercises CAS concurrent writes, lock races, and oplog append races
+# Requires: nightly (for -Zrandomize-layout if desired)
+chaos:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Chaos stress: 64 threads, 120s timeout ==="
+    RUSTFLAGS="-Zrandomize-layout" cargo +nightly test \
+        --workspace --no-fail-fast \
+        -j 64 \
+        -E 'test(concurrent) | test(race) | test(parallel) | test(stress)' \
+        -- --test-threads=64 2>&1 || true
+    echo "=== Running full concurrent CAS + lock tests ==="
+    cargo nextest run --workspace --no-fail-fast \
+        -E 'test(concurrent_parent_creation) | test(concurrent_append) | test(dedup)' \
+        --test-threads=32
+
 # ── Linting & Formatting ──────────────────────────────────────────────────────
 
 # Fast compile check without running tests
