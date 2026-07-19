@@ -64,7 +64,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: release-${{ matrix.target }}
           save-if: false
@@ -145,6 +145,7 @@ jobs:
       actions: read
       id-token: write
       contents: write
+    # zizmor: ignore[unpinned] — SLSA generator is a reusable workflow that breaks with SHA refs (slsa-framework/slsa-github-generator#4503)
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base-subjects: ${{ needs.collect-subjects.outputs.subjects }}

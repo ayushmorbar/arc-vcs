@@ -220,7 +220,7 @@ verify-full: verify-fast verify-policy verify-security fuzz-check
 # ── Full CI gate ──────────────────────────────────────────────────────────────
 
 # Complete local CI check — mirrors CI pipeline exactly
-ci: verify-full supply-chain api-drift
+ci: verify-full audit api-drift
     rustup toolchain install nightly --profile minimal
     cargo install cargo-public-api --locked --version 0.51.0
     bash scripts/ci/lint-reports.sh
