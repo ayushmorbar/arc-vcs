@@ -1,0 +1,193 @@
+pub mod arc_git_native
+pub mod arc_git_native::commit
+pub struct arc_git_native::commit::GitCommit
+pub arc_git_native::commit::GitCommit::author: arc_git_native::commit::GitSignature
+pub arc_git_native::commit::GitCommit::committer: arc_git_native::commit::GitSignature
+pub arc_git_native::commit::GitCommit::message: alloc::string::String
+pub arc_git_native::commit::GitCommit::parents: alloc::vec::Vec<arc_git_native::hash::GitOid>
+pub arc_git_native::commit::GitCommit::tree: arc_git_native::hash::GitOid
+impl core::clone::Clone for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::clone(&self) -> arc_git_native::commit::GitCommit
+impl core::cmp::Eq for arc_git_native::commit::GitCommit
+impl core::cmp::PartialEq for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::eq(&self, &arc_git_native::commit::GitCommit) -> bool
+impl core::fmt::Debug for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::commit::GitCommit
+pub struct arc_git_native::commit::GitSignature
+pub arc_git_native::commit::GitSignature::email: alloc::string::String
+pub arc_git_native::commit::GitSignature::name: alloc::string::String
+pub arc_git_native::commit::GitSignature::timestamp: i64
+pub arc_git_native::commit::GitSignature::tz_offset: alloc::string::String
+impl core::clone::Clone for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::clone(&self) -> arc_git_native::commit::GitSignature
+impl core::cmp::Eq for arc_git_native::commit::GitSignature
+impl core::cmp::PartialEq for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::eq(&self, &arc_git_native::commit::GitSignature) -> bool
+impl core::fmt::Debug for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::synthesize_commit(&arc_git_native::commit::GitCommit) -> (alloc::vec::Vec<u8>, arc_git_native::hash::GitOid)
+pub mod arc_git_native::hash
+pub enum arc_git_native::hash::GitObjectKind
+pub arc_git_native::hash::GitObjectKind::Blob
+pub arc_git_native::hash::GitObjectKind::Commit
+pub arc_git_native::hash::GitObjectKind::Tag
+pub arc_git_native::hash::GitObjectKind::Tree
+impl arc_git_native::hash::GitObjectKind
+pub const fn arc_git_native::hash::GitObjectKind::as_bytes(self) -> &'static [u8]
+impl core::clone::Clone for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::clone(&self) -> arc_git_native::hash::GitObjectKind
+impl core::cmp::Eq for arc_git_native::hash::GitObjectKind
+impl core::cmp::PartialEq for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::eq(&self, &arc_git_native::hash::GitObjectKind) -> bool
+impl core::fmt::Debug for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_git_native::hash::GitObjectKind
+impl core::marker::StructuralPartialEq for arc_git_native::hash::GitObjectKind
+pub struct arc_git_native::hash::GitOid(pub [u8; 20])
+impl arc_git_native::hash::GitOid
+pub const fn arc_git_native::hash::GitOid::as_bytes(self) -> [u8; 20]
+pub const fn arc_git_native::hash::GitOid::from_bytes([u8; 20]) -> Self
+pub fn arc_git_native::hash::GitOid::from_hex(&str) -> core::result::Result<Self, &'static str>
+impl core::clone::Clone for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::clone(&self) -> arc_git_native::hash::GitOid
+impl core::cmp::Eq for arc_git_native::hash::GitOid
+impl core::cmp::Ord for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::cmp(&self, &arc_git_native::hash::GitOid) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::eq(&self, &arc_git_native::hash::GitOid) -> bool
+impl core::cmp::PartialOrd for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::partial_cmp(&self, &arc_git_native::hash::GitOid) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_git_native::hash::GitOid
+impl core::marker::StructuralPartialEq for arc_git_native::hash::GitOid
+impl core::str::traits::FromStr for arc_git_native::hash::GitOid
+pub type arc_git_native::hash::GitOid::Err = &'static str
+pub fn arc_git_native::hash::GitOid::from_str(&str) -> core::result::Result<Self, Self::Err>
+pub fn arc_git_native::hash::git_hash(arc_git_native::hash::GitObjectKind, &[u8]) -> arc_git_native::hash::GitOid
+pub mod arc_git_native::tree
+pub struct arc_git_native::tree::GitTreeEntry
+pub arc_git_native::tree::GitTreeEntry::mode: u32
+pub arc_git_native::tree::GitTreeEntry::name: alloc::string::String
+pub arc_git_native::tree::GitTreeEntry::oid: arc_git_native::hash::GitOid
+impl core::clone::Clone for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::clone(&self) -> arc_git_native::tree::GitTreeEntry
+impl core::cmp::Eq for arc_git_native::tree::GitTreeEntry
+impl core::cmp::Ord for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::eq(&self, &arc_git_native::tree::GitTreeEntry) -> bool
+impl core::cmp::PartialOrd for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::synthesize_tree(alloc::vec::Vec<arc_git_native::tree::GitTreeEntry>) -> (alloc::vec::Vec<u8>, arc_git_native::hash::GitOid)
+pub enum arc_git_native::GitObjectKind
+pub arc_git_native::GitObjectKind::Blob
+pub arc_git_native::GitObjectKind::Commit
+pub arc_git_native::GitObjectKind::Tag
+pub arc_git_native::GitObjectKind::Tree
+impl arc_git_native::hash::GitObjectKind
+pub const fn arc_git_native::hash::GitObjectKind::as_bytes(self) -> &'static [u8]
+impl core::clone::Clone for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::clone(&self) -> arc_git_native::hash::GitObjectKind
+impl core::cmp::Eq for arc_git_native::hash::GitObjectKind
+impl core::cmp::PartialEq for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::eq(&self, &arc_git_native::hash::GitObjectKind) -> bool
+impl core::fmt::Debug for arc_git_native::hash::GitObjectKind
+pub fn arc_git_native::hash::GitObjectKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_git_native::hash::GitObjectKind
+impl core::marker::StructuralPartialEq for arc_git_native::hash::GitObjectKind
+pub struct arc_git_native::GitCommit
+pub arc_git_native::GitCommit::author: arc_git_native::commit::GitSignature
+pub arc_git_native::GitCommit::committer: arc_git_native::commit::GitSignature
+pub arc_git_native::GitCommit::message: alloc::string::String
+pub arc_git_native::GitCommit::parents: alloc::vec::Vec<arc_git_native::hash::GitOid>
+pub arc_git_native::GitCommit::tree: arc_git_native::hash::GitOid
+impl core::clone::Clone for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::clone(&self) -> arc_git_native::commit::GitCommit
+impl core::cmp::Eq for arc_git_native::commit::GitCommit
+impl core::cmp::PartialEq for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::eq(&self, &arc_git_native::commit::GitCommit) -> bool
+impl core::fmt::Debug for arc_git_native::commit::GitCommit
+pub fn arc_git_native::commit::GitCommit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::commit::GitCommit
+pub struct arc_git_native::GitObject<'a>
+pub arc_git_native::GitObject::kind: arc_git_native::hash::GitObjectKind
+pub arc_git_native::GitObject::oid: arc_git_native::hash::GitOid
+pub arc_git_native::GitObject::payload: alloc::borrow::Cow<'a, [u8]>
+impl<'a> core::clone::Clone for arc_git_native::GitObject<'a>
+pub fn arc_git_native::GitObject<'a>::clone(&self) -> arc_git_native::GitObject<'a>
+impl<'a> core::cmp::Eq for arc_git_native::GitObject<'a>
+impl<'a> core::cmp::PartialEq for arc_git_native::GitObject<'a>
+pub fn arc_git_native::GitObject<'a>::eq(&self, &arc_git_native::GitObject<'a>) -> bool
+impl<'a> core::fmt::Debug for arc_git_native::GitObject<'a>
+pub fn arc_git_native::GitObject<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::StructuralPartialEq for arc_git_native::GitObject<'a>
+pub struct arc_git_native::GitOid(pub [u8; 20])
+impl arc_git_native::hash::GitOid
+pub const fn arc_git_native::hash::GitOid::as_bytes(self) -> [u8; 20]
+pub const fn arc_git_native::hash::GitOid::from_bytes([u8; 20]) -> Self
+pub fn arc_git_native::hash::GitOid::from_hex(&str) -> core::result::Result<Self, &'static str>
+impl core::clone::Clone for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::clone(&self) -> arc_git_native::hash::GitOid
+impl core::cmp::Eq for arc_git_native::hash::GitOid
+impl core::cmp::Ord for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::cmp(&self, &arc_git_native::hash::GitOid) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::eq(&self, &arc_git_native::hash::GitOid) -> bool
+impl core::cmp::PartialOrd for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::partial_cmp(&self, &arc_git_native::hash::GitOid) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_git_native::hash::GitOid
+pub fn arc_git_native::hash::GitOid::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_git_native::hash::GitOid
+impl core::marker::StructuralPartialEq for arc_git_native::hash::GitOid
+impl core::str::traits::FromStr for arc_git_native::hash::GitOid
+pub type arc_git_native::hash::GitOid::Err = &'static str
+pub fn arc_git_native::hash::GitOid::from_str(&str) -> core::result::Result<Self, Self::Err>
+pub struct arc_git_native::GitSignature
+pub arc_git_native::GitSignature::email: alloc::string::String
+pub arc_git_native::GitSignature::name: alloc::string::String
+pub arc_git_native::GitSignature::timestamp: i64
+pub arc_git_native::GitSignature::tz_offset: alloc::string::String
+impl core::clone::Clone for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::clone(&self) -> arc_git_native::commit::GitSignature
+impl core::cmp::Eq for arc_git_native::commit::GitSignature
+impl core::cmp::PartialEq for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::eq(&self, &arc_git_native::commit::GitSignature) -> bool
+impl core::fmt::Debug for arc_git_native::commit::GitSignature
+pub fn arc_git_native::commit::GitSignature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::commit::GitSignature
+pub struct arc_git_native::GitTreeEntry
+pub arc_git_native::GitTreeEntry::mode: u32
+pub arc_git_native::GitTreeEntry::name: alloc::string::String
+pub arc_git_native::GitTreeEntry::oid: arc_git_native::hash::GitOid
+impl core::clone::Clone for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::clone(&self) -> arc_git_native::tree::GitTreeEntry
+impl core::cmp::Eq for arc_git_native::tree::GitTreeEntry
+impl core::cmp::Ord for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::eq(&self, &arc_git_native::tree::GitTreeEntry) -> bool
+impl core::cmp::PartialOrd for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_git_native::tree::GitTreeEntry
+pub fn arc_git_native::tree::GitTreeEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_git_native::tree::GitTreeEntry
+pub trait arc_git_native::GitSynthesizer
+pub type arc_git_native::GitSynthesizer::Stream<'a> where Self: 'a: core::iter::traits::iterator::Iterator<Item = arc_git_native::GitObject<'a>>
+pub fn arc_git_native::GitSynthesizer::synthesize<'a>(&'a self, &'a arc_store_graph::graph::ChangeGraph) -> Self::Stream
+pub fn arc_git_native::git_hash(arc_git_native::hash::GitObjectKind, &[u8]) -> arc_git_native::hash::GitOid
+pub fn arc_git_native::synthesize_commit(&arc_git_native::commit::GitCommit) -> (alloc::vec::Vec<u8>, arc_git_native::hash::GitOid)
+pub fn arc_git_native::synthesize_tree(alloc::vec::Vec<arc_git_native::tree::GitTreeEntry>) -> (alloc::vec::Vec<u8>, arc_git_native::hash::GitOid)
