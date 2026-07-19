@@ -146,7 +146,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Policy regression tests
-        run: cargo nextest run --workspace --no-fail-fast -E 'test(policy_regression)' -E 'test(determinism_guarantee)'
+        run: cargo nextest run --workspace --no-fail-fast -E 'test(workspace_policy)' -E 'test(enforce_policy)' -E 'test(policy_denies)' -E 'test(policy_gate)'
 
   api-drift:
     name: API Drift
@@ -167,9 +167,16 @@ jobs:
           toolchain: stable
           components: rustfmt
 
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: nightly
+
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           shared-key: api-drift
+
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --locked
 
       - name: Check API drift
         run: bash scripts/ci/check-api-drift.sh
@@ -224,5 +231,5 @@ jobs:
         env:
           MIRIFLAGS: "-Zmiri-disable-isolation"
         run: |
-          cargo miri setup
-          cargo miri test -p arc-algebra --no-fail-fast
+          cargo +nightly miri setup
+          cargo +nightly miri test -p arc-algebra --no-fail-fast
