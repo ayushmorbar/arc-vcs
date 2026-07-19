@@ -1,5 +1,11 @@
 rules:
-  anonymous-definition:
-    disable: true
-  concurrency-limits:
-    disable: true
+  cache-poisoning:
+    ignore:
+      # Swatinem/rust-cache in release.yml: save-if: false is set, safe for
+      # release builds that only need restore (no cache writes).
+      - release.yml:67
+  unpinned-uses:
+    ignore:
+      # SLSA generator is a reusable workflow that breaks with SHA refs
+      # (slsa-framework/slsa-github-generator#4503). Cannot be SHA-pinned.
+      - release.yml:149
