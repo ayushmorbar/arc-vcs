@@ -161,6 +161,15 @@ api-drift:
 beta-check:
     cargo +beta check --workspace
 
+# Check that feature-gated crates compile without default features
+no-default-features:
+    cargo check -p arc-algebra-types --no-default-features
+    cargo check -p arc-store-cas --no-default-features
+    cargo check -p arc-store-types --no-default-features
+    cargo check -p arc-store-graph --no-default-features
+    cargo check -p arc-core --no-default-features
+    cargo check -p arc-error --no-default-features
+
 # Benchmark arc-core operations and emit report-friendly summary
 bench-trend:
     mkdir -p target/bench
