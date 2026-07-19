@@ -136,11 +136,10 @@ jobs:
       base-subjects: ${{ needs.collect-subjects.outputs.subjects }}
       upload-assets: true
       draft-release: true
-    continue-on-error: true
 
   github-release:
     name: GitHub Release
-    needs: [build, provenance]
+    needs: [build, collect-subjects]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
