@@ -11,7 +11,9 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 use tokio::sync::mpsc;
-use tuirealm::{Application, EventListenerCfg, NoUserEvent, PollStrategy};
+use tuirealm::application::{Application, PollStrategy};
+use tuirealm::event::NoUserEvent;
+use tuirealm::listener::EventListenerCfg;
 use arc_ux::OutputEvent;
 
 use crate::components::commit_input::CommitInput;
@@ -146,7 +148,7 @@ impl App {
 
     fn realm_tick(&mut self) {
         let _root = RealmView::Root;
-        let _ = self.realm.tick(PollStrategy::Once);
+        let _ = self.realm.tick(PollStrategy::Once(Duration::from_millis(16)));
     }
 
     fn drain_backend_events(&mut self) {

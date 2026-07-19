@@ -186,7 +186,11 @@ pub fn hyperlink_for_path(path: &str, line: usize, supports_osc8: bool) -> Strin
 
     let normalized = std::fs::canonicalize(path)
         .ok()
-        .and_then(|p| p.to_str().map(ToOwned::to_owned))
+        .map(|p| {
+            let s = p.to_string_lossy().into_owned();
+            // Strip Windows `\\?\` UNC prefix so percent-encoding produces valid URIs
+            s.strip_prefix("\\\\?\\").unwrap_or(&s).to_owned()
+        })
         .unwrap_or_else(|| path.to_string());
     let encoded = percent_encode_uri_path(&normalized);
 

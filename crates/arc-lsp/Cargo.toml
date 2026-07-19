@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Semantic LSP and MCP bridge for arc repositories"
 
 [dependencies]
-arc-core = { path = "../arc-core" }
+arc-core = { path = "../arc-core", default-features = false }
 tower-lsp = "0.20.0"
 mcp-rust-sdk = { package = "mcp_rust_sdk", version = "0.1.1" }
 tokio = { version = "1.53.0", features = ["io-std", "macros", "rt-multi-thread"] }

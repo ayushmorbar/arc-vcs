@@ -1,6 +1,6 @@
 [package]
 name = "arc-store-cas"
-version = "2026.07.19"
+version = "2026.7.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Content-addressable storage and BLAKE3 hashing utilities for arc"

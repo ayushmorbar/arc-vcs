@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 sha1 = "0.11.0"
 anyhow = "1.0.103"
-arc-core = { path = "../arc-core" }
+arc-core = { path = "../arc-core", default-features = false }
 flate2 = "1.1.9"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 tokio = { version = "1.53.0", features = ["rt-multi-thread", "macros"] }

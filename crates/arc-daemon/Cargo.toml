@@ -27,7 +27,7 @@ arc-algebra-types = { path = "../arc-algebra-types", optional = true }
 arc-change = { path = "../arc-change", optional = true }
 arc-store-types = { path = "../arc-store-types", optional = true }
 arc-store-view = { path = "../arc-store-view", optional = true }
-arc-core = { path = "../arc-core", features = ["redb-metadata"] }
+arc-core = { path = "../arc-core", default-features = false, features = ["redb-metadata"] }
 notify = "8.2.0"
 arc-diagnostics = { path = "../arc-diagnostics" }
 tracing = "0.1.44"

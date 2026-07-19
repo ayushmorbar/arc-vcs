@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use tui_textarea::{Input, TextArea};
+use ratatui_textarea::TextArea;
 
 pub struct CommitInput {
     textarea: TextArea<'static>,
@@ -16,7 +16,7 @@ impl CommitInput {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        self.textarea.input(Input::from(key))
+        self.textarea.input(key)
     }
 
     pub fn intent_text(&self) -> String {
@@ -33,7 +33,7 @@ impl CommitInput {
         area: ratatui::layout::Rect,
         ghost_text: &str,
     ) {
-        frame.render_widget(self.textarea.widget(), area);
+        frame.render_widget(&self.textarea, area);
 
         if self.is_empty() {
             let ghost = Paragraph::new(Line::from(vec![Span::styled(

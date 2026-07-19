@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use arc_algebra_types::{Atom, Blake3Hash, NodePath};
 use arc_change::Change;
 use arc_store_types::Author;
+// TODO(v0.2): Purity Fix — `ignore` crate is a filesystem walker (pulls walkdir,
+// globset, crossbeam-channel).  This crate must stay pure math/algebra.
+// Replace with a local glob AST matcher or accept glob patterns as pre-parsed
+// predicate closures injected by the caller.
 use ignore::gitignore::Gitignore;
 
 use crate::BlobStore;
