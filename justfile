@@ -57,6 +57,18 @@ summarize EXPRESSION='all()':
 coverage:
     cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 80 --out stdout --skip-build
 
+# Run criterion benchmarks (smoke: compile + execute, no regression gate)
+bench:
+    cargo bench -p arc-core --bench core_ops
+
+# Save criterion baseline for regression comparison
+bench-save BASELINE='main':
+    cargo bench -p arc-core --bench core_ops -- --save-baseline {{ BASELINE }}
+
+# Compare current benchmarks against saved baseline (fails on regression)
+bench-compare BASELINE='main':
+    cargo bench -p arc-core --bench core_ops -- --baseline {{ BASELINE }} --load-baseline {{ BASELINE }}
+
 # ── Linting & Formatting ──────────────────────────────────────────────────────
 
 # Fast compile check without running tests
