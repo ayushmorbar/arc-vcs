@@ -91,6 +91,8 @@ jobs:
 
       - name: Install nextest
         uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: cargo-nextest
 
       - name: Run tests
         run: cargo nextest run --workspace --no-fail-fast
@@ -140,6 +142,8 @@ jobs:
 
       - name: Install nextest
         uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: cargo-nextest
 
       - name: Policy regression tests
         run: cargo nextest run --workspace --no-fail-fast -E 'test(policy_regression)' -E 'test(determinism_guarantee)'
@@ -209,7 +213,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: stable
+          toolchain: nightly
           components: miri
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
