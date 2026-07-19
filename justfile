@@ -35,13 +35,13 @@ doc-tests:
 
 # Verify local tooling + governance + workspace policy (regex OR filter via nextest)
 [private]
-verify:
+verify-policy-inner:
     cargo nextest run -p arc-cli --no-fail-fast \
         -E 'test(tooling_audit_current_workspace) | test(governance_audit_current_workspace) | test(workspace_policy_audit_current_workspace)'
 
 # Public policy lane
 verify-policy:
-    @{{ j }} verify
+    @{{ j }} verify-policy-inner
 
 # Run tests matching a filter string, e.g. `just test-filter my_fn`
 test-filter FILTER:
@@ -60,7 +60,7 @@ check:
 
 # Run clippy with zero-warning policy; pass extra args e.g. `just lint -W clippy::pedantic`
 lint *clippy-args:
-    cargo clippy --all-targets --all-features -- -D warnings {{ clippy-args }}
+    cargo clippy --workspace --all-targets --all-features -- -D warnings -A unknown-lints -W clippy::undocumented_unsafe_blocks --no-deps {{ clippy-args }}
 
 # Apply nightly rustfmt, then verify it doesn't break stable rustfmt
 # Also lints the justfile itself via --fmt --unstable
@@ -142,11 +142,24 @@ verify-security: audit
 arch-drift BASE='HEAD~1':
     bash scripts/ci/detect-arch-drift.sh docs/src/architecture/component-graph.json {{ BASE }}
 
-# Fuzzing smoke check for arc-lang parser target
+# Fuzzing smoke check for all fuzz targets
 fuzz-check:
     cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=256 -max_total_time=5
     cargo fuzz run fuzz_net_protocol --sanitizer none -- -runs=256 -max_total_time=5
     cargo fuzz run fuzz_crdt_merge --sanitizer none -- -runs=256 -max_total_time=5
+
+# Run Miri on selected crates (undefined-behavior detection)
+miri:
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri setup
+    MIRIFLAGS="-Zmiri-disable-isolation" cargo +nightly miri test -p arc-algebra --no-fail-fast
+
+# Check API stability against published crate (requires cargo-public-api + nightly)
+api-drift:
+    cargo +nightly public-api --manifest-path crates/arc-algebra/Cargo.toml diff HEAD~1
+
+# Check compilation on beta toolchain (informational, non-blocking)
+beta-check:
+    cargo +beta check --workspace
 
 # Benchmark arc-core operations and emit report-friendly summary
 bench-trend:
@@ -159,13 +172,12 @@ bench-trend:
 verify-fast: fmt-check lint test doc-tests verify-docs
 
 # Full lane: mirrors strict CI + policy + supply chain checks
-verify-full: verify-fast verify-policy verify-security
+verify-full: verify-fast verify-policy verify-security fuzz-check
 
 # ── Full CI gate ──────────────────────────────────────────────────────────────
 
 # Complete local CI check — mirrors CI pipeline exactly
-ci: test doc-tests lint fmt-check doc verify
+ci: verify-full supply-chain api-drift
     rustup toolchain install nightly --profile minimal
     cargo install cargo-public-api --locked --version 0.51.0
-    bash scripts/ci/check-api-drift.sh
     bash scripts/ci/lint-reports.sh

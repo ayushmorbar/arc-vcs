@@ -40,11 +40,15 @@ jobs:
         with:
           shared-key: lint
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: just
+
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: just fmt-check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints -W clippy::undocumented_unsafe_blocks --no-deps
+        run: just lint
 
   build:
     name: Build
@@ -66,8 +70,12 @@ jobs:
         with:
           shared-key: build
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: just
+
       - name: Check compilation
-        run: cargo check --workspace
+        run: just check
 
   test:
     name: Tests
@@ -89,13 +97,12 @@ jobs:
         with:
           shared-key: test
 
-      - name: Install nextest
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: cargo-nextest
+          tool: just,cargo-nextest
 
       - name: Run tests
-        run: cargo nextest run --workspace --no-fail-fast
+        run: just test
 
   doctests:
     name: Doctests
@@ -117,8 +124,12 @@ jobs:
         with:
           shared-key: doctests
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: just
+
       - name: Run doctests
-        run: cargo test --workspace --doc --no-fail-fast
+        run: just doc-tests
 
   policy:
     name: Policy
@@ -226,13 +237,12 @@ jobs:
         with:
           shared-key: supply-chain
 
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
         with:
-          tool: cargo-deny
+          tool: just,cargo-deny
 
       - name: Check advisories, licenses, bans, sources
-        run: cargo deny --workspace --all-features check
+        run: just audit
 
   fuzz:
     name: Fuzz Smoke Test
@@ -254,17 +264,12 @@ jobs:
         with:
           shared-key: fuzz
 
-      - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: just,cargo-fuzz
 
-      - name: Fuzz lang parser (5s)
-        run: cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=256 -max_total_time=5
-
-      - name: Fuzz net protocol (5s)
-        run: cargo fuzz run fuzz_net_protocol --sanitizer none -- -runs=256 -max_total_time=5
-
-      - name: Fuzz CRDT merge (5s)
-        run: cargo fuzz run fuzz_crdt_merge --sanitizer none -- -runs=256 -max_total_time=5
+      - name: Run fuzz smoke tests
+        run: just fuzz-check
 
   beta:
     name: Beta Compiler
@@ -287,8 +292,12 @@ jobs:
         with:
           shared-key: beta
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        with:
+          tool: just
+
       - name: Check compilation on beta
-        run: cargo check --workspace
+        run: just check
 
   miri:
     name: Miri
