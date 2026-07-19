@@ -87,6 +87,18 @@ jobs:
           cd target/${{ matrix.target }}/release
           sha256sum arc arc.exe 2>/dev/null | tee SHA256SUMS.txt
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+
+      - name: Sign artifacts with cosign (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cd target/${{ matrix.target }}/release
+          for f in arc arc.exe SHA256SUMS.txt; do
+            [ -f "$f" ] && cosign sign-blob --yes --output-signature "${f}.sig" --output-certificate "${f}.cert" "$f"
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -95,6 +107,8 @@ jobs:
             target/${{ matrix.target }}/release/arc
             target/${{ matrix.target }}/release/arc.exe
             target/${{ matrix.target }}/release/SHA256SUMS.txt
+            target/${{ matrix.target }}/release/*.sig
+            target/${{ matrix.target }}/release/*.cert
           if-no-files-found: error
 
   collect-subjects:
