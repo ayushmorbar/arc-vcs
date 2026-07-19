@@ -44,7 +44,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps
+        run: cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints -W clippy::undocumented_unsafe_blocks --no-deps
 
   build:
     name: Build

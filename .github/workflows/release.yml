@@ -97,45 +97,46 @@ jobs:
             target/${{ matrix.target }}/release/SHA256SUMS.txt
           if-no-files-found: error
 
-  provenance:
-    name: SLSA Provenance
+  collect-subjects:
+    name: Collect Subjects
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
     permissions:
-      actions: read
-      id-token: write
       contents: read
+    outputs:
+      subjects: ${{ steps.subjects.outputs.subjects }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Download build artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts/
           merge-multiple: true
 
-      - name: Collect subjects
+      - name: Compute SLSA subjects
         id: subjects
         run: |
           cd artifacts
-          echo "subjects<<"EOF"
+          echo "subjects<<EOF" >> "$GITHUB_OUTPUT"
           find . -type f \( -name "arc" -o -name "arc.exe" \) -exec sha256sum {} \; | while read -r hash path; do
             name=$(basename "$path")
-            echo "{\"hash\": \"sha256:${hash#  }\", \"name\": \"${name}\", \"uri\": \"git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}\"}"
-          done
-          EOF
+            echo "${hash}  ${name}"
+          done >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Generate SLSA provenance
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-        with:
-          base-subjects: ${{ steps.subjects.outputs.subjects }}
-          upload-assets: true
-          draft-release: true
-          continue-on-error: true
+  provenance:
+    name: SLSA Provenance
+    needs: collect-subjects
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base-subjects: ${{ needs.collect-subjects.outputs.subjects }}
+      upload-assets: true
+      draft-release: true
+    continue-on-error: true
 
   github-release:
     name: GitHub Release
