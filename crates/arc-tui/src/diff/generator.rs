@@ -81,7 +81,7 @@ impl<'a, S: BlobStore> DiffGenerator<'a, S> {
         {
             let mut parser = Parser::new();
             let _ = parser.set_language(&tree_sitter_rust::LANGUAGE.into());
-            return Self { store, parser };
+            Self { store, parser }
         }
 
         #[cfg(not(feature = "semantic-tree-sitter"))]
