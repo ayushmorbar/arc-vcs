@@ -9,7 +9,6 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
 use arc_cli::governance::audit_github_governance;
 use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
@@ -21,14 +20,7 @@ use arc_cli::repo::{
 use arc_cli::sync::{fetch, pull};
 use arc_cli::tooling::audit_workspace_tooling;
 use arc_cli::workspace_policy::audit_workspace_policy;
-use arc_diagnostics::{ArcError, ResultExt, init_tracing};
-use arc_git_bridge::http::{discover_refs, push_packfile};
-use arc_git_bridge::object::GitIdentity;
-use arc_git_bridge::pack::encode_packfile;
-use arc_git_bridge::translator::{
-    CommitCompileInput, GitMap, GitOdb, compile_commit, compile_tree,
-};
-use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_diagnostics::{ResultExt, init_tracing};
 use arc_net::ai::build_provider;
 use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
 use arc_store_types::author::{Author, load_identity, save_identity};
@@ -1032,59 +1024,10 @@ fn show_synthesis_snapshot(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn git_identity_from_author(author: &Author) -> GitIdentity {
-    let (name, email) = match author {
-        Author::Human { name, email, .. } => (name.clone(), email.clone()),
-        Author::AI { model, .. } => (format!("AI {model}"), "ai@arc.local".to_string()),
-        Author::Server { canonical_id, .. } => {
-            (canonical_id.clone(), "server@arc.local".to_string())
-        }
-        Author::Transient { session_id, .. } => {
-            (session_id.clone(), "transient@arc.local".to_string())
-        }
-    };
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    GitIdentity { name, email, timestamp, timezone: "+0000".to_string() }
-}
-
-fn projected_files_from_state(
-    state: &MaterializedState,
-) -> anyhow::Result<std::collections::HashMap<String, String>> {
-    let mut filepaths = std::collections::HashSet::new();
-    for key in state.keys() {
-        if key.len() >= 2 && key[0] == "file" {
-            filepaths.insert(key[1].clone());
-        }
-    }
-
-    let plugin = RustPlugin::new();
-    let mut files = std::collections::HashMap::new();
-    for filepath in filepaths {
-        let content = if filepath.ends_with(".rs") {
-            plugin
-                .unparse(state, &filepath)
-                .map_err(|e| anyhow::anyhow!("failed to render '{filepath}' from state: {e}"))?
-        } else {
-            let key = vec!["file".to_string(), filepath.clone()];
-            let bytes = state
-                .get(&key)
-                .ok_or_else(|| anyhow::anyhow!("missing file payload for '{filepath}'"))?;
-            std::str::from_utf8(bytes)
-                .map(|s| s.to_string())
-                .map_err(|_| anyhow::anyhow!("cannot export non-UTF-8 file '{filepath}' to Git"))?
-        };
-        files.insert(filepath, content);
-    }
-
-    Ok(files)
-}
-
+#[cfg(test)]
 fn diagnostic_lines(error: &anyhow::Error) -> Vec<String> {
+    use arc_diagnostics::ArcError;
     let mut lines = Vec::new();
     let diagnostic = ArcError::from_anyhow(error);
     lines.push(format!("error: {}", diagnostic.message()).red().bold().to_string());
