@@ -295,6 +295,8 @@ pub fn is_workspace_owned_by_current_user(path: &Path) -> std::io::Result<bool> 
 
         let owner_of_path = std::fs::symlink_metadata(path)?.uid();
         #[allow(unsafe_code)]
+        // SAFETY: libc::geteuid() is always safe on POSIX; the allow lint
+        // satisfies the undocumented_unsafe_blocks policy for FFI calls.
         let owner_of_process = unsafe { libc::geteuid() };
         if owner_of_path == owner_of_process {
             return Ok(true);

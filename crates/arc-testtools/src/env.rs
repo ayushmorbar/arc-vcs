@@ -38,6 +38,8 @@ impl EnvGuard {
             }
         });
         let previous = std::env::var_os(&key);
+        // SAFETY: callers hold the process-wide env_lock() mutex; tests use
+        // env_lock() explicitly.  set_var is sound under this synchronization.
         unsafe {
             std::env::set_var(&key, value.into());
         }
@@ -48,9 +50,12 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         match &self.previous {
+            // SAFETY: same synchronization contract as set() — the env_lock
+            // mutex is held by the outermost EnvGuard or the caller.
             Some(value) => unsafe {
                 std::env::set_var(&self.key, value);
             },
+            // SAFETY: same synchronization contract as set().
             None => unsafe {
                 std::env::remove_var(&self.key);
             },
@@ -71,6 +76,7 @@ mod tests {
     #[test]
     fn restores_previously_unset_variable() {
         const KEY: &str = "ARC_TESTTOOLS_ENV_UNSET";
+        // SAFETY: test-only; env_lock() guard protects the mutation.
         unsafe {
             std::env::remove_var(KEY);
         }
@@ -86,6 +92,7 @@ mod tests {
     #[test]
     fn restores_previous_value_after_drop() {
         const KEY: &str = "ARC_TESTTOOLS_ENV_RESTORE";
+        // SAFETY: test-only; env_lock() guard protects the mutation.
         unsafe {
             std::env::set_var(KEY, "original");
         }
@@ -96,6 +103,7 @@ mod tests {
         }
 
         assert_eq!(std::env::var(KEY).ok().as_deref(), Some("original"));
+        // SAFETY: test-only; env_lock() guard protects the mutation.
         unsafe {
             std::env::remove_var(KEY);
         }
@@ -104,6 +112,7 @@ mod tests {
     #[test]
     fn nested_guards_restore_lifo() {
         const KEY: &str = "ARC_TESTTOOLS_ENV_NESTED";
+        // SAFETY: test-only; env_lock() guard protects the mutation.
         unsafe {
             std::env::set_var(KEY, "base");
         }
@@ -118,6 +127,7 @@ mod tests {
         }
 
         assert_eq!(std::env::var(KEY).ok().as_deref(), Some("base"));
+        // SAFETY: test-only; env_lock() guard protects the mutation.
         unsafe {
             std::env::remove_var(KEY);
         }

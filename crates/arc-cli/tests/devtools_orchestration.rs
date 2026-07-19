@@ -37,6 +37,7 @@ fn run_wrapper_executes_closure_and_returns_ok() {
 fn env_guard_restores_variable_value() {
     let _guard = env_lock().lock().expect("lock env");
     const KEY: &str = "ARC_CLI_TESTTOOLS_ENV_GUARD";
+    // SAFETY: test-only; single-threaded test with env_lock() guard.
     unsafe {
         std::env::set_var(KEY, "base");
     }
@@ -47,6 +48,7 @@ fn env_guard_restores_variable_value() {
     }
 
     assert_eq!(std::env::var(KEY).ok().as_deref(), Some("base"));
+    // SAFETY: test-only; single-threaded test with env_lock() guard.
     unsafe {
         std::env::remove_var(KEY);
     }
