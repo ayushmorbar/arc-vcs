@@ -41,3 +41,50 @@ All `unsafe` blocks in arc-vcs are documented here. Every block must have a
 - **Env mutation (7–16)**: All `set_var`/`remove_var` calls are test helpers
   protected by a process-wide `Mutex<()>` (`env_lock()`). The mutex is held
   for the entire duration of env mutation, preventing data races.
+
+## Miri Scope
+
+### What Miri checks
+
+Miri detects undefined behavior at the Rust abstract machine level:
+
+- **Unsafe code paths**: invalid pointer arithmetic, use-after-free, double-free,
+  data races, misaligned references
+- **Integer overflow**: in debug builds (the default for `cargo miri test`)
+- **Uninitialized memory**: reading uninitialized `u8`, `bool`, or enum
+  discriminants
+- **Validity invariants**: passing invalid values to `std` FFI boundaries
+  (e.g., a dangling pointer to `CString::new`)
+- **Stacked borrows**: violation of Rust's aliasing rules through raw pointers
+
+### What Miri does NOT check
+
+- **System calls**: Miri intercepts a subset of libc. `mmap`, `fork`,
+  `ioctl`, and most OS-level syscalls are not modeled.
+- **FFI safety**: `extern "C"` blocks execute host code; Miri cannot verify
+  their correctness.
+- **Performance**: Miri runs 10–100× slower than native; it is not a
+  benchmarking tool.
+- **No `unsafe` code without UB**: Miri cannot prove absence of UB — it
+  only detects it when triggered by test inputs.
+
+### Project configuration
+
+- **Flag**: `MIRIFLAGS="-Zmiri-disable-isolation"` — allows access to the
+  filesystem and environment variables from within Miri.
+- **Target crate**: `arc-algebra` — the core algebraic operations crate
+  contains the most concentrated unsafe code outside of mmap.
+- **CI timeout**: 30 minutes (Miri is significantly slower than native tests).
+- **Failure mode**: Miri failures block CI (non-`continue-on-error`).
+
+### Limitations for this project
+
+| Block | Why Miri can't verify it |
+|-------|--------------------------|
+| `memmap2::Mmap::map` (#1, 3–5) | `mmap` is a syscall outside Miri's model |
+| `libc::geteuid()` (#2) | Raw FFI call to libc |
+| `std::env::set_var` (#7–16) | Miri models env vars but the mutex pattern is sound |
+
+Miri adds value by catching UB in pure-Rust unsafe code (e.g., pointer
+derivation, slice indexing, union reads) even though it cannot verify the
+syscall-based blocks.
