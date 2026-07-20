@@ -1,5 +1,7 @@
 # cargo-deny configuration — used by `just audit` and `mise run check:audit`
 # Docs: https://embarkstudios.github.io/cargo-deny/
+# Migrated to cargo-deny 0.16+ v2 schema — all deprecated fields removed.
+# See https://github.com/EmbarkStudios/cargo-deny/pull/611
 
 [graph]
 # Check all workspace members
@@ -10,21 +12,30 @@ targets = []
 db-path   = "~/.cargo/advisory-db"
 db-urls   = ["https://github.com/rustsec/advisory-db"]
 version   = 2
-ignore    = []   # add RUSTSEC IDs here to acknowledge known issues
-unmaintained = "workspace"
-yanked = "warn"
-notice = "warn"
+ignore    = [
+  # atty is unsound (RUSTSEC-2021-0145) and unmaintained (RUSTSEC-2024-0375)
+  # — transitive via cliclack; no safe upgrade path
+  "RUSTSEC-2021-0145",
+  "RUSTSEC-2024-0375",
+  # bincode v1.3.3 unmaintained (RUSTSEC-2025-0141)
+  # — used directly by arc-algebra; bincode 2.x has breaking API changes
+  "RUSTSEC-2025-0141",
+  # paste unmaintained (RUSTSEC-2024-0436)
+  # — transitive via tokenizers; no replacement needed
+  "RUSTSEC-2024-0436",
+]
+yanked    = "warn"
+# In v2, all advisory types (vulnerability, unmaintained, unsound, notice)
+# are denied by default. Only `ignore` and `yanked` remain as config options.
 
 # ── Licenses ───────────────────────────────────────────────────────────────────
 [licenses]
 version          = 2
 # Allowlist favors dual-license-compatible permissive licenses.
+# In v2, all licenses not in `allow` or `exceptions` are denied by default.
 allow            = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-DFS-2016", "CC0-1.0"]
-deny             = ["GPL-2.0", "GPL-3.0", "AGPL-3.0"]
-copyleft         = "warn"
-allow-osi-fsf-free = "neither"
-default          = "deny"
 confidence-threshold = 0.8
+# Removed deprecated keys (v2): deny, copyleft, allow-osi-fsf-free, default, unlicensed
 
 # ── Bans (duplicate crates / blocked crates) ───────────────────────────────────
 [bans]
@@ -33,7 +44,6 @@ wildcards          = "deny"   # no `*` version specs in Cargo.toml
 highlight          = "all"
 workspace-default-features = "allow"
 external-default-features  = "allow"
-allow-build-scripts = []
 
 # ── Sources ────────────────────────────────────────────────────────────────────
 [sources]

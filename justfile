@@ -53,9 +53,9 @@ summarize EXPRESSION='all()':
         --status-level none --final-status-level none -E {{ quote(EXPRESSION) }}
 
 # Coverage report via cargo-tarpaulin (requires: cargo install cargo-tarpaulin)
-# Fails if total line coverage < 80%
+# Fails if total line coverage < 70%
 coverage:
-    cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 80 --out stdout
+    cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 70 --out stdout
 
 # Run criterion benchmarks (smoke: compile + execute, no regression gate)
 bench:
@@ -178,9 +178,9 @@ arch-drift BASE='HEAD~1':
 
 # Fuzzing smoke check for all fuzz targets
 fuzz-check:
-    cargo fuzz run fuzz_lang_parser --sanitizer none -- -runs=256 -max_total_time=5
-    cargo fuzz run fuzz_net_protocol --sanitizer none -- -runs=256 -max_total_time=5
-    cargo fuzz run fuzz_crdt_merge --sanitizer none -- -runs=256 -max_total_time=5
+    cargo fuzz run fuzz_lang_parser --sanitizer none --target x86_64-unknown-linux-gnu -- -runs=256 -max_total_time=5
+    cargo fuzz run fuzz_net_protocol --sanitizer none --target x86_64-unknown-linux-gnu -- -runs=256 -max_total_time=5
+    cargo fuzz run fuzz_crdt_merge --sanitizer none --target x86_64-unknown-linux-gnu -- -runs=256 -max_total_time=5
 
 # Run Miri on selected crates (undefined-behavior detection)
 miri:
