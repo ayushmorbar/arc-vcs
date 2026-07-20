@@ -161,7 +161,7 @@ clean:
 
 # ── Security ──────────────────────────────────────────────────────────────────
 
-# Audit deps: CVEs + license compliance + banned crates (requires: cargo install cargo-deny)
+# Audit deps: CVEs + license compliance + banned crates (requires: cargo install cargo-deny >= 0.18.6)
 audit:
     cargo deny --workspace --all-features check advisories bans licenses sources
 
