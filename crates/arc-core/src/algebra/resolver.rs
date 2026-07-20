@@ -96,3 +96,74 @@ pub fn default_evaluator() -> TreeSitterEvaluator {
         block_unresolved_sem_breaks: true,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::algebra::policy::Evaluator;
+
+    #[test]
+    fn resolver_error_verification_display() {
+        let err = ResolverError::VerificationFailed;
+        assert_eq!(err.to_string(), "lens verification failed: semantic break remains");
+    }
+
+    #[test]
+    fn resolver_error_synthesis_display() {
+        let err = ResolverError::SynthesisFailed { reason: "timeout".to_string() };
+        assert_eq!(err.to_string(), "resolver synthesis failed: timeout");
+    }
+
+    #[test]
+    fn mock_resolver_synthesize_signature_mismatch() {
+        let resolver = MockAiResolver;
+        let err = PolicyError::SignatureMismatch {
+            broken_functions: vec!["compute".to_string()],
+            old_signature: "old".to_string(),
+            new_signature: "new".to_string(),
+        };
+        let atoms = resolver.synthesize_lens(&err).unwrap();
+        assert_eq!(atoms.len(), 1);
+        match &atoms[0] {
+            SemanticAtom::SemanticsPreserving { at, description } => {
+                assert_eq!(at.len(), 3);
+                assert!(at.contains(&"lens.rs".to_string()));
+                assert!(description.contains("compute"));
+            }
+            other => panic!("unexpected atom variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn mock_resolver_synthesize_missing_dependency_fails() {
+        let resolver = MockAiResolver;
+        let err = PolicyError::MissingDependency { dependency: "some_crate".to_string() };
+        let result = resolver.synthesize_lens(&err);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ResolverError::SynthesisFailed { .. }));
+    }
+
+    #[test]
+    fn ast_context_builds_ast() {
+        let ast = ast_context(vec!["fn foo() {}".to_string()], vec!["fn bar() {}".to_string()]);
+        assert_eq!(ast.local_rust_sources.len(), 1);
+        assert_eq!(ast.foreign_rust_sources.len(), 1);
+        assert!(ast.expected_api_signatures.is_empty());
+    }
+
+    #[test]
+    fn default_evaluator_builds_with_policy() {
+        let evaluator = default_evaluator();
+        let ast = super::super::policy::Ast::default();
+        let result = evaluator.evaluate_delta_impact(&ast, &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_lens_passes_when_no_sem_breaks() {
+        let evaluator = default_evaluator();
+        let ast = super::super::policy::Ast::default();
+        let result = verify_lens(&evaluator, &ast, &[], &[]);
+        assert!(result.is_ok());
+    }
+}

@@ -98,7 +98,10 @@ impl LockMarker {
                     let registry_id = register_temp(path.to_path_buf());
                     return Ok(Self { path: path.to_path_buf(), registry_id, released: false });
                 }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                Err(err)
+                    if err.kind() == ErrorKind::AlreadyExists
+                        || err.kind() == ErrorKind::PermissionDenied =>
+                {
                     if can_reap_marker(path)? {
                         let _ = fs::remove_file(path);
                         continue;
@@ -206,7 +209,10 @@ impl LockFile {
                         committed: false,
                     });
                 }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                Err(err)
+                    if err.kind() == ErrorKind::AlreadyExists
+                        || err.kind() == ErrorKind::PermissionDenied =>
+                {
                     if can_reap_lock(&lock_path, &owner_path)? {
                         let _ = fs::remove_file(&lock_path);
                         let _ = fs::remove_file(&owner_path);

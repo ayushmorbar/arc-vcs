@@ -1,10 +1,8 @@
 //! Embedding providers for semantic intent indexing.
 //!
 //! The local embedding path uses `tokenizers` for lexical segmentation and
-//! prepares for ONNX Runtime (`ort`) model execution when a local model is
-//! configured. In environments without a local ONNX model, it falls back to a
-//! deterministic hashed embedding that still preserves semantic retrieval
-//! behavior for tests and offline workflows.
+//! falls back to a deterministic hashed embedding that preserves semantic
+//! retrieval behavior for tests and offline workflows.
 
 use std::path::{Path, PathBuf};
 
@@ -137,12 +135,6 @@ impl LocalEmbedder {
     fn embed_bytes(&self, text: &str) -> Vec<f32> {
         let token_ids: Vec<u32> = text.bytes().map(u32::from).collect();
         self.embed_token_ids(&token_ids)
-    }
-
-    #[allow(dead_code)]
-    fn _ort_placeholder_marker(&self) -> &'static str {
-        let _ = std::any::TypeId::of::<ort::session::Session>();
-        "ort-ready"
     }
 }
 

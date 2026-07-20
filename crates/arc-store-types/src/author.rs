@@ -237,3 +237,156 @@ pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
         .map_err(|e| anyhow::anyhow!("identity file is corrupt: {e}"))?;
     Ok((profile.author, ed25519_dalek::SigningKey::from_bytes(&profile.secret_key)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::format;
+
+    #[test]
+    fn test_keypair_deterministic() {
+        let (a1, sk1) = test_keypair();
+        let (a2, sk2) = test_keypair();
+        assert_eq!(a1, a2);
+        assert_eq!(sk1.to_bytes(), sk2.to_bytes());
+    }
+
+    #[test]
+    fn test_keypair_human_author_fields() {
+        let (author, _) = test_keypair();
+        match &author {
+            Author::Human { name, email, key } => {
+                assert_eq!(name, "Test User");
+                assert_eq!(email, "test@example.com");
+                assert_eq!(key.len(), 32);
+            }
+            other => panic!("expected Human variant, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn server_author_from_seed_deterministic() {
+        let seed = [7u8; 32];
+        let a1 = server_author_from_seed("test-server", &seed);
+        let a2 = server_author_from_seed("test-server", &seed);
+        assert_eq!(a1, a2);
+    }
+
+    #[test]
+    fn server_author_from_seed_canonical_id() {
+        let seed = [7u8; 32];
+        let author = server_author_from_seed("my-server", &seed);
+        match &author {
+            Author::Server { canonical_id, key } => {
+                assert_eq!(canonical_id, "my-server");
+                assert_eq!(key.len(), 32);
+            }
+            other => panic!("expected Server variant, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn signature_serde_roundtrip() {
+        let sig = Signature([0xAB; 64]);
+        let json = serde_json::to_string(&sig).unwrap();
+        let loaded: Signature = serde_json::from_str(&json).unwrap();
+        assert_eq!(sig, loaded);
+    }
+
+    #[test]
+    fn signature_clone_and_debug() {
+        let sig = Signature([0x42; 64]);
+        let cloned = sig.clone();
+        assert_eq!(sig, cloned);
+        let debug = format!("{:?}", sig);
+        assert!(debug.contains("Signature"));
+    }
+
+    #[test]
+    fn author_serde_roundtrip_human() {
+        let author = Author::Human {
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+            key: [1u8; 32],
+        };
+        let json = serde_json::to_string(&author).unwrap();
+        let loaded: Author = serde_json::from_str(&json).unwrap();
+        assert_eq!(author, loaded);
+    }
+
+    #[test]
+    fn author_serde_roundtrip_ai() {
+        let author = Author::AI { model: "claude-3-opus".to_string(), human_sponsor: [5u8; 32] };
+        let json = serde_json::to_string(&author).unwrap();
+        let loaded: Author = serde_json::from_str(&json).unwrap();
+        assert_eq!(author, loaded);
+    }
+
+    #[test]
+    fn author_serde_roundtrip_server() {
+        let author = Author::Server { canonical_id: "arc-server".to_string(), key: [9u8; 32] };
+        let json = serde_json::to_string(&author).unwrap();
+        let loaded: Author = serde_json::from_str(&json).unwrap();
+        assert_eq!(author, loaded);
+    }
+
+    #[test]
+    fn author_serde_roundtrip_transient() {
+        let author = Author::Transient { session_id: "ci-runner-42".to_string(), key: [3u8; 32] };
+        let json = serde_json::to_string(&author).unwrap();
+        let loaded: Author = serde_json::from_str(&json).unwrap();
+        assert_eq!(author, loaded);
+    }
+
+    #[test]
+    fn author_debug_format() {
+        let author = Author::Human {
+            name: "Bob".to_string(),
+            email: "bob@example.com".to_string(),
+            key: [0u8; 32],
+        };
+        let debug = format!("{:?}", author);
+        assert!(debug.contains("Human"));
+        assert!(debug.contains("Bob"));
+    }
+
+    #[test]
+    fn generate_transient_keypair_seed_unique() {
+        let (a1, s1) = generate_transient_keypair_seed("session-1");
+        let (a2, s2) = generate_transient_keypair_seed("session-2");
+        assert_ne!(s1, s2);
+        match (&a1, &a2) {
+            (
+                Author::Transient { session_id: id1, .. },
+                Author::Transient { session_id: id2, .. },
+            ) => {
+                assert_eq!(id1, "session-1");
+                assert_eq!(id2, "session-2");
+            }
+            other => panic!("expected Transient variants: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn generate_server_keypair_seed_unique() {
+        let (a1, s1) = generate_server_keypair_seed("server-a");
+        let (a2, s2) = generate_server_keypair_seed("server-b");
+        assert_ne!(s1, s2);
+        match (&a1, &a2) {
+            (
+                Author::Server { canonical_id: id1, .. },
+                Author::Server { canonical_id: id2, .. },
+            ) => {
+                assert_eq!(id1, "server-a");
+                assert_eq!(id2, "server-b");
+            }
+            other => panic!("expected Server variants: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn key_bytes_length_matches() {
+        let (_, sk) = test_keypair();
+        assert_eq!(sk.to_bytes().len(), 32);
+    }
+}

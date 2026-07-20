@@ -248,3 +248,123 @@ impl Evaluator for TreeSitterEvaluator {
         Err(PolicyError::SignatureMismatch { broken_functions, old_signature, new_signature })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::algebra::policy::Evaluator;
+
+    fn default_policy() -> ArcPolicy {
+        ArcPolicy { require_ghost_node_sponsor: false, block_unresolved_sem_breaks: true }
+    }
+
+    fn make_change(src: &str) -> (Ast, Vec<SemanticAtom>) {
+        let local_ast = Ast {
+            local_rust_sources: vec![],
+            expected_api_signatures: std::collections::HashMap::new(),
+            foreign_rust_sources: vec![],
+        };
+        let atoms = vec![SemanticAtom::SemanticsPreserving {
+            at: vec!["src/lib.rs".to_string(), "fn".to_string(), "added".to_string()],
+            description: src.to_string(),
+        }];
+        (local_ast, atoms)
+    }
+
+    #[test]
+    fn no_local_calls_always_passes() {
+        let evaluator = TreeSitterEvaluator::new(default_policy());
+        let (ast, atoms) = make_change("pub fn added(x: i32) -> i32 { x + 1 }");
+        assert!(evaluator.evaluate_delta_impact(&ast, &atoms).is_ok());
+    }
+
+    #[test]
+    fn signature_mismatch_detected() {
+        let mut sigs = std::collections::HashMap::new();
+        sigs.insert("compute".to_string(), "(old_arg: i32) -> i32".to_string());
+        let local_ast = Ast {
+            local_rust_sources: vec!["fn caller() { let _ = compute(42); }".to_string()],
+            expected_api_signatures: sigs,
+            foreign_rust_sources: vec![],
+        };
+        let incoming = vec![SemanticAtom::SemanticsPreserving {
+            at: vec!["src/lib.rs".to_string(), "fn".to_string(), "compute".to_string()],
+            description: "pub fn compute(x: i32, y: i32) -> i32 { x + y }".to_string(),
+        }];
+        let evaluator = TreeSitterEvaluator::new(default_policy());
+        let result = evaluator.evaluate_delta_impact(&local_ast, &incoming);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ghost_node_sponsor_required() {
+        let mut policy = default_policy();
+        policy.require_ghost_node_sponsor = true;
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let atoms = vec![SemanticAtom::Mount {
+            path: vec!["node".to_string()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "ns".to_string(),
+                repo: "repo".to_string(),
+                hash: blake3::hash(b"test"),
+            },
+        }];
+        let err = evaluator.evaluate_delta_impact(&ast, &atoms).unwrap_err();
+        assert!(matches!(err, PolicyError::SignatureMismatch { .. }));
+    }
+
+    #[test]
+    fn payload_signature_mismatch() {
+        let err = PolicyError::SignatureMismatch {
+            broken_functions: vec!["foo".to_string(), "bar".to_string()],
+            old_signature: "(x: i32) -> i32".to_string(),
+            new_signature: "(x: i32, y: i32) -> i32".to_string(),
+        };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "SignatureMismatch");
+        assert_eq!(payload["broken_functions"][0], "foo");
+        assert_eq!(payload["broken_functions"][1], "bar");
+        assert_eq!(payload["old_signature"], "(x: i32) -> i32");
+        assert_eq!(payload["new_signature"], "(x: i32, y: i32) -> i32");
+    }
+
+    #[test]
+    fn payload_missing_dependency() {
+        let err = PolicyError::MissingDependency { dependency: "some_crate".to_string() };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "MissingDependency");
+        assert_eq!(payload["dependency"], "some_crate");
+    }
+
+    #[test]
+    fn payload_read_config() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = PolicyError::ReadConfig { path: "/arc/policy.json".to_string(), source: io_err };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "ReadConfig");
+        assert_eq!(payload["path"], "/arc/policy.json");
+        assert!(payload["error"].as_str().unwrap().contains("file not found"));
+    }
+
+    #[test]
+    fn payload_parse_config() {
+        let parse_err = serde_json::from_str::<serde_json::Value>("not json!!!").unwrap_err();
+        let err =
+            PolicyError::ParseConfig { path: "/arc/policy.json".to_string(), source: parse_err };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "ParseConfig");
+        assert_eq!(payload["path"], "/arc/policy.json");
+        assert!(payload["error"].as_str().unwrap().contains("expected"));
+    }
+
+    #[test]
+    fn boundary_query_is_nonempty() {
+        assert!(!RUST_BOUNDARY_QUERY.is_empty());
+    }
+
+    #[test]
+    fn invocation_query_is_nonempty() {
+        assert!(!RUST_INVOCATION_QUERY.is_empty());
+    }
+}
