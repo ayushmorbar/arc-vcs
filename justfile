@@ -55,7 +55,7 @@ summarize EXPRESSION='all()':
 # Coverage report via cargo-tarpaulin (requires: cargo install cargo-tarpaulin)
 # Fails if total line coverage < 80%
 coverage:
-    cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 80 --out stdout --skip-build
+    cargo tarpaulin --all-features --skip-clean --timeout 300 --fail-under 80 --out stdout
 
 # Run criterion benchmarks (smoke: compile + execute, no regression gate)
 bench:
