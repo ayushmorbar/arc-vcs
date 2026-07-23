@@ -15,6 +15,8 @@ pub mod endpoint;
 pub mod protocol;
 /// Native TCP sync server.
 pub mod server;
+/// State-machine session driving a full sync cycle.
+pub mod session;
 /// Adaptive round-window sizing for batch-oriented sync flows.
 pub mod window;
 
