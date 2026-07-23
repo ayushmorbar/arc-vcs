@@ -295,7 +295,8 @@ mod tests {
         let encoded = [
             0, 0, 0, 64, // num_bits
             0, 0, 0, 1, // word_len = 1
-            0, 0, 0, 0, 0, 0, 0, 0, // 1 word (rlw)
+            0, 0, 0, 0, 0, 0, 0,
+            0, // 1 word (rlw)
                // missing rlw pointer bytes
         ];
         let err = EwahBitmap::decode(&encoded).expect_err("must fail");
