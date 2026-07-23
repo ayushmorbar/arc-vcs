@@ -589,4 +589,81 @@ mod tests {
         assert!(matches!(result, Err(NetworkError::Unauthorized)));
         assert_eq!(cas.writes.load(Ordering::SeqCst), 0);
     }
+
+    #[test]
+    fn compute_missing_changes_returns_local_only() {
+        let local_head = [1u8; 32];
+        let remote_head = [2u8; 32];
+        let dep = [3u8; 32];
+
+        let change_head = {
+            let (author, key) = test_keypair();
+            let mut c = Change::new(HashSet::from([dep]), vec![], "head", author, &key);
+            c.id = local_head;
+            c
+        };
+        let change_dep = {
+            let (author, key) = test_keypair();
+            let mut c = Change::new(HashSet::new(), vec![], "dep", author, &key);
+            c.id = dep;
+            c
+        };
+
+        let mut local_changes = HashMap::new();
+        local_changes.insert(local_head, change_head.clone());
+        local_changes.insert(dep, change_dep.clone());
+
+        let local_frontier = HashSet::from([local_head]);
+        let remote_frontier = HashSet::from([remote_head]);
+
+        let missing = compute_missing_changes(&local_frontier, &remote_frontier, &local_changes);
+        let ids: Vec<[u8; 32]> = missing.iter().map(|c| c.id).collect();
+        assert!(ids.contains(&local_head));
+        assert!(ids.contains(&dep));
+    }
+
+    #[test]
+    fn compute_missing_changes_skips_shared_heads() {
+        let shared = [5u8; 32];
+        let local_frontier = HashSet::from([shared]);
+        let remote_frontier = HashSet::from([shared]);
+
+        let missing = compute_missing_changes(&local_frontier, &remote_frontier, &HashMap::new());
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn signing_bytes_includes_domain_prefix() {
+        let payload = b"test-payload";
+        let ts = Utc::now();
+        let bytes = signing_bytes(payload, &ts);
+        assert!(bytes.starts_with(SIGNING_DOMAIN));
+        assert!(bytes.len() > SIGNING_DOMAIN.len() + payload.len());
+    }
+
+    #[test]
+    fn signing_bytes_deterministic_for_same_input() {
+        let payload = b"deterministic";
+        let ts = Utc::now();
+        let a = signing_bytes(payload, &ts);
+        let b = signing_bytes(payload, &ts);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn signing_bytes_varies_with_payload() {
+        let ts = Utc::now();
+        let a = signing_bytes(b"one", &ts);
+        let b = signing_bytes(b"two", &ts);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn signed_request_roundtrip_with_valid_key() {
+        let key = SigningKey::generate(&mut OsRng);
+        let payload = b"hello".to_vec();
+        let ts = Utc::now();
+        let signed = SignedRequest::sign(payload, ts, &key);
+        assert!(signed.verify_incoming(ts).is_ok());
+    }
 }

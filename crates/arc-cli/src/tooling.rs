@@ -228,6 +228,115 @@ mod tests {
     }
 
     #[test]
+    fn audit_workspace_tooling_rejects_missing_nextest_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_dir = dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+
+        fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
+        fs::write(
+            config_dir.join("mise.toml"),
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
+             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+        )
+        .expect("write mise");
+
+        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(err.to_string().contains("failed to read nextest"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn audit_workspace_tooling_rejects_nextest_missing_default_profile() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_dir = dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+
+        fs::write(
+            config_dir.join("nextest.toml"),
+            "[profile.ci]\nslow-timeout = { period = \"10s\" \
+             }\n",
+        )
+        .expect("write nextest");
+        fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
+        fs::write(
+            config_dir.join("mise.toml"),
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
+             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+        )
+        .expect("write mise");
+
+        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(
+            err.to_string().contains("profile.default.slow-timeout is required"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn audit_workspace_tooling_rejects_missing_mise_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_dir = dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+
+        fs::write(
+            config_dir.join("nextest.toml"),
+            "[profile.default]\nslow-timeout = { period = \"10s\" }\n",
+        )
+        .expect("write nextest");
+        fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
+
+        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(err.to_string().contains("failed to read mise"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn audit_workspace_tooling_rejects_missing_mise_task() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_dir = dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+
+        fs::write(
+            config_dir.join("nextest.toml"),
+            "[profile.default]\nslow-timeout = { period = \"10s\" }\n",
+        )
+        .expect("write nextest");
+        fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
+        fs::write(config_dir.join("mise.toml"), "[tasks.\"check:test\"]\nrun = \"echo test\"\n")
+            .expect("write mise");
+
+        let err = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(err.to_string().contains("missing required task"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn audit_workspace_tooling_accepts_empty_codespell_dict() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_dir = dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create config dir");
+
+        fs::write(
+            config_dir.join("nextest.toml"),
+            "[profile.default]\nslow-timeout = { period = \"10s\" }\n",
+        )
+        .expect("write nextest");
+        fs::write(config_dir.join("codespell-additional-dict"), "").expect("write empty dict");
+        fs::write(
+            config_dir.join("mise.toml"),
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
+             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+        )
+        .expect("write mise");
+
+        let report = audit_workspace_tooling(dir.path(), Vec::new(), Vec::new())
+            .expect("audit should pass with empty dict");
+        assert_eq!(report.codespell_rules, 0);
+    }
+
+    #[test]
     fn tooling_audit_current_workspace() {
         let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let repo_root = crate_dir.ancestors().nth(2).expect("arc workspace root should exist");

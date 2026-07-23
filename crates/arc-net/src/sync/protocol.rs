@@ -273,4 +273,113 @@ mod tests {
         assert!(rendered.contains("<redacted>"));
         assert!(!rendered.contains("secret-token"));
     }
+
+    #[test]
+    fn negotiate_capabilities_passes_matching() {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: None,
+            view_heads: HashMap::new(),
+            required_capabilities: vec![
+                SyncCapability::PayloadStreamV1,
+                SyncCapability::TypedChangeId,
+            ],
+            optional_capabilities: vec![SyncCapability::KeepAlive],
+            frontier: Vec::new(),
+        };
+        let (negotiated, rejected) = negotiate_capabilities(&request, SERVER_CAPABILITIES);
+        assert!(negotiated.contains(&SyncCapability::PayloadStreamV1));
+        assert!(negotiated.contains(&SyncCapability::TypedChangeId));
+        assert!(negotiated.contains(&SyncCapability::KeepAlive));
+        assert!(rejected.is_empty());
+    }
+
+    #[test]
+    fn negotiate_capabilities_rejects_unsupported_required() {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: None,
+            view_heads: HashMap::new(),
+            required_capabilities: vec![SyncCapability::ProgressSideband],
+            optional_capabilities: vec![],
+            frontier: Vec::new(),
+        };
+        let (negotiated, rejected) = negotiate_capabilities(&request, SERVER_CAPABILITIES);
+        assert!(negotiated.is_empty());
+        assert_eq!(rejected, vec![SyncCapability::ProgressSideband]);
+    }
+
+    #[test]
+    fn negotiate_capabilities_deduplicates_negotiated() {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: None,
+            view_heads: HashMap::new(),
+            required_capabilities: vec![SyncCapability::KeepAlive],
+            optional_capabilities: vec![SyncCapability::KeepAlive, SyncCapability::KeepAlive],
+            frontier: Vec::new(),
+        };
+        let (negotiated, _) = negotiate_capabilities(&request, SERVER_CAPABILITIES);
+        let keepalive_count =
+            negotiated.iter().filter(|c| **c == SyncCapability::KeepAlive).count();
+        assert_eq!(keepalive_count, 1);
+    }
+
+    #[test]
+    fn default_versions_are_bounded() {
+        assert!(default_min_version() >= 1);
+        assert!(default_negotiated_version() >= default_min_version());
+    }
+
+    #[test]
+    fn cas_wire_block_roundtrip() {
+        let block = CasWireBlock { hash: [0xAA; 32], bytes: vec![1, 2, 3] };
+        let json = serde_json::to_string(&block).unwrap();
+        let decoded: CasWireBlock = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.hash, [0xAA; 32]);
+        assert_eq!(decoded.bytes, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn handshake_request_defaults() {
+        let request = HandshakeRequest {
+            version: 1,
+            min_version: 1,
+            auth_token: None,
+            view_heads: HashMap::new(),
+            required_capabilities: vec![],
+            optional_capabilities: vec![],
+            frontier: vec![[0xAB; 32]],
+        };
+        assert_eq!(request.frontier.len(), 1);
+        assert!(request.auth_token.is_none());
+        assert!(request.required_capabilities.is_empty());
+    }
+
+    #[test]
+    fn handshake_response_defaults() {
+        let response = HandshakeResponse {
+            status: 0,
+            negotiated_version: 1,
+            negotiated_capabilities: vec![],
+            rejected_required_capabilities: vec![],
+            required_changes: vec![],
+            remote_frontier: vec![],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let decoded: HandshakeResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.status, 0);
+        assert!(decoded.negotiated_capabilities.is_empty());
+    }
+
+    #[test]
+    fn net_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let net_err: NetError = io_err.into();
+        assert!(matches!(net_err, NetError::Io(_)));
+        assert!(net_err.to_string().contains("I/O failure"));
+    }
 }

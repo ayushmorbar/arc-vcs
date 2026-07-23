@@ -177,3 +177,160 @@ fn referenced_generic_ident_with_mut(ty: &Type) -> Option<(Ident, bool)> {
     }
     Some((path.segments[0].ident.clone(), mutability.is_some()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn referenced_generic_ident_with_mut_immutable_ref() {
+        let ty: Type = parse_quote!(&T);
+        let (ident, is_mut) = referenced_generic_ident_with_mut(&ty).unwrap();
+        assert_eq!(ident, "T");
+        assert!(!is_mut);
+    }
+
+    #[test]
+    fn referenced_generic_ident_with_mut_mutable_ref() {
+        let ty: Type = parse_quote!(&mut T);
+        let (ident, is_mut) = referenced_generic_ident_with_mut(&ty).unwrap();
+        assert_eq!(ident, "T");
+        assert!(is_mut);
+    }
+
+    #[test]
+    fn referenced_generic_ident_with_mut_non_reference_returns_none() {
+        let ty: Type = parse_quote!(T);
+        assert!(referenced_generic_ident_with_mut(&ty).is_none());
+    }
+
+    #[test]
+    fn referenced_generic_ident_with_mut_multi_segment_path_returns_none() {
+        let ty: Type = parse_quote!(&std::string::String);
+        assert!(referenced_generic_ident_with_mut(&ty).is_none());
+    }
+
+    #[test]
+    fn referenced_generic_ident_with_mut_qualified_path_returns_none() {
+        let ty: Type = parse_quote!(&<T as Trait>::Assoc);
+        assert!(referenced_generic_ident_with_mut(&ty).is_none());
+    }
+
+    #[test]
+    fn referenced_generic_ident_delegates_to_with_mut() {
+        let ty: Type = parse_quote!(&T);
+        let ident = referenced_generic_ident(&ty).unwrap();
+        assert_eq!(ident, "T");
+    }
+
+    #[test]
+    fn inner_rejects_non_fn_item() {
+        let code = quote::quote! { struct Foo; };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("demono expects a function"), "Expected error about function, got: {s}");
+    }
+
+    #[test]
+    fn inner_rejects_invalid_syntax() {
+        let code = quote::quote! { this is not valid rust +++ };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("error") || s.contains("expected"), "Expected compile error, got: {s}");
+    }
+
+    #[test]
+    fn inner_transforms_function_with_generic_ref_param() {
+        let code = quote::quote! {
+            fn demo<T: Clone>(x: &T) {
+                let _ = x.clone();
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("fn demo"), "Expected outer fn demo, got: {s}");
+        assert!(
+            s.contains("__demono_inner_demo"),
+            "Expected inner fn __demono_inner_demo, got: {s}"
+        );
+        assert!(s.contains("dyn"), "Expected dyn trait object, got: {s}");
+        assert!(s.contains("Clone"), "Expected Clone bound on dyn, got: {s}");
+    }
+
+    #[test]
+    fn inner_preserves_function_body() {
+        let code = quote::quote! {
+            fn compute<T: std::fmt::Display>(val: &T) -> String {
+                format!("{}", val)
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("format"), "Expected body preserved in inner fn, got: {s}");
+    }
+
+    #[test]
+    fn inner_mut_ref_param_becomes_mut_trait_object() {
+        let code = quote::quote! {
+            fn mutate<T: Clone>(x: &mut T) {
+                let _ = x.clone();
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("mut"), "Expected mut trait object, got: {s}");
+        assert!(s.contains("dyn"), "Expected dyn, got: {s}");
+    }
+
+    #[test]
+    fn inner_where_clause_bounds_are_captured() {
+        let code = quote::quote! {
+            fn helper<T>(x: &T) where T: Clone {
+                let _ = x.clone();
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("dyn"), "Expected dyn from where clause bounds, got: {s}");
+    }
+
+    #[test]
+    fn inner_multiple_generic_params_only_converts_used() {
+        let code = quote::quote! {
+            fn multi<T: Clone, U: Clone>(x: &T, _y: &U) {
+                let _ = x.clone();
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("__demono_inner_multi"), "Expected inner fn, got: {s}");
+    }
+
+    #[test]
+    fn inner_preserves_attrs_and_visibility() {
+        let code = quote::quote! {
+            #[inline(always)]
+            pub fn tagged<T: Clone>(x: &T) {
+                let _ = x.clone();
+            }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(s.contains("inline"), "Expected inline attr preserved, got: {s}");
+        assert!(s.contains("pub"), "Expected pub visibility preserved, got: {s}");
+    }
+
+    #[test]
+    fn inner_no_generic_ref_param_errors() {
+        let code = quote::quote! {
+            fn plain(x: i32) -> i32 { x }
+        };
+        let result = inner(code);
+        let s = result.to_string();
+        assert!(
+            s.contains("no supported generic reference parameters"),
+            "Expected error about no generic ref params, got: {s}"
+        );
+    }
+}

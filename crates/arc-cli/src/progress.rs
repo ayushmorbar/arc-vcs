@@ -126,3 +126,94 @@ impl SyncPipeline {
         bar.abandon_with_message(format!("[✖] {message}"));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pipeline_stage_index_values() {
+        assert_eq!(PipelineStage::Discover.index(), 0);
+        assert_eq!(PipelineStage::Negotiate.index(), 1);
+        assert_eq!(PipelineStage::Transfer.index(), 2);
+        assert_eq!(PipelineStage::Materialize.index(), 3);
+        assert_eq!(PipelineStage::Finalize.index(), 4);
+    }
+
+    #[test]
+    fn pipeline_stage_label_values() {
+        assert_eq!(PipelineStage::Discover.label(), "Discovering graph delta...");
+        assert_eq!(PipelineStage::Negotiate.label(), "Negotiating with remote...");
+        assert_eq!(PipelineStage::Transfer.label(), "Transferring blobs...");
+        assert_eq!(PipelineStage::Materialize.label(), "Materializing AST...");
+        assert_eq!(PipelineStage::Finalize.label(), "Finalizing DAG...");
+    }
+
+    #[test]
+    fn sync_pipeline_new_creates_bars() {
+        let pipeline = SyncPipeline::new();
+        assert_eq!(pipeline.bars.len(), 5);
+    }
+
+    #[test]
+    fn sync_pipeline_start_stage() {
+        let pipeline = SyncPipeline::new();
+        pipeline.start_stage(PipelineStage::Transfer);
+    }
+
+    #[test]
+    fn sync_pipeline_finish_stage() {
+        let pipeline = SyncPipeline::new();
+        pipeline.start_stage(PipelineStage::Transfer);
+        pipeline.finish_stage(PipelineStage::Transfer);
+    }
+
+    #[test]
+    fn sync_pipeline_fail_stage() {
+        let pipeline = SyncPipeline::new();
+        pipeline.start_stage(PipelineStage::Transfer);
+        pipeline.fail_stage(PipelineStage::Transfer, "network error");
+    }
+
+    #[test]
+    fn progress_spinner_creates() {
+        let _spinner = Progress::spinner("loading");
+    }
+
+    #[test]
+    fn progress_sync_pipeline_creates() {
+        let _pipeline = Progress::sync_pipeline();
+    }
+
+    #[test]
+    fn spinner_set_message() {
+        let spinner = Progress::spinner("initial");
+        spinner.set_message("updated");
+    }
+
+    #[test]
+    fn spinner_finish_with_message() {
+        let spinner = Progress::spinner("working");
+        spinner.finish_with_message("done");
+    }
+
+    #[test]
+    fn sync_pipeline_start_all_stages() {
+        let pipeline = SyncPipeline::new();
+        pipeline.start_stage(PipelineStage::Discover);
+        pipeline.start_stage(PipelineStage::Negotiate);
+        pipeline.start_stage(PipelineStage::Transfer);
+        pipeline.start_stage(PipelineStage::Materialize);
+        pipeline.start_stage(PipelineStage::Finalize);
+    }
+
+    #[test]
+    fn sync_pipeline_finish_all_stages() {
+        let pipeline = SyncPipeline::new();
+        pipeline.finish_stage(PipelineStage::Discover);
+        pipeline.finish_stage(PipelineStage::Negotiate);
+        pipeline.finish_stage(PipelineStage::Transfer);
+        pipeline.finish_stage(PipelineStage::Materialize);
+        pipeline.finish_stage(PipelineStage::Finalize);
+    }
+}

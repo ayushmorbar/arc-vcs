@@ -276,7 +276,7 @@ fn snapshot_oid_for_paths(paths: &BTreeSet<PathBuf>) -> [u8; 20] {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, io::Write};
+    use std::{collections::BTreeSet, io::Write, path::PathBuf};
 
     use super::{evaluate_semantic_gate, has_error_nodes};
 
@@ -315,5 +315,41 @@ mod tests {
         parser.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("language should set");
         let tree = parser.parse("fn broken(", None).expect("parse should return a tree");
         assert!(has_error_nodes(tree.root_node()));
+    }
+
+    #[test]
+    fn transient_buffer_replace_swaps_entire_set() {
+        let mut buf = super::TransientBuffer::default();
+        let mut first = BTreeSet::new();
+        first.insert(PathBuf::from("a.rs"));
+        buf.replace(first);
+
+        let mut second = BTreeSet::new();
+        second.insert(PathBuf::from("b.rs"));
+        second.insert(PathBuf::from("c.rs"));
+        buf.replace(second);
+
+        assert_eq!(buf.paths.len(), 2);
+        assert!(buf.paths.contains(&PathBuf::from("b.rs")));
+        assert!(buf.paths.contains(&PathBuf::from("c.rs")));
+        assert!(!buf.paths.contains(&PathBuf::from("a.rs")));
+    }
+
+    #[test]
+    fn transient_buffer_clear_empties_paths() {
+        let mut buf = super::TransientBuffer::default();
+        let mut paths = BTreeSet::new();
+        paths.insert(PathBuf::from("x.rs"));
+        buf.replace(paths);
+        assert!(!buf.paths.is_empty());
+
+        buf.clear();
+        assert!(buf.paths.is_empty());
+    }
+
+    #[test]
+    fn transient_buffer_default_is_empty() {
+        let buf = super::TransientBuffer::default();
+        assert!(buf.paths.is_empty());
     }
 }

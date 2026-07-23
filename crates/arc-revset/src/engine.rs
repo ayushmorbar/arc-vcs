@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use arc_algebra_types::Blake3Hash;
+use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
 use arc_store_graph::ChangeGraph;
 use arc_store_types::newtypes::ChangeId;
@@ -303,13 +303,14 @@ fn parse_single_string_arg(name: &str, args: &[RevsetExpression]) -> Result<Stri
 }
 
 fn change_touches_repo_path(change: &Change, path: &str) -> bool {
-    change.atoms.iter().any(|atom| {
-        atom.paths().into_iter().any(|node_path| {
+    change.atoms.iter().any(|atom| match atom {
+        Atom::Blob { path: blob_path, .. } => blob_path == path,
+        _ => atom.paths().into_iter().any(|node_path| {
             if node_path.first().is_some_and(|segment| segment == "file") {
                 return node_path.get(1).is_some_and(|segment| segment == path);
             }
             node_path.first().is_some_and(|segment| segment == path)
-        })
+        }),
     })
 }
 

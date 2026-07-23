@@ -208,3 +208,77 @@ fn strip_code_fence(value: &str) -> String {
     }
     body.join("\n").trim().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_code_fence_removes_markdown_block() {
+        let input = "```rust\nfn main() {}\n```";
+        assert_eq!(strip_code_fence(input), "fn main() {}");
+    }
+
+    #[test]
+    fn strip_code_fence_handles_plain_text() {
+        assert_eq!(strip_code_fence("no fence here"), "no fence here");
+    }
+
+    #[test]
+    fn strip_code_fence_trims_whitespace() {
+        let input = "  \n  ```json\n  {\"key\": \"val\"}  \n  ```  \n  ";
+        assert_eq!(strip_code_fence(input), "{\"key\": \"val\"}");
+    }
+
+    #[test]
+    fn anthropic_provider_default_endpoint() {
+        let provider = AnthropicProvider::new("claude-3".to_string(), None, "test-key".to_string());
+        assert_eq!(provider.endpoint, "https://api.anthropic.com/v1/messages");
+        assert_eq!(provider.model, "claude-3");
+        assert_eq!(provider.api_key, "test-key");
+    }
+
+    #[test]
+    fn anthropic_provider_custom_endpoint() {
+        let provider = AnthropicProvider::new(
+            "claude-3".to_string(),
+            Some("https://proxy.example.com/v1".to_string()),
+            "key123".to_string(),
+        );
+        assert_eq!(provider.endpoint, "https://proxy.example.com/v1");
+    }
+
+    #[test]
+    fn openai_compatible_provider_trims_trailing_slash() {
+        let provider = OpenAiCompatibleProvider::new(
+            "gpt-4".to_string(),
+            Some("https://api.openai.com/".to_string()),
+            "key".to_string(),
+        );
+        assert_eq!(provider.endpoint, "https://api.openai.com");
+    }
+
+    #[test]
+    fn openai_compatible_provider_default_endpoint() {
+        let provider = OpenAiCompatibleProvider::new("gpt-4".to_string(), None, "key".to_string());
+        assert_eq!(provider.endpoint, "https://api.openai.com");
+    }
+
+    #[test]
+    fn build_provider_anthropic() {
+        let result = build_provider("anthropic", "claude-3", None, "k".to_string());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn build_provider_openai_compatible() {
+        let result = build_provider("openai-compatible", "gpt-4", None, "k".to_string());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn build_provider_unsupported() {
+        let result = build_provider("ollama", "llama", None, "k".to_string());
+        assert!(result.is_err());
+    }
+}

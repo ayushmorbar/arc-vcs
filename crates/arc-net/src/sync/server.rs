@@ -341,3 +341,47 @@ fn is_valid_view_name(name: &str) -> bool {
 
     name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_view_names_accepted() {
+        assert!(is_valid_view_name("main"));
+        assert!(is_valid_view_name("feature/foo"));
+        assert!(is_valid_view_name("a-b_c.d"));
+        assert!(is_valid_view_name("release/1.0"));
+    }
+
+    #[test]
+    fn empty_view_name_rejected() {
+        assert!(!is_valid_view_name(""));
+    }
+
+    #[test]
+    fn absolute_path_rejected() {
+        assert!(!is_valid_view_name("/etc/passwd"));
+        assert!(!is_valid_view_name("\\\\server\\share"));
+    }
+
+    #[test]
+    fn dotdot_traversal_rejected() {
+        assert!(!is_valid_view_name("../secret"));
+        assert!(!is_valid_view_name("foo/../../bar"));
+        assert!(!is_valid_view_name(".."));
+    }
+
+    #[test]
+    fn empty_segment_rejected() {
+        assert!(!is_valid_view_name("foo//bar"));
+        assert!(!is_valid_view_name("foo/."));
+    }
+
+    #[test]
+    fn invalid_chars_rejected() {
+        assert!(!is_valid_view_name("has space"));
+        assert!(!is_valid_view_name("has@at"));
+        assert!(!is_valid_view_name("日本語"));
+    }
+}

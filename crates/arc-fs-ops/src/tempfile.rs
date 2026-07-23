@@ -149,7 +149,13 @@ mod tests {
         std::fs::write(&path, b"").unwrap();
 
         let _id = register(path.clone());
-        std::fs::remove_file(&path).unwrap();
+        // On Windows the file may be briefly locked by the OS; retry removal.
+        for _ in 0..5 {
+            if std::fs::remove_file(&path).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
 
         cleanup_signal_safe();
         assert!(!path.exists());

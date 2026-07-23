@@ -353,3 +353,79 @@ impl Repository {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_remote_then_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+        repo.add_remote("origin", "http://example.com/sync").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.get("origin").unwrap(), "http://example.com/sync");
+        assert_eq!(remotes.len(), 1);
+    }
+
+    #[test]
+    fn add_remote_overwrites_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("origin", "http://old.example.com").unwrap();
+        repo.add_remote("origin", "http://new.example.com").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.get("origin").unwrap(), "http://new.example.com");
+        assert_eq!(remotes.len(), 1);
+    }
+
+    #[test]
+    fn remove_remote_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("upstream", "http://up.example.com").unwrap();
+        repo.remove_remote("upstream").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert!(remotes.is_empty());
+    }
+
+    #[test]
+    fn remove_remote_nonexistent_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        let err = repo.remove_remote("nope").unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn list_remotes_empty_by_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert!(remotes.is_empty());
+    }
+
+    #[test]
+    fn add_multiple_remotes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("a", "http://a.example.com").unwrap();
+        repo.add_remote("b", "http://b.example.com").unwrap();
+        repo.add_remote("c", "http://c.example.com").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.len(), 3);
+        assert_eq!(remotes.get("a").unwrap(), "http://a.example.com");
+        assert_eq!(remotes.get("b").unwrap(), "http://b.example.com");
+        assert_eq!(remotes.get("c").unwrap(), "http://c.example.com");
+    }
+}

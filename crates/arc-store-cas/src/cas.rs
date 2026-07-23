@@ -1081,4 +1081,532 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    #[test]
+    fn test_cas_error_display_covers_all_variants() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let e_io = CasError::Io(io_err);
+        assert!(e_io.to_string().contains("I/O error"));
+
+        let e_checksum = CasError::ChecksumMismatch;
+        assert!(e_checksum.to_string().contains("checksum mismatch"));
+
+        let e_hash = CasError::HashMismatch;
+        assert!(e_hash.to_string().contains("object key does not match"));
+    }
+
+    #[test]
+    fn test_cas_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe");
+        let cas_err: CasError = io_err.into();
+        assert!(matches!(cas_err, CasError::Io(_)));
+    }
+
+    #[test]
+    fn test_never_cache_always_returns_false() {
+        let cache = NeverCache;
+        assert!(!cache.should_cache(0));
+        assert!(!cache.should_cache(1));
+        assert!(!cache.should_cache(usize::MAX));
+    }
+
+    #[test]
+    fn test_no_cache_get_always_none_and_put_is_noop() {
+        let mut cache = NoCache;
+        let key: Blake3Hash = *blake3::hash(b"key").as_bytes();
+        assert!(cache.get(&key).is_none());
+        cache.put(key, b"value");
+        assert!(cache.get(&key).is_none());
+    }
+
+    #[test]
+    fn test_size_window_cache_policy_default() {
+        let policy = SizeWindowCachePolicy::default();
+        assert_eq!(policy.min_bytes, 1);
+        assert_eq!(policy.max_bytes, 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_size_window_cache_policy_boundary_conditions() {
+        let policy = SizeWindowCachePolicy { min_bytes: 10, max_bytes: 100 };
+        assert!(!policy.should_cache(9));
+        assert!(policy.should_cache(10));
+        assert!(policy.should_cache(50));
+        assert!(policy.should_cache(100));
+        assert!(!policy.should_cache(101));
+    }
+
+    #[test]
+    fn test_size_window_cache_policy_zero_range() {
+        let policy = SizeWindowCachePolicy { min_bytes: 50, max_bytes: 40 };
+        assert!(!policy.should_cache(0));
+        assert!(!policy.should_cache(45));
+        assert!(!policy.should_cache(50));
+    }
+
+    #[test]
+    fn test_cas_bytes_default_is_empty() {
+        let default = CasBytes::default();
+        assert_eq!(default.len(), 0);
+        assert!(default.is_empty());
+    }
+
+    #[test]
+    fn test_cas_bytes_as_ref() {
+        let bytes = CasBytes::Owned(Bytes::from_static(b"hello"));
+        let slice: &[u8] = bytes.as_ref();
+        assert_eq!(slice, b"hello");
+    }
+
+    #[test]
+    fn test_cas_bytes_deref() {
+        let bytes = CasBytes::Owned(Bytes::from_static(b"deref-test"));
+        assert_eq!(&*bytes, b"deref-test");
+    }
+
+    #[test]
+    fn test_cas_read_policy_default() {
+        let policy = CasReadPolicy::default();
+        assert_eq!(policy.mmap_threshold_bytes, SMALL_OBJECT_THRESHOLD);
+    }
+
+    #[test]
+    fn test_hex_encode_output_format() {
+        let mut hash = [0u8; 32];
+        hash[0] = 0xAB;
+        hash[1] = 0xCD;
+        hash[31] = 0xFF;
+        let hex = hex_encode(&hash);
+        assert_eq!(hex.len(), 64);
+        assert!(hex.starts_with("abcd"));
+        assert!(hex.ends_with("ff"));
+        assert_eq!(&hex[..2], "ab");
+    }
+
+    #[test]
+    fn test_hex_encode_all_zeros() {
+        let hash = [0u8; 32];
+        let hex = hex_encode(&hash);
+        assert_eq!(hex.len(), 64);
+        assert!(hex.chars().all(|c| c == '0'));
+    }
+
+    #[test]
+    fn test_weighted_lru_oversized_entry_rejected() {
+        let mut cache = WeightedLruCache::new(8);
+        let key: Blake3Hash = *blake3::hash(b"big").as_bytes();
+        let big = vec![1u8; 100];
+        cache.put(key, &big);
+        assert_eq!(cache.used_bytes(), 0);
+        assert!(cache.get(&key).is_none());
+    }
+
+    #[test]
+    fn test_weighted_lru_exact_capacity_fit() {
+        let mut cache = WeightedLruCache::new(4);
+        let key: Blake3Hash = *blake3::hash(b"exact").as_bytes();
+        cache.put(key, b"1234");
+        assert_eq!(cache.used_bytes(), 4);
+        assert_eq!(cache.get(&key).as_deref(), Some(&b"1234"[..]));
+    }
+
+    #[test]
+    fn test_weighted_lru_replaces_same_key() {
+        let mut cache = WeightedLruCache::new(16);
+        let key: Blake3Hash = *blake3::hash(b"dup").as_bytes();
+        cache.put(key, b"first");
+        cache.put(key, b"second-longer");
+        assert_eq!(cache.used_bytes(), 13);
+        assert_eq!(cache.get(&key).as_deref(), Some(&b"second-longer"[..]));
+    }
+
+    #[test]
+    fn test_weighted_lru_get_promotes_recency() {
+        let mut cache = WeightedLruCache::new(5);
+        let k1: Blake3Hash = *blake3::hash(b"aa").as_bytes();
+        let k2: Blake3Hash = *blake3::hash(b"bb").as_bytes();
+        cache.put(k1, b"12");
+        cache.put(k2, b"34");
+        let _ = cache.get(&k1);
+        let k3: Blake3Hash = *blake3::hash(b"cc").as_bytes();
+        cache.put(k3, b"56");
+        assert!(cache.get(&k2).is_none(), "k2 should be evicted first");
+        assert!(cache.get(&k1).is_some(), "k1 should survive (recently accessed)");
+    }
+
+    #[test]
+    fn test_weighted_lru_freelist_recycling() {
+        let mut cache = WeightedLruCache::new(8);
+        let k1: Blake3Hash = *blake3::hash(b"a").as_bytes();
+        let k2: Blake3Hash = *blake3::hash(b"b").as_bytes();
+        cache.put(k1, b"1234");
+        let before = cache.free_buffer_count();
+        cache.put(k2, b"5678");
+        assert_eq!(cache.used_bytes(), 8);
+        assert_eq!(cache.free_buffer_count(), before, "freelist should not grow on new entries");
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_capacity_one() {
+        let mut cache = TinyLinkedLruCache::<1>::default();
+        let a: Blake3Hash = *blake3::hash(b"a1").as_bytes();
+        let b: Blake3Hash = *blake3::hash(b"b2").as_bytes();
+        cache.put(a, b"A");
+        assert_eq!(cache.get(&a).as_deref(), Some(&b"A"[..]));
+        cache.put(b, b"B");
+        assert!(cache.get(&a).is_none(), "capacity-1 cache must evict a");
+        assert_eq!(cache.get(&b).as_deref(), Some(&b"B"[..]));
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_update_existing_key() {
+        let mut cache = TinyLinkedLruCache::<3>::default();
+        let a: Blake3Hash = *blake3::hash(b"upd").as_bytes();
+        cache.put(a, b"old");
+        cache.put(a, b"new");
+        assert_eq!(cache.get(&a).as_deref(), Some(&b"new"[..]));
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_capacity_two_full_cycle() {
+        let mut cache = TinyLinkedLruCache::<2>::default();
+        let a: Blake3Hash = *blake3::hash(b"x").as_bytes();
+        let b: Blake3Hash = *blake3::hash(b"y").as_bytes();
+        let c: Blake3Hash = *blake3::hash(b"z").as_bytes();
+        cache.put(a, b"A");
+        cache.put(b, b"B");
+        cache.put(c, b"C");
+        assert!(cache.get(&a).is_none(), "a should be evicted");
+        let _ = cache.get(&b); // promote b to tail
+        let d: Blake3Hash = *blake3::hash(b"w").as_bytes();
+        cache.put(d, b"D");
+        assert!(cache.get(&b).is_some(), "b should survive (promoted to tail)");
+        assert!(cache.get(&c).is_none(), "c should be evicted (was at head)");
+    }
+
+    #[test]
+    fn test_blob_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"blob-content-addressable-data";
+        let hash = store.write_blob(data).unwrap();
+        let loaded = store.read_blob(&hash).unwrap();
+        assert_eq!(&*loaded, data);
+    }
+
+    #[test]
+    fn test_blob_deduplication() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"dedup-blob";
+        let h1 = store.write_blob(data).unwrap();
+        let h2 = store.write_blob(data).unwrap();
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_contains_blob_returns_bool() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"check-existence";
+        let hash = store.write_blob(data).unwrap();
+        assert!(store.contains_blob(&hash));
+        let missing: Blake3Hash = *blake3::hash(b"nope").as_bytes();
+        assert!(!store.contains_blob(&missing));
+    }
+
+    #[test]
+    fn test_blob_file_path_returns_correct_location() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"file-path-test";
+        let hash = store.write_blob(data).unwrap();
+        let path = store.blob_file_path(&hash);
+        assert!(path.exists());
+        assert!(path.to_string_lossy().contains("blobs"));
+    }
+
+    #[test]
+    fn test_write_blob_stream_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"streaming-blob-data";
+        let mut reader = &data[..];
+        let (hash, total) = store.write_blob_stream(&mut reader).unwrap();
+        assert_eq!(total, data.len() as u64);
+        let loaded = store.read_blob(&hash).unwrap();
+        assert_eq!(&*loaded, data);
+    }
+
+    #[test]
+    fn test_write_blob_stream_dedup() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"stream-dedup";
+        let mut r1 = &data[..];
+        let (h1, _) = store.write_blob_stream(&mut r1).unwrap();
+        let mut r2 = &data[..];
+        let (h2, _) = store.write_blob_stream(&mut r2).unwrap();
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_read_blob_cached_cache_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"cached-hit";
+        let hash = store.write_blob(data).unwrap();
+        let mut cache = WeightedLruCache::new(1024);
+        let _ = store.read_blob_cached(&hash, &mut cache, &NeverCache).unwrap();
+        assert!(cache.get(&hash).is_none(), "NeverCache should not store");
+    }
+
+    #[test]
+    fn test_read_blob_cached_with_size_window_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"window-cached";
+        let hash = store.write_blob(data).unwrap();
+        let mut cache = WeightedLruCache::new(1024);
+        let policy = SizeWindowCachePolicy { min_bytes: 1, max_bytes: 1024 };
+        let loaded = store.read_blob_cached(&hash, &mut cache, &policy).unwrap();
+        assert_eq!(&*loaded, data);
+        assert_eq!(cache.used_bytes(), data.len());
+    }
+
+    #[test]
+    fn test_read_blob_cached_miss_then_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"miss-to-hit";
+        let hash = store.write_blob(data).unwrap();
+        let mut cache = WeightedLruCache::new(1024);
+        let policy = SizeWindowCachePolicy { min_bytes: 1, max_bytes: 1024 };
+        let first = store.read_blob_cached(&hash, &mut cache, &policy).unwrap();
+        assert_eq!(&*first, data);
+        let second = store.read_blob_cached(&hash, &mut cache, &policy).unwrap();
+        assert_eq!(&*second, data);
+    }
+
+    #[test]
+    fn test_write_blob_stream_empty_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data: &[u8] = b"";
+        let mut reader = data;
+        let (hash, total) = store.write_blob_stream(&mut reader).unwrap();
+        assert_eq!(total, 0);
+        let expected_hash: Blake3Hash = *blake3::hash(b"").as_bytes();
+        assert_eq!(hash, expected_hash);
+        let loaded = store.read_blob(&hash).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_object_store_new_and_with_read_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let store1 = ObjectStore::new(dir.path());
+        assert!(store1.root.to_string_lossy().contains(".arc"));
+
+        let policy = CasReadPolicy { mmap_threshold_bytes: 128 };
+        let store2 = ObjectStore::with_read_policy(dir.path(), policy);
+        assert_eq!(store2.read_policy.mmap_threshold_bytes, 128);
+    }
+
+    #[test]
+    fn test_cas_storage_trait_impl() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"trait-impl-test";
+        let hash: Blake3Hash = *blake3::hash(data).as_bytes();
+        let written = CasStorage::write_object(&store, &hash, data).unwrap();
+        assert_eq!(written, hash);
+        let loaded = CasStorage::read_object(&store, &hash).unwrap();
+        assert_eq!(&*loaded, data);
+    }
+
+    #[test]
+    fn test_cas_storage_trait_blob_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"trait-stream";
+        let mut reader = &data[..];
+        let (hash, total) = CasStorage::write_blob_stream(&store, &mut reader).unwrap();
+        assert_eq!(total, data.len() as u64);
+        let loaded = store.read_blob(&hash).unwrap();
+        assert_eq!(&*loaded, data);
+    }
+
+    #[test]
+    fn test_write_object_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let wrong_hash: Blake3Hash = *blake3::hash(b"wrong-key").as_bytes();
+        let data = b"actual-content";
+        let err = store.write_object(&wrong_hash, data).unwrap_err();
+        assert!(matches!(err, CasError::HashMismatch));
+    }
+
+    #[test]
+    fn test_read_object_missing_returns_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let missing: Blake3Hash = *blake3::hash(b"nonexistent").as_bytes();
+        let result = store.read_object(&missing);
+        assert!(result.is_err());
+        match result {
+            Err(CasError::Io(_)) => {}
+            _ => panic!("expected Io error"),
+        }
+    }
+
+    #[test]
+    fn test_read_blob_missing_returns_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let missing: Blake3Hash = *blake3::hash(b"missing-blob").as_bytes();
+        let result = store.read_blob(&missing);
+        assert!(result.is_err());
+        match result {
+            Err(CasError::Io(_)) => {}
+            _ => panic!("expected Io error"),
+        }
+    }
+
+    #[test]
+    fn test_write_change_bytes_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let raw: Blake3Hash = *blake3::hash(b"change-data").as_bytes();
+        let id = ChangeId::from(raw);
+        store.write_change_bytes(id, b"payload").unwrap();
+        let loaded = store.read_change_bytes(id).unwrap();
+        assert_eq!(&*loaded, b"payload");
+    }
+
+    #[test]
+    fn test_read_change_bytes_missing_returns_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let raw: Blake3Hash = *blake3::hash(b"missing-change").as_bytes();
+        let id = ChangeId::from(raw);
+        let result = store.read_change_bytes(id);
+        assert!(result.is_err());
+        match result {
+            Err(CasError::Io(_)) => {}
+            _ => panic!("expected Io error"),
+        }
+    }
+
+    #[test]
+    fn test_write_blob_hash_mismatch_not_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"blob-write-no-check";
+        let hash = store.write_blob(data).unwrap();
+        let expected: Blake3Hash = *blake3::hash(data).as_bytes();
+        assert_eq!(hash, expected, "write_blob returns correct content hash");
+    }
+
+    #[test]
+    fn test_hex_encode_all_ff() {
+        let hash = [0xFFu8; 32];
+        let hex = hex_encode(&hash);
+        assert_eq!(hex.len(), 64);
+        assert!(hex.chars().all(|c| c == 'f'));
+    }
+
+    #[test]
+    fn test_weighted_lru_empty_cache() {
+        let mut cache = WeightedLruCache::new(100);
+        let key: Blake3Hash = *blake3::hash(b"empty").as_bytes();
+        assert!(cache.get(&key).is_none());
+        assert_eq!(cache.used_bytes(), 0);
+        assert_eq!(cache.free_buffer_count(), 0);
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_get_nonexistent() {
+        let mut cache = TinyLinkedLruCache::<4>::default();
+        let key: Blake3Hash = *blake3::hash(b"ghost").as_bytes();
+        assert!(cache.get(&key).is_none());
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_many_inserts_eviction_order() {
+        let mut cache = TinyLinkedLruCache::<3>::default();
+        let keys: Vec<Blake3Hash> = (0..5).map(|i| *blake3::hash(&[i]).as_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            cache.put(*k, &[i as u8]);
+        }
+        for (i, k) in keys.iter().enumerate() {
+            let expected = if i >= 2 { Some(true) } else { None };
+            let got = cache.get(k).is_some();
+            assert_eq!(got, expected.is_some(), "keys[{}] present={}", i, got);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_open_read_no_follow_rejects_symlink_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real_win.bin");
+        fs::write(&real, b"win").unwrap();
+
+        std::os::windows::fs::symlink_file(&real, dir.path().join("link_win.bin")).unwrap();
+        let err =
+            open_read_no_follow(&dir.path().join("link_win.bin")).expect_err("symlink must fail");
+        assert!(matches!(err, CasError::Io(_)));
+    }
+
+    #[test]
+    fn test_tiny_linked_lru_capacity_zero_put_is_noop() {
+        let mut cache = TinyLinkedLruCache::<0>::default();
+        let key: Blake3Hash = *blake3::hash(b"zero-cap").as_bytes();
+        cache.put(key, b"value");
+        assert!(cache.get(&key).is_none(), "capacity-0 cache must never store entries");
+    }
+
+    #[test]
+    fn test_weighted_lru_zero_capacity_rejects_all_puts() {
+        let mut cache = WeightedLruCache::new(0);
+        let k1: Blake3Hash = *blake3::hash(b"a").as_bytes();
+        let k2: Blake3Hash = *blake3::hash(b"b").as_bytes();
+        cache.put(k1, b"one");
+        cache.put(k2, b"two");
+        assert!(cache.get(&k1).is_none(), "zero-capacity cache must reject put");
+        assert!(cache.get(&k2).is_none(), "zero-capacity cache must reject put");
+        assert_eq!(cache.used_bytes(), 0, "used_bytes must stay 0");
+    }
+
+    #[test]
+    fn test_read_blob_typed_roundtrip_via_write_blob() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let data = b"typed-roundtrip-payload";
+        let hash = store.write_blob(data).unwrap();
+        let id = BlobId(hash);
+        let loaded = store.read_blob_typed(id).unwrap();
+        assert_eq!(&*loaded, data, "read_blob_typed must return bytes written via write_blob");
+    }
+
+    #[test]
+    fn test_contains_blob_false_for_objects() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ObjectStore::new(dir.path());
+        let (hash, bytes) = sample_object();
+        store.write_object(&hash, &bytes).unwrap();
+        assert!(
+            !store.contains_blob(&hash),
+            "contains_blob must return false for an object stored via write_object"
+        );
+    }
+
+    #[test]
+    fn test_cas_bytes_default_len_zero_deref_empty() {
+        let default = CasBytes::default();
+        assert_eq!(default.len(), 0, "default CasBytes must have len 0");
+        let slice: &[u8] = &default;
+        assert!(slice.is_empty(), "default CasBytes must deref to empty slice");
+    }
 }

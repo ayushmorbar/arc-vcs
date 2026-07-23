@@ -38,6 +38,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
@@ -176,9 +177,32 @@ impl Atom {
     }
 }
 
+impl fmt::Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Atom::Insert { at, .. } => write!(f, "Insert {}", at.join("/")),
+            Atom::Delete { at, .. } => write!(f, "Delete {}", at.join("/")),
+            Atom::Move { from, to } => write!(f, "Move {} -> {}", from.join("/"), to.join("/")),
+            Atom::SemanticsPreserving { at, description } => {
+                write!(f, "SemanticsPreserving {} {}", at.join("/"), description)
+            }
+            Atom::Directory { path } => write!(f, "Directory {}", path.join("/")),
+            Atom::Blob { path, size, .. } => write!(f, "Blob {} {}B", path, size),
+            Atom::Mount { path, coordinate } => {
+                write!(f, "Mount {} {}", path.join("/"), coordinate.to_uri())
+            }
+            Atom::Conflict { bases, sides, at } => {
+                write!(f, "Conflict {}/{} {}", bases.len(), sides.len(), at.join("/"))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::SpacetimeCoordinate;
+    use super::*;
+
+    // ── SpacetimeCoordinate ──────────────────────────────────────────────
 
     #[test]
     fn spacetime_coordinate_roundtrip_uri() {
@@ -194,5 +218,214 @@ mod tests {
         let uri =
             "arc://org/repo/sub@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         assert!(SpacetimeCoordinate::from_uri(uri).is_err());
+    }
+
+    #[test]
+    fn spacetime_coordinate_from_uri_no_arc_prefix() {
+        let result = SpacetimeCoordinate::from_uri("foo/bar@abcd");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("arc://"));
+    }
+
+    #[test]
+    fn spacetime_coordinate_from_uri_no_hash_separator() {
+        let result = SpacetimeCoordinate::from_uri("arc://org/repo");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("@"));
+    }
+
+    #[test]
+    fn spacetime_coordinate_from_uri_no_namespace_repo() {
+        let result = SpacetimeCoordinate::from_uri(
+            "arc://norepo@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("namespace"));
+    }
+
+    #[test]
+    fn spacetime_coordinate_from_uri_empty_namespace() {
+        let result = SpacetimeCoordinate::from_uri(
+            "arc:///@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn spacetime_coordinate_from_uri_invalid_hash() {
+        let result = SpacetimeCoordinate::from_uri("arc://org/repo@not-a-hash");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hex"));
+    }
+
+    // ── Atom::paths() ────────────────────────────────────────────────────
+
+    #[test]
+    fn atom_paths_insert() {
+        let atom =
+            Atom::Insert { at: vec!["a".to_string(), "b".to_string()], content_hash: [0u8; 32] };
+        assert_eq!(atom.paths(), vec![&vec!["a".to_string(), "b".to_string()]]);
+    }
+
+    #[test]
+    fn atom_paths_delete() {
+        let atom = Atom::Delete { at: vec!["x".to_string()], prior_hash: [0u8; 32] };
+        assert_eq!(atom.paths(), vec![&vec!["x".to_string()]]);
+    }
+
+    #[test]
+    fn atom_paths_move() {
+        let atom = Atom::Move { from: vec!["old".to_string()], to: vec!["new".to_string()] };
+        let paths = atom.paths();
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0], &vec!["old".to_string()]);
+        assert_eq!(paths[1], &vec!["new".to_string()]);
+    }
+
+    #[test]
+    fn atom_paths_directory() {
+        let atom = Atom::Directory { path: vec!["d".to_string()] };
+        assert_eq!(atom.paths(), vec![&vec!["d".to_string()]]);
+    }
+
+    #[test]
+    fn atom_paths_blob() {
+        let atom =
+            Atom::Blob { path: "x.png".into(), hash: blake3::Hash::from_bytes([0u8; 32]), size: 0 };
+        assert!(atom.paths().is_empty());
+    }
+
+    #[test]
+    fn atom_paths_mount() {
+        let atom = Atom::Mount {
+            path: vec!["m".to_string()],
+            coordinate: SpacetimeCoordinate {
+                namespace: "n".into(),
+                repo: "r".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        assert_eq!(atom.paths(), vec![&vec!["m".to_string()]]);
+    }
+
+    #[test]
+    fn atom_paths_conflict() {
+        let atom = Atom::Conflict { bases: vec![], sides: vec![], at: vec!["c".to_string()] };
+        assert_eq!(atom.paths(), vec![&vec!["c".to_string()]]);
+    }
+
+    #[test]
+    fn atom_paths_semantics_preserving() {
+        let atom =
+            Atom::SemanticsPreserving { at: vec!["sp".to_string()], description: "fmt".into() };
+        assert_eq!(atom.paths(), vec![&vec!["sp".to_string()]]);
+    }
+
+    // ── Debug trait ──────────────────────────────────────────────────────
+
+    #[test]
+    fn atom_debug_format() {
+        let atom = Atom::Insert { at: vec!["f".to_string()], content_hash: [1u8; 32] };
+        let debug = format!("{atom:?}");
+        assert!(debug.contains("Insert"));
+    }
+
+    // ── SpacetimeCoordinate Debug/Display ────────────────────────────────
+
+    #[test]
+    fn spacetime_coordinate_debug_format() {
+        let coord = SpacetimeCoordinate {
+            namespace: "n".into(),
+            repo: "r".into(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+        };
+        let debug = format!("{coord:?}");
+        assert!(debug.contains("SpacetimeCoordinate"));
+    }
+
+    // ── Display for Atom ────────────────────────────────────────────────
+
+    #[test]
+    fn atom_display_insert() {
+        let atom = Atom::Insert {
+            at: vec!["file".to_string(), "main.rs".to_string()],
+            content_hash: [0u8; 32],
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("Insert"));
+        assert!(s.contains("main.rs"));
+    }
+
+    #[test]
+    fn atom_display_delete() {
+        let atom = Atom::Delete {
+            at: vec!["file".to_string(), "old.rs".to_string()],
+            prior_hash: [0u8; 32],
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("Delete"));
+        assert!(s.contains("old.rs"));
+    }
+
+    #[test]
+    fn atom_display_move() {
+        let atom = Atom::Move { from: vec!["a.rs".to_string()], to: vec!["b.rs".to_string()] };
+        let s = format!("{atom}");
+        assert!(s.contains("Move"));
+        assert!(s.contains("a.rs"));
+        assert!(s.contains("b.rs"));
+    }
+
+    #[test]
+    fn atom_display_directory() {
+        let atom = Atom::Directory { path: vec!["dir".to_string()] };
+        let s = format!("{atom}");
+        assert!(s.contains("Directory"));
+    }
+
+    #[test]
+    fn atom_display_blob() {
+        let atom = Atom::Blob {
+            path: "img.png".into(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+            size: 1024,
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("Blob"));
+    }
+
+    #[test]
+    fn atom_display_mount() {
+        let atom = Atom::Mount {
+            path: vec!["lib".to_string()],
+            coordinate: SpacetimeCoordinate {
+                namespace: "org".into(),
+                repo: "dep".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("Mount"));
+    }
+
+    #[test]
+    fn atom_display_conflict() {
+        let atom = Atom::Conflict {
+            bases: vec![[0u8; 32]],
+            sides: vec![[1u8; 32]],
+            at: vec!["file".to_string(), "conflict.rs".to_string()],
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("Conflict"));
+    }
+
+    #[test]
+    fn atom_display_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["file".to_string(), "fmt.rs".to_string()],
+            description: "reformat".into(),
+        };
+        let s = format!("{atom}");
+        assert!(s.contains("SemanticsPreserving"));
     }
 }

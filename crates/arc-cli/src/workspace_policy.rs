@@ -136,6 +136,8 @@ fn effective_lines(raw: &str) -> Vec<String> {
 mod tests {
     use std::fs;
 
+    use arc_store_types::newtypes::{ChangeId, SnapshotId};
+
     use super::audit_workspace_policy;
 
     fn write_valid_workspace_policy(root: &std::path::Path) {
@@ -217,6 +219,93 @@ mod tests {
             .expect("current workspace policy must be valid");
         assert_eq!(report.policy_files.len(), 4);
         assert!(report.validated_gitignore_patterns >= 4);
+    }
+
+    #[test]
+    fn workspace_policy_audit_rejects_missing_policy_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        fs::remove_file(dir.path().join(".editorconfig")).expect("remove editorconfig");
+
+        let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(
+            err.to_string().contains("missing workspace policy file"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn workspace_policy_audit_rejects_editorconfig_missing_indent_size() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        fs::write(rooted(&dir, ".editorconfig"), "root = true\n\n[*.rs]\nindent_style = space\n")
+            .expect("rewrite editorconfig");
+
+        let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(
+            err.to_string().contains("must pin Rust indentation width"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn workspace_policy_audit_rejects_rustfmt_missing_edition() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        fs::write(rooted(&dir, "rustfmt.toml"), "max_width = 100\n").expect("rewrite rustfmt");
+
+        let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(err.to_string().contains("must pin edition"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn workspace_policy_audit_rejects_rustfmt_missing_max_width() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        fs::write(rooted(&dir, "rustfmt.toml"), "edition = \"2024\"\n").expect("rewrite rustfmt");
+
+        let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(err.to_string().contains("must pin max_width"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn workspace_policy_audit_rejects_invalid_rustfmt_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        fs::write(rooted(&dir, "rustfmt.toml"), "this is not valid [[[ toml\n")
+            .expect("rewrite rustfmt");
+
+        let err = audit_workspace_policy(dir.path(), Vec::new(), Vec::new())
+            .expect_err("audit should fail");
+        assert!(
+            err.to_string().contains("failed to parse") || err.to_string().contains("TOML"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn workspace_policy_audit_passes_frontier_and_synthesis() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_valid_workspace_policy(dir.path());
+        let frontier = vec![
+            ChangeId::from_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+                .expect("valid change id"),
+        ];
+        let snapshots = vec![
+            SnapshotId::from_hex(
+                "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+            )
+            .expect("valid snapshot id"),
+        ];
+
+        let report = audit_workspace_policy(dir.path(), frontier.clone(), snapshots.clone())
+            .expect("audit should pass");
+        assert_eq!(report.frontier, frontier);
+        assert_eq!(report.synthesis_snapshots, snapshots);
     }
 
     fn rooted(dir: &tempfile::TempDir, file: &str) -> std::path::PathBuf {

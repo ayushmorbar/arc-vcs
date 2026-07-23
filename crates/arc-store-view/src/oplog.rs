@@ -773,4 +773,155 @@ mod tests {
             "legacy oplog should be moved aside after migration"
         );
     }
+
+    #[test]
+    fn auto_intent_summary_empty_vec() {
+        let result = auto_intent_summary(&[]);
+        assert_eq!(result, "[auto-snap] Structural changes to workspace detected via tree-sitter.");
+    }
+
+    #[test]
+    fn auto_intent_summary_single_symbol() {
+        let symbols = vec!["Foo".to_string()];
+        let result = auto_intent_summary(&symbols);
+        assert_eq!(result, "[auto-snap] Structural changes to Foo detected via tree-sitter.");
+    }
+
+    #[test]
+    fn auto_intent_summary_multiple_symbols() {
+        let symbols = vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()];
+        let result = auto_intent_summary(&symbols);
+        assert_eq!(
+            result,
+            "[auto-snap] Structural changes to Bar, Baz, Qux detected via tree-sitter."
+        );
+    }
+
+    #[test]
+    fn formatted_time_epoch_zero() {
+        let op = Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 0);
+        assert_eq!(op.formatted_time(), "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn formatted_time_known_timestamp() {
+        // 2024-01-15 12:30:45 UTC = 1705318245
+        let op = Operation::new_with_timestamp(
+            "snap",
+            "main",
+            BTreeSet::new(),
+            BTreeSet::new(),
+            1705318245,
+        );
+        assert_eq!(op.formatted_time(), "2024-01-15 11:30:45");
+    }
+
+    #[test]
+    fn before_short_after_short_with_heads() {
+        let op = Operation::new_with_timestamp(
+            "snap",
+            "main",
+            BTreeSet::from([cid(0xAB)]),
+            BTreeSet::from([cid(0xCD)]),
+            100,
+        );
+        // before_short: first 8 hex chars of ChangeId([0xAB; 32])
+        let before = op.before_short();
+        assert_eq!(before.len(), 8);
+        assert!(before.chars().all(|c| c.is_ascii_hexdigit()));
+        // after_short: first 8 hex chars of ChangeId([0xCD; 32])
+        let after = op.after_short();
+        assert_eq!(after.len(), 8);
+        assert!(after.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn before_short_after_short_empty_heads() {
+        let op =
+            Operation::new_with_timestamp("snap", "main", BTreeSet::new(), BTreeSet::new(), 100);
+        assert_eq!(op.before_short(), "(empty)");
+        assert_eq!(op.after_short(), "(empty)");
+    }
+
+    #[test]
+    fn operation_agent_label_human() {
+        assert_eq!(OperationAgent::Human.label(), "Human");
+    }
+
+    #[test]
+    fn operation_agent_label_ai() {
+        assert_eq!(OperationAgent::Ai.label(), "AI");
+    }
+
+    #[test]
+    fn read_reversed_most_recent_first() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log = OpLog::new(dir.path());
+
+        let op1 = Operation::new_with_timestamp(
+            "snap",
+            "main",
+            BTreeSet::new(),
+            BTreeSet::from([cid(1)]),
+            100,
+        );
+        let op2 = Operation::new_with_timestamp(
+            "merge",
+            "main",
+            BTreeSet::from([cid(1)]),
+            BTreeSet::from([cid(2)]),
+            101,
+        );
+
+        log.append(&op1).expect("append op1 must succeed");
+        log.append(&op2).expect("append op2 must succeed");
+
+        let reversed = log.read_reversed().expect("read_reversed must succeed");
+        assert_eq!(reversed.len(), 2);
+        // most recent (timestamp 101) first
+        assert_eq!(reversed[0].command, "merge");
+        assert_eq!(reversed[0].timestamp, 101);
+        assert_eq!(reversed[1].command, "snap");
+        assert_eq!(reversed[1].timestamp, 100);
+    }
+
+    #[test]
+    fn pop_empty_oplog_returns_none() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log = OpLog::new(dir.path());
+
+        let result = log.pop().expect("pop must not error");
+        assert!(result.is_none(), "pop on empty oplog should return None");
+    }
+
+    #[test]
+    fn read_all_empty_oplog_returns_empty_vec() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log = OpLog::new(dir.path());
+
+        let result = log.read_all().expect("read_all must not error");
+        assert!(result.is_empty(), "read_all on empty oplog should return empty vec");
+    }
+
+    #[test]
+    fn append_same_operation_twice_does_not_crash() {
+        let dir = tempfile::tempdir().expect("tempdir must succeed");
+        let log = OpLog::new(dir.path());
+
+        let op = Operation::new_with_timestamp(
+            "snap",
+            "main",
+            BTreeSet::new(),
+            BTreeSet::from([cid(1)]),
+            100,
+        );
+
+        log.append(&op).expect("first append must succeed");
+        log.append(&op).expect("second append must not crash");
+
+        let all = log.read_all().expect("read_all must succeed");
+        // Same operation produces same snapshot id; persist_node is idempotent (no-op on re-write).
+        // The CAS heads update still succeeds because the snapshot id already exists in heads.
+        assert!(!all.is_empty(), "read_all should contain at least one operation");
+    }
 }

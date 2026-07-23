@@ -60,7 +60,7 @@ pub const RUST_INVOCATION_QUERY: &str = r#"
 
 /// tree-sitter based policy evaluator for cross-boundary delta-impact checks.
 pub struct TreeSitterEvaluator {
-    policy: ArcPolicy,
+    pub(crate) policy: ArcPolicy,
 }
 
 impl TreeSitterEvaluator {
@@ -69,7 +69,7 @@ impl TreeSitterEvaluator {
         Self { policy }
     }
 
-    fn extract_foreign_sources(
+    pub(crate) fn extract_foreign_sources(
         &self,
         local_ast: &Ast,
         incoming_atoms: &[SemanticAtom],

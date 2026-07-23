@@ -121,7 +121,8 @@ pub fn git_hash(kind: GitObjectKind, content: &[u8]) -> GitOid {
 
 #[cfg(test)]
 mod tests {
-    use super::{GitObjectKind, git_hash};
+    use super::{GitObjectKind, GitOid, git_hash};
+    use std::str::FromStr;
 
     #[test]
     fn empty_blob_matches_git_oracle() {
@@ -133,5 +134,96 @@ mod tests {
     fn hello_world_blob_matches_git_oracle() {
         let oid = git_hash(GitObjectKind::Blob, b"Hello, World!\n");
         assert_eq!(oid.to_string(), "8ab686eafeb1f44702738c8b0f24f2567c36da6d");
+    }
+
+    #[test]
+    fn git_object_kind_as_bytes_all_variants() {
+        assert_eq!(GitObjectKind::Blob.as_bytes(), b"blob");
+        assert_eq!(GitObjectKind::Tree.as_bytes(), b"tree");
+        assert_eq!(GitObjectKind::Commit.as_bytes(), b"commit");
+        assert_eq!(GitObjectKind::Tag.as_bytes(), b"tag");
+    }
+
+    #[test]
+    fn git_oid_from_bytes_and_as_bytes_roundtrip() {
+        let bytes: [u8; 20] = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+        ];
+        let oid = GitOid::from_bytes(bytes);
+        assert_eq!(oid.as_bytes(), bytes);
+    }
+
+    #[test]
+    fn git_oid_from_hex_valid_lowercase() {
+        let hex = "abcdef0123456789abcdef0123456789abcdef01";
+        let oid = GitOid::from_hex(hex).unwrap();
+        assert_eq!(oid.to_string(), hex);
+    }
+
+    #[test]
+    fn git_oid_from_hex_valid_uppercase() {
+        let hex_upper = "ABCDEF0123456789ABCDEF0123456789ABCDEF01";
+        let hex_lower = "abcdef0123456789abcdef0123456789abcdef01";
+        let oid = GitOid::from_hex(hex_upper).unwrap();
+        assert_eq!(oid.to_string(), hex_lower);
+    }
+
+    #[test]
+    fn git_oid_from_hex_wrong_length_too_short() {
+        assert!(GitOid::from_hex("abc").is_err());
+    }
+
+    #[test]
+    fn git_oid_from_hex_wrong_length_too_long() {
+        assert!(GitOid::from_hex("0".repeat(41).as_str()).is_err());
+    }
+
+    #[test]
+    fn git_oid_from_hex_invalid_digit() {
+        assert!(GitOid::from_hex("000000000000000000000000000000000000000g").is_err());
+    }
+
+    #[test]
+    fn git_oid_from_str_delegates_to_from_hex() {
+        let hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let oid = GitOid::from_str(hex).unwrap();
+        assert_eq!(oid.to_string(), hex);
+    }
+
+    #[test]
+    fn git_oid_debug_matches_display() {
+        let oid = git_hash(GitObjectKind::Blob, b"test");
+        let display = oid.to_string();
+        let debug = format!("{:?}", oid);
+        assert_eq!(display, debug);
+    }
+
+    #[test]
+    fn git_oid_equality() {
+        let oid1 = git_hash(GitObjectKind::Blob, b"same");
+        let oid2 = git_hash(GitObjectKind::Blob, b"same");
+        assert_eq!(oid1, oid2);
+    }
+
+    #[test]
+    fn git_oid_inequality_different_content() {
+        let oid1 = git_hash(GitObjectKind::Blob, b"one");
+        let oid2 = git_hash(GitObjectKind::Blob, b"two");
+        assert_ne!(oid1, oid2);
+    }
+
+    #[test]
+    fn empty_tree_hash() {
+        let oid = git_hash(GitObjectKind::Tree, b"");
+        assert!(!oid.to_string().is_empty());
+        assert_eq!(oid.to_string().len(), 40);
+    }
+
+    #[test]
+    fn git_hash_deterministic() {
+        let oid1 = git_hash(GitObjectKind::Commit, b"content");
+        let oid2 = git_hash(GitObjectKind::Commit, b"content");
+        assert_eq!(oid1, oid2);
     }
 }

@@ -127,15 +127,12 @@ mod tests {
     }
 
     #[test]
-    fn slo_timer_from_env_default() {
+    fn slo_timer_from_env_default_and_override() {
         // SAFETY: tests run single-threaded; we clean up after ourselves.
         unsafe { std::env::remove_var("ARC_SYNC_SLO_MS") };
         let timer = SloTimer::from_env("test");
         assert_eq!(timer.threshold, Duration::from_millis(DEFAULT_SYNC_SLO_MS));
-    }
 
-    #[test]
-    fn slo_timer_from_env_override() {
         // SAFETY: tests run single-threaded; we clean up after ourselves.
         unsafe { std::env::set_var("ARC_SYNC_SLO_MS", "1000") };
         let timer = SloTimer::from_env("test");

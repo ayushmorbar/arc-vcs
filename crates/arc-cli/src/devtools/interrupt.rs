@@ -67,3 +67,35 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::InterruptState;
+
+    #[test]
+    fn new_state_is_not_interrupted() {
+        let state = InterruptState::new();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn default_state_is_not_interrupted() {
+        let state = InterruptState::default();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn mark_interrupted_sets_flag() {
+        let state = InterruptState::new();
+        state.mark_interrupted();
+        assert!(state.is_interrupted());
+    }
+
+    #[test]
+    fn clone_shares_interrupt_flag() {
+        let state = InterruptState::new();
+        let clone = state.clone();
+        state.mark_interrupted();
+        assert!(clone.is_interrupted());
+    }
+}

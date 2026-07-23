@@ -107,4 +107,72 @@ mod tests {
         let out = rewrite_lossless(input, |line, dest| dest.extend_from_slice(line.raw));
         assert_eq!(out, input);
     }
+
+    #[test]
+    fn normalize_slashes_empty_string() {
+        let result = normalize_slashes("");
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(result.as_ref(), "");
+    }
+
+    #[test]
+    fn normalize_slashes_only_backslashes() {
+        let result = normalize_slashes("\\a\\b\\");
+        assert_eq!(result.as_ref(), "/a/b/");
+    }
+
+    #[test]
+    fn normalize_slashes_mixed_separators() {
+        let result = normalize_slashes("a/b\\c/d");
+        assert_eq!(result.as_ref(), "a/b/c/d");
+    }
+
+    #[test]
+    fn iter_lines_empty_input() {
+        let lines: Vec<LineView<'_>> = iter_lines(b"").collect();
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn iter_lines_single_newline() {
+        let lines: Vec<LineView<'_>> = iter_lines(b"\n").collect();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].raw, b"\n");
+        assert_eq!(lines[0].content, b"");
+        assert_eq!(lines[0].line_no, 1);
+    }
+
+    #[test]
+    fn iter_lines_only_cr_lf() {
+        let lines: Vec<LineView<'_>> = iter_lines(b"\r\n\r\n").collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].content, b"");
+        assert_eq!(lines[1].content, b"");
+    }
+
+    #[test]
+    fn iter_lines_line_numbers_are_one_based() {
+        let input = b"a\nb\nc";
+        let lines: Vec<LineView<'_>> = iter_lines(input).collect();
+        assert_eq!(lines[0].line_no, 1);
+        assert_eq!(lines[1].line_no, 2);
+        assert_eq!(lines[2].line_no, 3);
+    }
+
+    #[test]
+    fn rewrite_lossless_can_modify_content() {
+        let input = b"hello\nworld";
+        let out = rewrite_lossless(input, |line, dest| {
+            dest.extend_from_slice(line.content);
+            dest.push(b'!');
+            dest.push(b'\n');
+        });
+        assert_eq!(out, b"hello!\nworld!\n");
+    }
+
+    #[test]
+    fn rewrite_lossless_empty_input() {
+        let out = rewrite_lossless(b"", |line, dest| dest.extend_from_slice(line.raw));
+        assert!(out.is_empty());
+    }
 }

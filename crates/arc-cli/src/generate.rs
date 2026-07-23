@@ -167,3 +167,94 @@ fn build_prompt(goal: &str, file_context: &str, prior_context: &str) -> String {
     prompt.push_str(&format!("\nGoal: {goal}\n"));
     prompt
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_hash_valid() {
+        let hex = "a".repeat(64);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_some(), "valid 64-char hex must parse");
+    }
+
+    #[test]
+    fn parse_hex_hash_short() {
+        let hex = "abcd1234";
+        let result = parse_hex_hash(hex);
+        assert!(result.is_none(), "short hex must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_long() {
+        let hex = "a".repeat(65);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_none(), "long hex must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_invalid_chars() {
+        let hex = "g".repeat(64);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_none(), "hex with non-hex chars must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_empty() {
+        let result = parse_hex_hash("");
+        assert!(result.is_none(), "empty string must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_mixed_case() {
+        let mut hex = String::with_capacity(64);
+        for i in 0..64 {
+            if i % 2 == 0 {
+                hex.push('a');
+            } else {
+                hex.push('F');
+            }
+        }
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_some(), "mixed-case hex must parse");
+    }
+
+    #[test]
+    fn build_prompt_empty() {
+        let prompt = build_prompt("fix bug", "", "");
+        assert!(prompt.contains("fix bug"));
+        assert!(prompt.ends_with("Goal: fix bug\n"));
+    }
+
+    #[test]
+    fn build_prompt_with_prior() {
+        let prior = "Relevant prior changes:\n- (similarity 0.85) fix typo\n";
+        let prompt = build_prompt("fix bug", "", prior);
+        assert!(prompt.starts_with("Relevant prior"));
+        assert!(prompt.contains("fix bug"));
+    }
+
+    #[test]
+    fn build_prompt_with_file() {
+        let file_ctx = "Current file (src/main.rs):\n```\nfn main() {}\n```";
+        let prompt = build_prompt("fix bug", file_ctx, "");
+        assert!(prompt.contains("Current file"));
+        assert!(prompt.contains("fix bug"));
+    }
+
+    #[test]
+    fn build_prompt_with_all() {
+        let prior = "Relevant prior changes:\n- (similarity 0.85) fix typo\n";
+        let file_ctx = "Current file (src/main.rs):\n```\nfn main() {}\n```";
+        let prompt = build_prompt("fix bug", file_ctx, prior);
+        assert!(prompt.starts_with("Relevant prior"));
+        assert!(prompt.contains("Current file"));
+        assert!(prompt.contains("Goal: fix bug"));
+    }
+
+    #[test]
+    fn file_content_budget_constant() {
+        assert_eq!(FILE_CONTENT_BUDGET, 4_000);
+    }
+}

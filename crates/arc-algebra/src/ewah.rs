@@ -228,4 +228,117 @@ mod tests {
         });
         assert_eq!(count, 5);
     }
+
+    // ── Display impl tests ────────────────────────────────────────────────
+
+    #[test]
+    fn ewah_decode_error_display_unexpected_eof() {
+        let err = EwahDecodeError::UnexpectedEof("header");
+        let msg = format!("{err}");
+        assert_eq!(msg, "unexpected EOF while reading header");
+    }
+
+    #[test]
+    fn ewah_decode_error_display_length_overflow() {
+        let err = EwahDecodeError::LengthOverflow;
+        let msg = format!("{err}");
+        assert_eq!(msg, "bitmap word length overflows platform usize");
+    }
+
+    #[test]
+    fn ewah_decode_error_is_std_error() {
+        let err: Box<dyn std::error::Error> = Box::new(EwahDecodeError::UnexpectedEof("test"));
+        assert!(err.to_string().contains("unexpected EOF"));
+    }
+
+    // ── for_each_set_bit early stop ───────────────────────────────────────
+
+    #[test]
+    fn for_each_set_bit_stop_on_first() {
+        // 64-bit literal with bits 0, 2, 4 set
+        let encoded = [
+            0, 0, 0, 64, // num_bits = 64
+            0, 0, 0, 2, // word_len = 2
+            0, 0, 0, 2, 0, 0, 0,
+            0, // RLW: runbit=0, running_len=1 (skip 64 zero bits), literal_words=1
+            0, 0, 0, 0, 0, 0, 0, 21, // literal: bits 0, 2, 4 set (0b10101)
+            0, 0, 0, 0, // rlw pointer
+        ];
+        let (bitmap, _) = EwahBitmap::decode(&encoded).expect("decode");
+        let mut seen = Vec::new();
+        bitmap.for_each_set_bit(|idx| {
+            seen.push(idx);
+            false // stop immediately after first
+        });
+        assert_eq!(seen, vec![0]);
+    }
+
+    // ── decode with word payload too short ────────────────────────────────
+
+    #[test]
+    fn decode_rejects_short_word_payload() {
+        // Valid header but word_len claims 2 words, only 1 present
+        let encoded = [
+            0, 0, 0, 64, // num_bits
+            0, 0, 0, 2, // word_len = 2
+            0, 0, 0, 0, 0, 0, 0, 1, // only 1 word instead of 2
+            0, 0, 0, 0, // rlw (not reached)
+        ];
+        let err = EwahBitmap::decode(&encoded).expect_err("must fail");
+        assert!(matches!(err, EwahDecodeError::UnexpectedEof("word payload")));
+    }
+
+    // ── decode rejects short rlw ──────────────────────────────────────────
+
+    #[test]
+    fn decode_rejects_short_rlw() {
+        let encoded = [
+            0, 0, 0, 64, // num_bits
+            0, 0, 0, 1, // word_len = 1
+            0, 0, 0, 0, 0, 0, 0, 0, // 1 word (rlw)
+               // missing rlw pointer bytes
+        ];
+        let err = EwahBitmap::decode(&encoded).expect_err("must fail");
+        assert!(matches!(err, EwahDecodeError::UnexpectedEof("rlw")));
+    }
+
+    // ── run without literal words (runbit=1, literals=0) ──────────────────
+
+    #[test]
+    fn for_each_set_bit_run_only_no_literal() {
+        // RLW: runbit=1, running_len=1 (64 bits of ones), literal_words=0
+        // Value: 1 | (1 << 1) = 3
+        let encoded = [
+            0, 0, 0, 128, // num_bits = 128
+            0, 0, 0, 1, // word_len = 1
+            0, 0, 0, 0, 0, 0, 0, 3, // RLW: runbit=1, running_len=1, literal_words=0
+            0, 0, 0, 0, // rlw pointer
+        ];
+        let (bitmap, _) = EwahBitmap::decode(&encoded).expect("decode");
+        let mut count = 0usize;
+        bitmap.for_each_set_bit(|_| {
+            count += 1;
+            true
+        });
+        assert_eq!(count, 64);
+    }
+
+    // ── run with zero running_len, no literals ────────────────────────────
+
+    #[test]
+    fn for_each_set_bit_no_run_no_literal() {
+        let encoded = [
+            0, 0, 0, 0, // num_bits = 0
+            0, 0, 0, 1, // word_len = 1
+            0, 0, 0, 0, 0, 0, 0, 0, // RLW: all zeros
+            0, 0, 0, 0, // rlw pointer
+        ];
+        let (bitmap, _) = EwahBitmap::decode(&encoded).expect("decode");
+        let mut count = 0usize;
+        bitmap.for_each_set_bit(|_| {
+            count += 1;
+            true
+        });
+        assert_eq!(count, 0);
+    }
 }

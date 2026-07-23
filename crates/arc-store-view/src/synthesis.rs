@@ -389,4 +389,187 @@ mod tests {
         assert_eq!(refreshed.id, first.id);
         assert_eq!(refreshed.source, "src");
     }
+
+    #[test]
+    fn cache_invalidate_removes_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("f.txt"), b"data").expect("write must succeed");
+        let snap = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("f.txt")])
+            .expect("capture must succeed");
+        snap.persist(root).expect("persist must succeed");
+        let cache = SnapshotCache::new();
+        let _ = load_with_cache(root, snap.id, &cache, SnapshotRefresh::PreferCached);
+        assert!(cache.get(snap.id).is_some());
+        cache.invalidate(snap.id);
+        assert!(cache.get(snap.id).is_none());
+    }
+
+    #[test]
+    fn cache_clear_removes_all_entries() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), b"aaa").expect("write must succeed");
+        fs::write(root.join("b.txt"), b"bbb").expect("write must succeed");
+        let s1 = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("a.txt")])
+            .expect("capture must succeed");
+        let s2 = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("b.txt")])
+            .expect("capture must succeed");
+        let cache = SnapshotCache::new();
+        let _ = load_with_cache(root, s1.id, &cache, SnapshotRefresh::PreferCached);
+        let _ = load_with_cache(root, s2.id, &cache, SnapshotRefresh::PreferCached);
+        cache.clear();
+        assert!(cache.get(s1.id).is_none());
+        assert!(cache.get(s2.id).is_none());
+    }
+
+    #[test]
+    fn list_snapshot_ids_empty_when_no_synthesis_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let listed = list_snapshot_ids(tmp.path()).expect("listing must succeed");
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn list_snapshot_ids_ignores_invalid_prefixes() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let syn_root = root.join(".arc").join("synthesis");
+        fs::create_dir_all(syn_root.join("zz")).expect("dir create must succeed");
+        fs::write(syn_root.join("zz").join("junk.bin"), b"x").expect("write must succeed");
+        fs::create_dir_all(syn_root.join("a")).expect("dir create must succeed");
+        fs::write(syn_root.join("a").join("junk.bin"), b"x").expect("write must succeed");
+        let listed = list_snapshot_ids(root).expect("listing must succeed");
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn list_snapshot_ids_ignores_non_bin_files() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let prefix_dir = root.join(".arc").join("synthesis").join("ab");
+        fs::create_dir_all(&prefix_dir).expect("dir create must succeed");
+        fs::write(prefix_dir.join("notbin.txt"), b"x").expect("write must succeed");
+        let listed = list_snapshot_ids(root).expect("listing must succeed");
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn list_snapshot_ids_ignores_wrong_suffix_length() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let prefix_dir = root.join(".arc").join("synthesis").join("ab");
+        fs::create_dir_all(&prefix_dir).expect("dir create must succeed");
+        fs::write(prefix_dir.join("deadbeef.bin"), b"x").expect("write must succeed");
+        let listed = list_snapshot_ids(root).expect("listing must succeed");
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn load_with_cache_prefer_cached_falls_through_when_empty() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("g.txt"), b"gray").expect("write must succeed");
+        let snap = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("g.txt")])
+            .expect("capture must succeed");
+        snap.persist(root).expect("persist must succeed");
+        let cache = SnapshotCache::new();
+        let loaded = load_with_cache(root, snap.id, &cache, SnapshotRefresh::PreferCached)
+            .expect("load must succeed");
+        assert_eq!(loaded.id, snap.id);
+        assert!(cache.get(snap.id).is_some());
+    }
+
+    #[test]
+    fn persist_is_idempotent() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("p.txt"), b"payload").expect("write must succeed");
+        let snap = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("p.txt")])
+            .expect("capture must succeed");
+        snap.persist(root).expect("first persist must succeed");
+        let path = snapshot_path(root, snap.id);
+        let meta1 = fs::metadata(&path).expect("file must exist");
+        snap.persist(root).expect("second persist must be idempotent");
+        let meta2 = fs::metadata(&path).expect("file must still exist");
+        assert_eq!(meta1.modified().unwrap(), meta2.modified().unwrap());
+    }
+
+    #[test]
+    fn capture_multiple_files_are_sorted() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        fs::write(root.join("z.txt"), b"zzz").expect("write must succeed");
+        fs::write(root.join("a.txt"), b"aaa").expect("write must succeed");
+        fs::write(root.join("m.txt"), b"mmm").expect("write must succeed");
+        let snap = SynthesisSnapshot::capture(
+            root,
+            "src",
+            &[PathBuf::from("z.txt"), PathBuf::from("a.txt"), PathBuf::from("m.txt")],
+        )
+        .expect("capture must succeed");
+        assert_eq!(snap.artifacts.len(), 3);
+        assert_eq!(snap.artifacts[0].path, "a.txt");
+        assert_eq!(snap.artifacts[1].path, "m.txt");
+        assert_eq!(snap.artifacts[2].path, "z.txt");
+    }
+
+    #[test]
+    fn capture_missing_file_errors() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let result = SynthesisSnapshot::capture(root, "src", &[PathBuf::from("nope.txt")]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_artifact_with_absolute_path() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let file = root.join("abs.txt");
+        fs::write(&file, b"absolute").expect("write must succeed");
+        let snap = SynthesisSnapshot::capture(root, "src", std::slice::from_ref(&file))
+            .expect("capture must succeed");
+        assert_eq!(snap.artifacts.len(), 1);
+        assert_eq!(snap.artifacts[0].byte_len, 8);
+    }
+
+    #[test]
+    fn snapshot_path_structure() {
+        let id = SnapshotId([0xab; 32]);
+        let path = snapshot_path(Path::new("/repo"), id);
+        assert!(path.starts_with("/repo/.arc/synthesis/ab"));
+        assert!(path.to_string_lossy().ends_with(".bin"));
+    }
+
+    #[test]
+    fn compute_snapshot_id_deterministic() {
+        let arts = vec![
+            SynthArtifact { path: "a.rs".into(), content_hash: [1u8; 32], byte_len: 100 },
+            SynthArtifact { path: "b.rs".into(), content_hash: [2u8; 32], byte_len: 200 },
+        ];
+        let id1 = compute_snapshot_id("test-src", &arts).expect("must succeed");
+        let id2 = compute_snapshot_id("test-src", &arts).expect("must succeed");
+        assert_eq!(id1, id2);
+        let id3 = compute_snapshot_id("other-src", &arts).expect("must succeed");
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn capture_empty_files_list() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let snap = SynthesisSnapshot::capture(root, "src", &[]).expect("capture must succeed");
+        assert!(snap.artifacts.is_empty());
+    }
+
+    #[test]
+    fn list_snapshot_ids_nonexistent_prefix_dir_filtered() {
+        let tmp = tempfile::tempdir().expect("tempdir must be creatable");
+        let root = tmp.path();
+        let syn_root = root.join(".arc").join("synthesis");
+        fs::create_dir_all(&syn_root).expect("dir create must succeed");
+        let listed = list_snapshot_ids(root).expect("listing must succeed");
+        assert!(listed.is_empty());
+    }
 }

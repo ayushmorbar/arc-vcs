@@ -394,3 +394,46 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use arc_store_types::author::{Author, PublicKeyBytes};
+
+    use super::*;
+
+    #[test]
+    fn server_identity_serde_roundtrip() {
+        let identity = ServerIdentity {
+            canonical_id: "arc-server-test".to_string(),
+            secret_key_bytes: [42u8; 32],
+        };
+        let json = serde_json::to_string(&identity).expect("serialize");
+        let decoded: ServerIdentity = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.canonical_id, "arc-server-test");
+        assert_eq!(decoded.secret_key_bytes, [42u8; 32]);
+    }
+
+    #[test]
+    fn is_transient_author_true_for_transient() {
+        let author = Author::Transient { session_id: "test-session".to_string(), key: [1u8; 32] };
+        assert!(is_transient_author(&author));
+    }
+
+    #[test]
+    fn is_transient_author_false_for_human() {
+        let key: PublicKeyBytes = [99u8; 32];
+        let author = Author::Human {
+            name: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            key,
+        };
+        assert!(!is_transient_author(&author));
+    }
+
+    #[test]
+    fn is_transient_author_false_for_server() {
+        let key: PublicKeyBytes = [88u8; 32];
+        let author = Author::Server { canonical_id: "srv".to_string(), key };
+        assert!(!is_transient_author(&author));
+    }
+}

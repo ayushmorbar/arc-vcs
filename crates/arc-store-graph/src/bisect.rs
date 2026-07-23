@@ -373,4 +373,183 @@ mod tests {
         assert_eq!(loaded.current, Some(b));
         assert_eq!(loaded.candidates, state.candidates);
     }
+
+    #[test]
+    fn untested_good_bad_counts() {
+        let (_, a, b, c) = small_chain();
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        assert_eq!(state.untested_count(), 3);
+        assert_eq!(state.good_count(), 0);
+        assert_eq!(state.bad_count(), 0);
+        state.marks.insert(a, BisectMark::Good);
+        state.marks.insert(b, BisectMark::Bad);
+        assert_eq!(state.untested_count(), 1);
+        assert_eq!(state.good_count(), 1);
+        assert_eq!(state.bad_count(), 1);
+    }
+
+    #[test]
+    fn select_next_returns_none_when_all_marked() {
+        let (g, a, b, c) = small_chain();
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        state.marks.insert(a, BisectMark::Good);
+        state.marks.insert(b, BisectMark::Good);
+        state.marks.insert(c, BisectMark::Bad);
+        assert_eq!(BisectEngine::select_next(&g, &state), None);
+    }
+
+    #[test]
+    fn mark_untested_resets_mark() {
+        let (g, a, b, c) = small_chain();
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        BisectEngine::mark(&g, &mut state, c, BisectMark::Good).unwrap();
+        assert_eq!(state.good_count(), 3);
+        BisectEngine::mark(&g, &mut state, c, BisectMark::Untested).unwrap();
+        assert!(matches!(state.marks.get(&c), Some(BisectMark::Untested)));
+        assert!(matches!(state.marks.get(&b), Some(BisectMark::Good)));
+        assert!(matches!(state.marks.get(&a), Some(BisectMark::Good)));
+    }
+
+    #[test]
+    fn mark_good_then_bad_errors() {
+        let (g, a, b, c) = small_chain();
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        BisectEngine::mark(&g, &mut state, a, BisectMark::Good).unwrap();
+        let result = BisectEngine::mark(&g, &mut state, a, BisectMark::Bad);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already marked good"));
+    }
+
+    #[test]
+    fn mark_bad_then_good_errors() {
+        let (g, a, b, c) = small_chain();
+        let mut state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        BisectEngine::mark(&g, &mut state, a, BisectMark::Bad).unwrap();
+        let result = BisectEngine::mark(&g, &mut state, a, BisectMark::Good);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already marked bad"));
+    }
+
+    #[test]
+    fn load_state_returns_none_when_reset_marker_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path();
+        let (_, a, b, c) = small_chain();
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        save_state(shared, &state).unwrap();
+        std::fs::write(reset_marker_path(shared), b"reset").unwrap();
+        assert!(load_state(shared).unwrap().is_none());
+    }
+
+    #[test]
+    fn load_state_returns_none_when_no_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(load_state(tmp.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn load_state_from_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path();
+        let (_, a, b, c) = small_chain();
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), true);
+        let primary = state_path(shared);
+        fs::create_dir_all(primary.parent().unwrap()).unwrap();
+        let bytes = bincode::serialize(&state).unwrap();
+        fs::write(&primary, &bytes).unwrap();
+        let backup = primary.with_extension("bak");
+        fs::rename(&primary, &backup).unwrap();
+        let loaded = load_state(shared).unwrap().unwrap();
+        assert_eq!(loaded.candidates, state.candidates);
+        assert!(loaded.find_good);
+    }
+
+    #[test]
+    fn load_state_from_staged_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path();
+        let (_, a, b, c) = small_chain();
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        let primary = state_path(shared);
+        fs::create_dir_all(primary.parent().unwrap()).unwrap();
+        let bytes = bincode::serialize(&state).unwrap();
+        let staged = primary.with_extension("bak.new");
+        fs::write(&staged, &bytes).unwrap();
+        let loaded = load_state(shared).unwrap().unwrap();
+        assert_eq!(loaded.candidates, state.candidates);
+    }
+
+    #[test]
+    fn clear_state_removes_all_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path();
+        let (_, a, b, c) = small_chain();
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        save_state(shared, &state).unwrap();
+        assert!(state_path(shared).exists());
+        clear_state(shared).unwrap();
+        assert!(!state_path(shared).exists());
+        assert!(reset_marker_path(shared).exists());
+        assert!(load_state(shared).unwrap().is_none());
+    }
+
+    #[test]
+    fn save_state_removes_existing_reset_marker() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path();
+        let (_, a, b, c) = small_chain();
+        let state =
+            BisectEngine::start("ancestors(@)".to_string(), BTreeSet::from([a, b, c]), false);
+        fs::create_dir_all(reset_marker_path(shared).parent().unwrap()).unwrap();
+        fs::write(reset_marker_path(shared), b"reset").unwrap();
+        assert!(reset_marker_path(shared).exists());
+        save_state(shared, &state).unwrap();
+        assert!(!reset_marker_path(shared).exists());
+    }
+
+    #[test]
+    fn state_path_is_correct() {
+        let path = state_path(Path::new("/repo"));
+        assert_eq!(path, PathBuf::from("/repo/.arc/bisect/state.bin"));
+    }
+
+    #[test]
+    fn select_next_picks_midpoint_of_four() {
+        let mut g = ChangeGraph::new();
+        let a = make_change(HashSet::new(), "a");
+        let b = make_change(HashSet::from([a.id]), "b");
+        let c = make_change(HashSet::from([b.id]), "c");
+        let d = make_change(HashSet::from([c.id]), "d");
+        g.add_change(a.clone());
+        g.add_change(b.clone());
+        g.add_change(c.clone());
+        g.add_change(d.clone());
+        let (aid, bid, cid, did) = (
+            ChangeId::from(a.id),
+            ChangeId::from(b.id),
+            ChangeId::from(c.id),
+            ChangeId::from(d.id),
+        );
+        let state = BisectEngine::start(
+            "ancestors(@)".to_string(),
+            BTreeSet::from([aid, bid, cid, did]),
+            false,
+        );
+        let next = BisectEngine::select_next(&g, &state).unwrap();
+        let ordered = g.topological_sort_ids(&state.candidates);
+        let untested: Vec<_> = ordered
+            .into_iter()
+            .filter(|id| state.marks.get(id) == Some(&BisectMark::Untested))
+            .collect();
+        assert_eq!(next, untested[untested.len() / 2]);
+    }
 }

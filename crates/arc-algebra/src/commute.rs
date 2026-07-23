@@ -389,4 +389,675 @@ mod tests {
         assert!(b_prime.verify_signature());
         assert!(a_prime.verify_signature());
     }
+
+    // ── blob_conflicts() unit tests ──────────────────────────────────────
+
+    #[test]
+    fn test_blob_conflicts_same_path_different_hash() {
+        let a = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let b = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([2u8; 32]),
+            size: 100,
+        };
+        assert!(blob_conflicts(&a, &b), "same path, different hash must conflict");
+    }
+
+    #[test]
+    fn test_blob_conflicts_same_path_different_size() {
+        let a = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let b = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 200,
+        };
+        assert!(blob_conflicts(&a, &b), "same path, different size must conflict");
+    }
+
+    #[test]
+    fn test_blob_no_conflict_same_path_same_content() {
+        let a = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let b = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        assert!(!blob_conflicts(&a, &b), "same path + same content must NOT conflict");
+    }
+
+    #[test]
+    fn test_blob_no_conflict_different_path() {
+        let a = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let b = Atom::Blob {
+            path: "b.txt".into(),
+            hash: blake3::Hash::from_bytes([2u8; 32]),
+            size: 200,
+        };
+        assert!(!blob_conflicts(&a, &b), "different paths must NOT conflict");
+    }
+
+    #[test]
+    fn test_blob_conflicts_with_insert_same_file_path() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let insert = Atom::Insert {
+            at: vec!["file".into(), "a.txt".into(), "body".into()],
+            content_hash: [0u8; 32],
+        };
+        assert!(blob_conflicts(&blob, &insert), "Blob vs Insert at same file path must conflict");
+    }
+
+    #[test]
+    fn test_blob_no_conflict_with_insert_different_file() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let insert = Atom::Insert {
+            at: vec!["file".into(), "b.txt".into(), "body".into()],
+            content_hash: [0u8; 32],
+        };
+        assert!(
+            !blob_conflicts(&blob, &insert),
+            "Blob vs Insert at different file path must NOT conflict"
+        );
+    }
+
+    #[test]
+    fn test_blob_no_conflict_with_directory() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let dir = Atom::Directory { path: vec!["dir".into(), "src".into()] };
+        assert!(!blob_conflicts(&blob, &dir), "Blob vs non-file-path Directory must NOT conflict");
+    }
+
+    #[test]
+    fn test_non_blob_atoms_no_conflict() {
+        let a = Atom::Insert { at: vec!["fn_foo".into()], content_hash: [0u8; 32] };
+        let b = Atom::Insert { at: vec!["fn_bar".into()], content_hash: [0u8; 32] };
+        assert!(!blob_conflicts(&a, &b), "two non-Blob atoms must NOT produce blob conflicts");
+    }
+
+    // ── file_path_for_atom() unit tests ──────────────────────────────────
+
+    #[test]
+    fn test_file_path_for_atom_insert() {
+        let atom =
+            Atom::Insert { at: vec!["file".into(), "main.rs".into()], content_hash: [0u8; 32] };
+        assert_eq!(file_path_for_atom(&atom), Some("main.rs"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_delete() {
+        let atom = Atom::Delete { at: vec!["file".into(), "old.rs".into()], prior_hash: [0u8; 32] };
+        assert_eq!(file_path_for_atom(&atom), Some("old.rs"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_conflict() {
+        let atom = Atom::Conflict {
+            bases: vec![[0u8; 32]],
+            sides: vec![[1u8; 32]],
+            at: vec!["file".into(), "conflict.rs".into()],
+        };
+        assert_eq!(file_path_for_atom(&atom), Some("conflict.rs"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_move_from() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "old.rs".into()],
+            to: vec!["file".into(), "new.rs".into()],
+        };
+        // Move has two paths; file_path_for_atom picks the first match
+        assert_eq!(file_path_for_atom(&atom), Some("old.rs"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_directory() {
+        let atom = Atom::Directory { path: vec!["file".into(), "src".into()] };
+        assert_eq!(file_path_for_atom(&atom), Some("src"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_mount() {
+        let atom = Atom::Mount {
+            path: vec!["file".into(), "vendor".into()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "org".into(),
+                repo: "lib".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        assert_eq!(file_path_for_atom(&atom), Some("vendor"));
+    }
+
+    #[test]
+    fn test_file_path_for_atom_non_file_returns_none() {
+        let atom =
+            Atom::Insert { at: vec!["module".into(), "fn_x".into()], content_hash: [0u8; 32] };
+        assert_eq!(file_path_for_atom(&atom), None);
+    }
+
+    #[test]
+    fn test_file_path_for_atom_short_path_returns_none() {
+        let atom = Atom::Insert { at: vec!["file".into()], content_hash: [0u8; 32] };
+        assert_eq!(file_path_for_atom(&atom), None);
+    }
+
+    #[test]
+    fn test_file_path_for_atom_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["file".into(), "lib.rs".into()],
+            description: "format".into(),
+        };
+        assert_eq!(file_path_for_atom(&atom), Some("lib.rs"));
+    }
+
+    // ── paths_overlap() unit tests ───────────────────────────────────────
+
+    #[test]
+    fn test_paths_overlap_equal() {
+        assert!(paths_overlap(&vec!["a".into(), "b".into()], &vec!["a".into(), "b".into()]));
+    }
+
+    #[test]
+    fn test_paths_overlap_prefix() {
+        assert!(paths_overlap(&vec!["a".into()], &vec!["a".into(), "b".into()]));
+    }
+
+    #[test]
+    fn test_paths_overlap_suffix_is_prefix() {
+        assert!(paths_overlap(&vec!["a".into(), "b".into()], &vec!["a".into()]));
+    }
+
+    #[test]
+    fn test_paths_no_overlap() {
+        assert!(!paths_overlap(&vec!["a".into()], &vec!["b".into()]));
+    }
+
+    #[test]
+    fn test_paths_no_overlap_different_lengths() {
+        assert!(!paths_overlap(&vec!["a".into(), "b".into()], &vec!["a".into(), "c".into()]));
+    }
+
+    #[test]
+    fn test_paths_overlap_empty() {
+        assert!(paths_overlap(&vec![], &vec![]));
+    }
+
+    // ── rewrite_atom_paths() unit tests ──────────────────────────────────
+
+    #[test]
+    fn test_rewrite_atom_paths_insert() {
+        let atom = Atom::Insert { at: vec!["old".into(), "fn".into()], content_hash: [0u8; 32] };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Insert { at, .. } => assert_eq!(at, vec!["new".to_string(), "fn".to_string()]),
+            _ => panic!("expected Insert"),
+        }
+    }
+
+    #[test]
+    fn test_rewrite_atom_paths_delete() {
+        let atom = Atom::Delete { at: vec!["old".into(), "fn".into()], prior_hash: [0u8; 32] };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Delete { at, .. } => assert_eq!(at, vec!["new".to_string(), "fn".to_string()]),
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn test_rewrite_atom_paths_move() {
+        let atom =
+            Atom::Move { from: vec!["old".into(), "a".into()], to: vec!["old".into(), "b".into()] };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Move { from, to } => {
+                assert_eq!(from, vec!["new".to_string(), "a".to_string()]);
+                assert_eq!(to, vec!["new".to_string(), "b".to_string()]);
+            }
+            _ => panic!("expected Move"),
+        }
+    }
+
+    #[test]
+    fn test_rewrite_atom_paths_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["old".into(), "body".into()],
+            description: "refactor".into(),
+        };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::SemanticsPreserving { at, description } => {
+                assert_eq!(at, vec!["new".to_string(), "body".to_string()]);
+                assert_eq!(description, "refactor");
+            }
+            _ => panic!("expected SemanticsPreserving"),
+        }
+    }
+
+    #[test]
+    fn test_rewrite_atom_paths_no_match() {
+        let atom =
+            Atom::Insert { at: vec!["unrelated".into(), "fn".into()], content_hash: [0u8; 32] };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Insert { at, .. } => {
+                assert_eq!(at, vec!["unrelated".to_string(), "fn".to_string()])
+            }
+            _ => panic!("expected Insert"),
+        }
+    }
+
+    #[test]
+    fn test_rewrite_atom_paths_directory_passthrough() {
+        let atom = Atom::Directory { path: vec!["dir".into()] };
+        let old = vec!["old".into()];
+        let new = vec!["new".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&old, &new)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Directory { path } => assert_eq!(path, vec!["dir".to_string()]),
+            _ => panic!("expected Directory"),
+        }
+    }
+
+    // ── atoms_disjoint() via commutes() integration tests ────────────────
+
+    #[test]
+    fn test_commutes_blob_vs_insert_same_file_path() {
+        let (author, signing_key) = author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: "a.txt".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+                size: 100,
+            }],
+            "blob",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["file".into(), "a.txt".into(), "body".into()],
+                content_hash: [0u8; 32],
+            }],
+            "insert",
+            author,
+            &signing_key,
+        );
+        assert!(!commutes(&a, &b), "Blob and Insert at same file path must NOT commute");
+    }
+
+    #[test]
+    fn test_commutes_two_blobs_same_path_different_content() {
+        let (author, signing_key) = author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: "a.txt".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+                size: 100,
+            }],
+            "blob1",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: "a.txt".into(),
+                hash: blake3::Hash::from_bytes([2u8; 32]),
+                size: 200,
+            }],
+            "blob2",
+            author,
+            &signing_key,
+        );
+        assert!(!commutes(&a, &b), "Two Blobs same path different content must NOT commute");
+    }
+
+    #[test]
+    fn test_commutes_blobs_same_content_commute() {
+        let (author, signing_key) = author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: "a.txt".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+                size: 100,
+            }],
+            "blob1",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob {
+                path: "a.txt".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+                size: 100,
+            }],
+            "blob2",
+            author,
+            &signing_key,
+        );
+        assert!(commutes(&a, &b), "Two Blobs same path same content must commute (idempotent)");
+    }
+
+    #[test]
+    fn test_commutes_move_atoms_not_counted_as_overlap() {
+        let (author, signing_key) = author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Move { from: vec!["mod_a".into()], to: vec!["mod_b".into()] }],
+            "move a to b",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Move { from: vec!["mod_c".into()], to: vec!["mod_d".into()] }],
+            "move c to d",
+            author,
+            &signing_key,
+        );
+        assert!(commutes(&a, &b), "Two non-overlapping Moves must commute");
+    }
+
+    #[test]
+    fn test_commute_pair_overlapping_paths_fails() {
+        let (author, signing_key) = author::test_keypair();
+        let a = make_change(HashSet::new(), vec![vec!["mod".into(), "fn_x".into()]]);
+        let b = make_change(HashSet::new(), vec![vec!["mod".into(), "fn_x".into()]]);
+
+        let result = commute_pair(&a, &b, &(author, signing_key));
+        assert!(result.is_none(), "Gate 2 (overlapping atoms) must block commute_pair");
+    }
+
+    #[test]
+    fn test_commute_pair_reverse_dep_fails() {
+        let (author, signing_key) = author::test_keypair();
+        let a = make_change(HashSet::new(), vec![vec!["mod_a".into()]]);
+        // b depends on a — but what if a depends on b?
+        let b = make_change(HashSet::new(), vec![vec!["mod_b".into()]]);
+        // Make a depend on b
+        let a_with_dep =
+            Change::new(HashSet::from([b.id]), a.atoms, a.intent, a.author, &signing_key);
+
+        let result = commute_pair(&a_with_dep, &b, &(author, signing_key));
+        assert!(result.is_none(), "Gate 1 (reverse explicit dep) must block commute_pair");
+    }
+
+    #[test]
+    fn test_commute_pair_trivial_no_moves() {
+        let (author, signing_key) = author::test_keypair();
+        let a = make_change(HashSet::new(), vec![vec!["mod_a".into()]]);
+        let b = make_change(HashSet::new(), vec![vec!["mod_b".into()]]);
+
+        let result = commute_pair(&a, &b, &(author.clone(), signing_key));
+        assert!(result.is_some());
+        let (b_prime, a_prime) = result.unwrap();
+        // Without moves, atoms should be identical (just re-signed)
+        assert_eq!(b_prime.atoms, b.atoms);
+        assert_eq!(a_prime.atoms, a.atoms);
+        // Dep sets should not include the cross-dep
+        assert!(!b_prime.deps.contains(&a.id));
+        assert!(!a_prime.deps.contains(&b.id));
+    }
+
+    #[test]
+    fn test_commute_pair_preserves_intent() {
+        let (author, signing_key) = author::test_keypair();
+        let a = make_change(HashSet::new(), vec![vec!["mod_a".into()]]);
+        let b = make_change(HashSet::new(), vec![vec!["mod_b".into()]]);
+
+        let result = commute_pair(&a, &b, &(author, signing_key));
+        let (b_prime, a_prime) = result.unwrap();
+        assert_eq!(b_prime.intent, b.intent);
+        assert_eq!(a_prime.intent, a.intent);
+    }
+
+    #[test]
+    fn test_ghost_conflict_insert_before_delete() {
+        let (author, signing_key) = author::test_keypair();
+        // Insert in a, Delete in b — reverse order of test_commute_pair_ghost_conflict_fails
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert { at: vec!["fn_foo".into()], content_hash: [0u8; 32] }],
+            "insert",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Delete { at: vec!["fn_foo".into()], prior_hash: [0u8; 32] }],
+            "delete",
+            author,
+            &signing_key,
+        );
+        assert!(
+            !commutes(&a, &b),
+            "Insert+Delete at same path must NOT commute (either direction)"
+        );
+    }
+
+    #[test]
+    fn test_paths_overlap_empty_vs_nonempty() {
+        assert!(paths_overlap(&vec![], &vec!["a".into()]));
+    }
+
+    // ── rewrite_atom_paths with "file" prefix Move atom ───────────────────
+
+    #[test]
+    fn test_rewrite_atom_paths_move_with_file_prefix() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "old.rs".into(), "fn_main".into()],
+            content_hash: [0u8; 32],
+        };
+        let from = vec!["file".into(), "old.rs".into()];
+        let to = vec!["file".into(), "new.rs".into()];
+        let moves: Vec<(&NodePath, &NodePath)> = vec![(&from, &to)];
+        let rewritten = rewrite_atom_paths(&atom, &moves);
+        match rewritten {
+            Atom::Insert { at, .. } => {
+                assert_eq!(
+                    at,
+                    vec!["file".to_string(), "new.rs".to_string(), "fn_main".to_string()]
+                );
+            }
+            other => panic!("expected Insert, got {other:?}"),
+        }
+    }
+
+    // ── file_path_for_atom Move to path ───────────────────────────────────
+
+    #[test]
+    fn test_file_path_for_atom_move_to_only() {
+        // Move where `from` doesn't start with "file" but `to` does
+        let atom = Atom::Move {
+            from: vec!["mod".into(), "old.rs".into()],
+            to: vec!["file".into(), "new.rs".into()],
+        };
+        assert_eq!(file_path_for_atom(&atom), Some("new.rs"));
+    }
+
+    // ── file_path_for_atom Mount no file prefix ───────────────────────────
+
+    #[test]
+    fn test_file_path_for_atom_mount_non_file() {
+        let atom = Atom::Mount {
+            path: vec!["vendor".into()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "n".into(),
+                repo: "r".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        assert_eq!(file_path_for_atom(&atom), None);
+    }
+
+    // ── file_path_for_atom Directory no file prefix ───────────────────────
+
+    #[test]
+    fn test_file_path_for_atom_directory_non_file() {
+        let atom = Atom::Directory { path: vec!["vendor".into()] };
+        assert_eq!(file_path_for_atom(&atom), None);
+    }
+
+    // ── Blob vs Directory with "file" prefix ──────────────────────────────
+
+    #[test]
+    fn test_blob_conflicts_with_directory_file_path() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let dir = Atom::Directory { path: vec!["file".into(), "a.txt".into()] };
+        assert!(blob_conflicts(&blob, &dir), "Blob vs Directory at same file path must conflict");
+    }
+
+    // ── Blob vs Mount with "file" prefix ──────────────────────────────────
+
+    #[test]
+    fn test_blob_conflicts_with_mount_file_path() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let mount = Atom::Mount {
+            path: vec!["file".into(), "a.txt".into()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "n".into(),
+                repo: "r".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        assert!(blob_conflicts(&blob, &mount), "Blob vs Mount at same file path must conflict");
+    }
+
+    // ── Blob vs Conflict with "file" prefix ───────────────────────────────
+
+    #[test]
+    fn test_blob_conflicts_with_conflict_file_path() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let conflict = Atom::Conflict {
+            bases: vec![[0u8; 32]],
+            sides: vec![[1u8; 32]],
+            at: vec!["file".into(), "a.txt".into()],
+        };
+        assert!(
+            blob_conflicts(&blob, &conflict),
+            "Blob vs Conflict at same file path must conflict"
+        );
+    }
+
+    // ── Blob vs SemanticsPreserving with "file" prefix ────────────────────
+
+    #[test]
+    fn test_blob_conflicts_with_semantics_preserving_file_path() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let sp = Atom::SemanticsPreserving {
+            at: vec!["file".into(), "a.txt".into()],
+            description: "fmt".into(),
+        };
+        assert!(
+            blob_conflicts(&blob, &sp),
+            "Blob vs SemanticsPreserving at same file path must conflict"
+        );
+    }
+
+    // ── Blob vs non-Blob with no file_path_for_atom match ─────────────────
+
+    #[test]
+    fn test_blob_no_conflict_with_move_different_file() {
+        let blob = Atom::Blob {
+            path: "a.txt".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+            size: 100,
+        };
+        let mv = Atom::Move {
+            from: vec!["mod".into(), "x.rs".into()],
+            to: vec!["mod".into(), "y.rs".into()],
+        };
+        assert!(!blob_conflicts(&blob, &mv), "Blob vs Move at non-file path must NOT conflict");
+    }
+
+    // ── atoms_disjoint with Move and overlapping Insert ───────────────────
+
+    #[test]
+    fn test_commutes_move_and_insert_same_target_path() {
+        let (author, signing_key) = author::test_keypair();
+        let a = Change::new(
+            HashSet::new(),
+            vec![Atom::Move { from: vec!["old".into()], to: vec!["mod".into()] }],
+            "move",
+            author.clone(),
+            &signing_key,
+        );
+        let b = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert { at: vec!["mod".into(), "fn_x".into()], content_hash: [0u8; 32] }],
+            "insert",
+            author,
+            &signing_key,
+        );
+        // Move atoms are excluded from atoms_disjoint check, so they should commute
+        assert!(
+            commutes(&a, &b),
+            "Move and Insert at target path must commute (Move excluded from Gate 2)"
+        );
+    }
 }

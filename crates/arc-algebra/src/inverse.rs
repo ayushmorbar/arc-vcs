@@ -180,4 +180,138 @@ mod tests {
         assert!(inverted.intent.contains("Revert"), "inverted intent must contain 'Revert'");
         assert_eq!(inverted.atoms.len(), original.atoms.len());
     }
+
+    // ── Move atom inversion ───────────────────────────────────────────────
+
+    #[test]
+    fn test_invert_atom_move() {
+        let (_dir, store) = make_store();
+        let atom = Atom::Move {
+            from: vec!["old".into(), "a.rs".into()],
+            to: vec!["new".into(), "a.rs".into()],
+        };
+        let inv = invert_atom(&atom, &store).unwrap();
+        match inv {
+            Atom::Move { from, to } => {
+                assert_eq!(from, vec!["new".to_string(), "a.rs".to_string()]);
+                assert_eq!(to, vec!["old".to_string(), "a.rs".to_string()]);
+            }
+            other => panic!("expected Move, got {other:?}"),
+        }
+    }
+
+    // ── Delete with missing blob returns CasMissing ───────────────────────
+
+    #[test]
+    fn test_invert_delete_cas_missing() {
+        let (_dir, store) = make_store();
+        let ghost_hash = [0xBE_u8; 32];
+        let atom = Atom::Delete { at: vec!["fn_x".into()], prior_hash: ghost_hash };
+        let result = invert_atom(&atom, &store);
+        assert!(
+            matches!(result, Err(InvertError::CasMissing(h)) if h == ghost_hash),
+            "missing blob on Delete must yield CasMissing, got: {result:?}"
+        );
+    }
+
+    // ── Unsupported atom variants ─────────────────────────────────────────
+
+    #[test]
+    fn test_invert_atom_unsupported_directory() {
+        let (_dir, store) = make_store();
+        let atom = Atom::Directory { path: vec!["dir".into()] };
+        let result = invert_atom(&atom, &store);
+        assert!(matches!(result, Err(InvertError::Unsupported)));
+    }
+
+    #[test]
+    fn test_invert_atom_unsupported_blob() {
+        let (_dir, store) = make_store();
+        let atom = Atom::Blob {
+            path: "x.bin".into(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+            size: 100,
+        };
+        let result = invert_atom(&atom, &store);
+        assert!(matches!(result, Err(InvertError::Unsupported)));
+    }
+
+    #[test]
+    fn test_invert_atom_unsupported_conflict() {
+        let (_dir, store) = make_store();
+        let atom = Atom::Conflict {
+            bases: vec![[0u8; 32]],
+            sides: vec![[1u8; 32]],
+            at: vec!["file".into()],
+        };
+        let result = invert_atom(&atom, &store);
+        assert!(matches!(result, Err(InvertError::Unsupported)));
+    }
+
+    #[test]
+    fn test_invert_atom_unsupported_mount() {
+        let (_dir, store) = make_store();
+        let atom = Atom::Mount {
+            path: vec!["lib".into()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "n".into(),
+                repo: "r".into(),
+                hash: blake3::Hash::from_bytes([0u8; 32]),
+            },
+        };
+        let result = invert_atom(&atom, &store);
+        assert!(matches!(result, Err(InvertError::Unsupported)));
+    }
+
+    #[test]
+    fn test_invert_atom_unsupported_semantics_preserving() {
+        let (_dir, store) = make_store();
+        let atom = Atom::SemanticsPreserving { at: vec!["f".into()], description: "fmt".into() };
+        let result = invert_atom(&atom, &store);
+        assert!(matches!(result, Err(InvertError::Unsupported)));
+    }
+
+    // ── invert_change with multiple atoms reversed ────────────────────────
+
+    #[test]
+    fn test_invert_change_reverses_atom_order() {
+        let (_dir, store) = make_store();
+        let h1 = store.write_blob(b"a").unwrap();
+        let h2 = store.write_blob(b"b").unwrap();
+        let (author, signing_key) = author::test_keypair();
+
+        let original = Change::new(
+            HashSet::new(),
+            vec![
+                Atom::Insert { at: vec!["first".into()], content_hash: h1 },
+                Atom::Insert { at: vec!["second".into()], content_hash: h2 },
+            ],
+            "add two",
+            author.clone(),
+            &signing_key,
+        );
+
+        let inverted = invert_change(&original, &store, &(author, signing_key)).unwrap();
+        assert_eq!(inverted.atoms.len(), 2);
+        // Atoms are reversed: original [Insert(first), Insert(second)] → inverted [Delete(second), Delete(first)]
+        match &inverted.atoms[0] {
+            Atom::Delete { at, .. } => assert_eq!(at, &vec!["second".to_string()]),
+            other => panic!("expected Delete for second, got {other:?}"),
+        }
+        match &inverted.atoms[1] {
+            Atom::Delete { at, .. } => assert_eq!(at, &vec!["first".to_string()]),
+            other => panic!("expected Delete for first, got {other:?}"),
+        }
+    }
+
+    // ── CasMissing error message ──────────────────────────────────────────
+
+    #[test]
+    fn cas_missing_error_display() {
+        let hash = [0xAB_u8; 32];
+        let err = InvertError::CasMissing(hash);
+        let msg = format!("{err}");
+        assert!(msg.contains("missing"));
+        assert!(msg.contains("cannot invert"));
+    }
 }
