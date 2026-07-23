@@ -40,7 +40,7 @@ jobs:
         with:
           shared-key: lint
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
@@ -70,7 +70,7 @@ jobs:
         with:
           shared-key: build
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
@@ -97,7 +97,7 @@ jobs:
         with:
           shared-key: test
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0,cargo-nextest@0.9.140
 
@@ -124,7 +124,7 @@ jobs:
         with:
           shared-key: doctests
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
@@ -152,7 +152,7 @@ jobs:
           shared-key: policy
 
       - name: Install nextest
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: cargo-nextest@0.9.140
 
@@ -237,7 +237,7 @@ jobs:
         with:
           shared-key: supply-chain
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0,cargo-deny@0.19.9
 
@@ -264,7 +264,7 @@ jobs:
         with:
           shared-key: fuzz
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0,cargo-fuzz@0.13.2
 
@@ -292,7 +292,7 @@ jobs:
         with:
           shared-key: beta
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
@@ -319,7 +319,7 @@ jobs:
         with:
           shared-key: no-default-features
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
@@ -374,7 +374,7 @@ jobs:
         with:
           shared-key: coverage
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0,cargo-tarpaulin@0.31.5
 
@@ -405,7 +405,7 @@ jobs:
         with:
           shared-key: bench
 
-      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: just@1.39.0
 
