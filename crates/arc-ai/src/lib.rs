@@ -480,11 +480,10 @@ impl AiResolver for LlmResolver {
         let theirs_str = String::from_utf8_lossy(theirs);
 
         let prompt = format!(
-            "BASE (common ancestor):\n```\n{base_str}\n```\n\n\
-             OURS (intent: {intent_ours}):\n```\n{ours_str}\n```\n\n\
-             THEIRS (intent: {intent_theirs}):\n```\n{theirs_str}\n```\n\n\
-             Produce ONLY the resolved content inside a single code fence (``` ... ```). \
-             No explanation, no commentary."
+            "BASE (common ancestor):\n```\n{base_str}\n```\n\nOURS (intent: \
+             {intent_ours}):\n```\n{ours_str}\n```\n\nTHEIRS (intent: \
+             {intent_theirs}):\n```\n{theirs_str}\n```\n\nProduce ONLY the resolved content \
+             inside a single code fence (``` ... ```). No explanation, no commentary."
         );
 
         let client = reqwest::blocking::Client::builder()
@@ -549,7 +548,10 @@ mod tests {
     use arc_algebra_types::Atom;
     use arc_store_types::author;
 
-    use super::{ContextSynthesizer, generate_ghost_intent_with_config};
+    use super::{
+        AiResolver, ContextSynthesizer, MockResolver, extract_code_fence,
+        generate_ghost_intent_with_config,
+    };
 
     fn mk_change(intent: &str, deps: HashSet<[u8; 32]>, idx: u8) -> arc_change::Change {
         let (author, signing_key) = author::test_keypair();
@@ -600,8 +602,126 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn generate_ghost_intent_summarizes_three_atom_diff() {
-        let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy sync impl";
+        let diff = "Insert: module network/sync\nMove: sync/client -> sync/engine\nDelete: legacy \
+                    sync impl";
         let summary = generate_ghost_intent_with_config(diff, None).await.expect("ghost intent");
         assert_eq!(summary, "Refactor: Modularized network sync logic");
+    }
+
+    #[test]
+    fn extract_code_fence_returns_content_inside_fences() {
+        let input = "```rust\nfn main() {\n    println!(\"hi\");\n}\n```";
+        assert_eq!(extract_code_fence(input), "fn main() {\n    println!(\"hi\");\n}");
+    }
+
+    #[test]
+    fn extract_code_fence_returns_trimmed_when_no_fence() {
+        assert_eq!(extract_code_fence("  hello world  "), "hello world");
+    }
+
+    #[test]
+    fn extract_code_fence_handles_unclosed_fence() {
+        let input = "```python\nprint('hello')\n";
+        assert_eq!(extract_code_fence(input), "print('hello')");
+    }
+
+    #[test]
+    fn extract_code_fence_skips_language_tag() {
+        let input = "```toml\n[package]\nname = \"foo\"\n```";
+        assert_eq!(extract_code_fence(input), "[package]\nname = \"foo\"");
+    }
+
+    #[test]
+    fn mock_resolver_concatenates_ours_and_theirs() {
+        let resolver = MockResolver;
+        let result = resolver.resolve(b"base", b"ours", b"theirs", "i1", "i2").unwrap();
+        assert_eq!(result, b"ours\ntheirs");
+    }
+
+    #[test]
+    fn heuristic_ghost_intent_insert_heavy() {
+        let diff = "Insert: a\nInsert: b\nInsert: c\nDelete: x";
+        let intent = super::heuristic_ghost_intent(diff);
+        assert!(intent.starts_with("Feat:"), "expected Feat prefix, got: {intent}");
+        assert!(intent.contains("3"), "expected 3 inserts, got: {intent}");
+    }
+
+    #[test]
+    fn heuristic_ghost_intent_delete_heavy() {
+        let diff = "Delete: a\nDelete: b\nDelete: c\nDelete: d\nInsert: x";
+        let intent = super::heuristic_ghost_intent(diff);
+        assert!(intent.starts_with("Refactor:"), "expected Refactor prefix, got: {intent}");
+        assert!(intent.contains("4"), "expected 4 deletes, got: {intent}");
+    }
+
+    #[test]
+    fn heuristic_ghost_intent_modify_atoms() {
+        let diff = "Modify: a\nInsert: b\nDelete: c";
+        let intent = super::heuristic_ghost_intent(diff);
+        assert!(intent.starts_with("Refactor:"), "expected Refactor prefix, got: {intent}");
+        assert!(intent.contains("1 modified"), "expected 1 modified, got: {intent}");
+    }
+
+    #[test]
+    fn short_hash_returns_first_six_bytes_hex() {
+        let hash = [
+            0u8, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let short = super::short_hash(&hash);
+        assert_eq!(short, "001a2b3c4d5e");
+        assert_eq!(short.len(), 12);
+    }
+
+    #[test]
+    fn context_synthesizer_empty_frontier() {
+        let synthesizer = super::ContextSynthesizer::default();
+        let frontier = HashSet::new();
+        let changes = HashMap::new();
+        let state = synthesizer.synthesize_codebase_state(&frontier, &changes).unwrap();
+        assert_eq!(state, "Codebase State: frontier has no materialized changes");
+    }
+
+    #[test]
+    fn context_synthesizer_with_limit_one() {
+        let mut all = HashMap::new();
+        let (author, signing_key) = author::test_keypair();
+        let change = arc_change::Change::new(
+            HashSet::new(),
+            vec![Atom::Insert { at: vec!["a".into()], content_hash: [1u8; 32] }],
+            "only change",
+            author,
+            &signing_key,
+        );
+        let id = change.id;
+        all.insert(id, change);
+
+        let frontier = HashSet::from([id]);
+        let synthesizer = super::ContextSynthesizer::with_limit(1);
+        let state = synthesizer.synthesize_codebase_state(&frontier, &all).unwrap();
+        let lines = state.lines().filter(|l| l.starts_with("-")).count();
+        assert_eq!(lines, 1, "limit=1 must select exactly 1 change");
+    }
+
+    #[test]
+    fn render_codebase_state_empty_slice() {
+        let out = super::render_codebase_state(&[]);
+        assert_eq!(out, "Codebase State: frontier has no materialized changes");
+    }
+
+    #[test]
+    fn render_codebase_state_single_change() {
+        let (author, signing_key) = author::test_keypair();
+        let change = arc_change::Change::new(
+            HashSet::new(),
+            vec![Atom::Insert { at: vec!["x".into()], content_hash: [1u8; 32] }],
+            "test intent",
+            author,
+            &signing_key,
+        );
+        let out = super::render_codebase_state(&[&change]);
+        assert!(out.contains("atoms=1"), "expected atoms=1 in output");
+        assert!(out.contains("intent=test intent"), "expected intent in output");
+        assert!(out.contains("Codebase State"), "expected header");
     }
 }

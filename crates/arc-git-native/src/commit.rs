@@ -70,9 +70,8 @@ fn push_signature_line(out: &mut Vec<u8>, label: &[u8], sig: &GitSignature) {
 mod tests {
     use std::str::FromStr;
 
-    use crate::hash::GitOid;
-
     use super::{GitCommit, GitSignature, synthesize_commit};
+    use crate::hash::{GitObjectKind, GitOid, git_hash};
 
     #[test]
     fn standard_commit_matches_oracle_hash() {
@@ -94,5 +93,135 @@ mod tests {
 
         let (_payload, oid) = synthesize_commit(&commit);
         assert_eq!(oid.to_string(), "6d8d7f05efa6402573bc77cb801dfca82261b952");
+    }
+
+    #[test]
+    fn commit_with_parents_payload_format() {
+        let tree = git_hash(GitObjectKind::Tree, b"");
+        let parent = git_hash(GitObjectKind::Commit, b"parent payload");
+        let sig = GitSignature {
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+            timestamp: 1_700_000_000,
+            tz_offset: "+0000".to_string(),
+        };
+        let commit = GitCommit {
+            tree,
+            parents: vec![parent],
+            author: sig.clone(),
+            committer: sig,
+            message: "Second commit\n".to_string(),
+        };
+
+        let (payload, oid) = synthesize_commit(&commit);
+        let payload_str = String::from_utf8_lossy(&payload);
+        assert!(payload_str.starts_with("tree "));
+        assert!(payload_str.contains(&format!("parent {}", parent)));
+        assert!(payload_str.contains("author Alice <alice@example.com>"));
+        assert!(payload_str.contains("committer Alice <alice@example.com>"));
+        assert!(payload_str.ends_with("\nSecond commit\n"));
+        assert_eq!(oid.to_string().len(), 40);
+    }
+
+    #[test]
+    fn commit_with_two_parents() {
+        let tree = git_hash(GitObjectKind::Tree, b"");
+        let p1 = git_hash(GitObjectKind::Commit, b"p1");
+        let p2 = git_hash(GitObjectKind::Commit, b"p2");
+        let sig = GitSignature {
+            name: "Bob".to_string(),
+            email: "bob@example.com".to_string(),
+            timestamp: 1_700_000_100,
+            tz_offset: "+0200".to_string(),
+        };
+        let commit = GitCommit {
+            tree,
+            parents: vec![p1, p2],
+            author: sig.clone(),
+            committer: sig,
+            message: "Merge commit\n".to_string(),
+        };
+
+        let (payload, _oid) = synthesize_commit(&commit);
+        let payload_str = String::from_utf8_lossy(&payload);
+        let parent_count = payload_str.matches("parent ").count();
+        assert_eq!(parent_count, 2);
+    }
+
+    #[test]
+    fn commit_empty_message() {
+        let tree = git_hash(GitObjectKind::Tree, b"");
+        let sig = GitSignature {
+            name: "X".to_string(),
+            email: "x@x".to_string(),
+            timestamp: 0,
+            tz_offset: "+0000".to_string(),
+        };
+        let commit = GitCommit {
+            tree,
+            parents: vec![],
+            author: sig.clone(),
+            committer: sig,
+            message: String::new(),
+        };
+
+        let (payload, oid) = synthesize_commit(&commit);
+        assert_eq!(oid.to_string().len(), 40);
+        assert!(payload.ends_with(b"\n"));
+    }
+
+    #[test]
+    fn git_signature_struct_fields() {
+        let sig = GitSignature {
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+            timestamp: 9999999999,
+            tz_offset: "-0500".to_string(),
+        };
+        assert_eq!(sig.name, "Test User");
+        assert_eq!(sig.email, "test@example.com");
+        assert_eq!(sig.timestamp, 9999999999);
+        assert_eq!(sig.tz_offset, "-0500");
+    }
+
+    #[test]
+    fn git_commit_struct_fields() {
+        let tree = git_hash(GitObjectKind::Tree, b"");
+        let sig = GitSignature {
+            name: "Y".to_string(),
+            email: "y@y".to_string(),
+            timestamp: 1,
+            tz_offset: "+0000".to_string(),
+        };
+        let commit = GitCommit {
+            tree,
+            parents: vec![],
+            author: sig.clone(),
+            committer: sig,
+            message: "msg\n".to_string(),
+        };
+        assert_eq!(commit.tree, tree);
+        assert!(commit.parents.is_empty());
+        assert_eq!(commit.message, "msg\n");
+    }
+
+    #[test]
+    fn synthesize_commit_deterministic() {
+        let sig = GitSignature {
+            name: "Deterministic".to_string(),
+            email: "d@d".to_string(),
+            timestamp: 12345,
+            tz_offset: "+0000".to_string(),
+        };
+        let commit = GitCommit {
+            tree: git_hash(GitObjectKind::Tree, b"x"),
+            parents: vec![],
+            author: sig.clone(),
+            committer: sig,
+            message: "deterministic\n".to_string(),
+        };
+        let (_, oid1) = synthesize_commit(&commit);
+        let (_, oid2) = synthesize_commit(&commit);
+        assert_eq!(oid1, oid2);
     }
 }

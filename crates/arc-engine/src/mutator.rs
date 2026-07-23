@@ -9,8 +9,7 @@ use arc_algebra::commute::commute_pair;
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_graph::ChangeGraph;
-use arc_store_types::author::Author;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::{author::Author, newtypes::ChangeId};
 use thiserror::Error;
 
 /// Result of a squash rewrite.

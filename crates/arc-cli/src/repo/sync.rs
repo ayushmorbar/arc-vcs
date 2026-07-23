@@ -1,17 +1,19 @@
-use std::collections::HashMap;
-use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
-use arc_algebra_types::Atom;
-use arc_algebra_types::Blake3Hash;
-use arc_algebra_types::SpacetimeCoordinate;
+use arc_algebra_types::{Atom, Blake3Hash, SpacetimeCoordinate};
 use arc_change::Change;
-use arc_net::sync::client::NativeSyncClient;
-use arc_net::sync::protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes};
+use arc_net::sync::{
+    client::NativeSyncClient,
+    protocol::{CasWireBlock, SyncProtocol, compute_missing_hashes},
+};
 use arc_store_view::View;
 
 use super::core::*;
+use crate::policy_gate::{ArcPolicy, Ast, Evaluator, PolicyError};
 
 impl Repository {
     fn persist_policy_error_payload(
@@ -132,16 +134,17 @@ impl Repository {
                     old_signature,
                     new_signature,
                 } => anyhow::anyhow!(
-                    "policy gate rejected incoming sync delta from '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
-                     Transient CAS buffer dropped. Run 'arc ai resolve' to generate a Lensed Ghost Node.",
+                    "policy gate rejected incoming sync delta from '{}': broken functions [{}]; \
+                     old signature [{}]; new signature [{}]. Transient CAS buffer dropped. Run \
+                     'arc ai resolve' to generate a Lensed Ghost Node.",
                     address,
                     broken_functions.join(", "),
                     old_signature,
                     new_signature
                 ),
                 other => anyhow::anyhow!(
-                    "policy gate rejected incoming sync delta from '{}': {}. \
-                     Transient CAS buffer dropped. Run 'arc ai resolve'.",
+                    "policy gate rejected incoming sync delta from '{}': {}. Transient CAS buffer \
+                     dropped. Run 'arc ai resolve'.",
                     address,
                     other
                 ),
@@ -204,10 +207,10 @@ impl Repository {
     /// Clone or update all mounted sub-repositories declared in the current view.
     ///
     /// For each `ARC_MOUNT:` token in the materialized state:
-    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository
-    ///   is initialised and the target view is fetched via the internal sync API.
-    /// * If `.arc/` already exists, the repository is opened and the view is
-    ///   fetched to pick up new changes before switching.
+    /// * If the mount directory has no `.arc/` sub-directory, the sub-repository is initialised and
+    ///   the target view is fetched via the internal sync API.
+    /// * If `.arc/` already exists, the repository is opened and the view is fetched to pick up new
+    ///   changes before switching.
     ///
     /// A progress spinner is shown for the full sync pass.
     pub fn mount_sync(&mut self) -> anyhow::Result<()> {
@@ -292,16 +295,17 @@ impl Repository {
                         old_signature,
                         new_signature,
                     } => anyhow::anyhow!(
-                        "policy gate rejected incoming sync delta for mount '{}': broken functions [{}]; old signature [{}]; new signature [{}]. \
-                         Generate a Lensed Ghost Node and re-run sync.",
+                        "policy gate rejected incoming sync delta for mount '{}': broken \
+                         functions [{}]; old signature [{}]; new signature [{}]. Generate a \
+                         Lensed Ghost Node and re-run sync.",
                         path,
                         broken_functions.join(", "),
                         old_signature,
                         new_signature
                     ),
                     PolicyError::MissingDependency { dependency } => anyhow::anyhow!(
-                        "policy gate rejected incoming sync delta for mount '{}': missing dependency '{}'. \
-                         Reconcile the foreign DAG frontier before retrying sync.",
+                        "policy gate rejected incoming sync delta for mount '{}': missing \
+                         dependency '{}'. Reconcile the foreign DAG frontier before retrying sync.",
                         path,
                         dependency
                     ),
@@ -347,5 +351,81 @@ impl Repository {
 
         spinner.finish_with_message(format!("Synced {} mount(s).", mounts.len()));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_remote_then_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+        repo.add_remote("origin", "http://example.com/sync").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.get("origin").unwrap(), "http://example.com/sync");
+        assert_eq!(remotes.len(), 1);
+    }
+
+    #[test]
+    fn add_remote_overwrites_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("origin", "http://old.example.com").unwrap();
+        repo.add_remote("origin", "http://new.example.com").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.get("origin").unwrap(), "http://new.example.com");
+        assert_eq!(remotes.len(), 1);
+    }
+
+    #[test]
+    fn remove_remote_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("upstream", "http://up.example.com").unwrap();
+        repo.remove_remote("upstream").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert!(remotes.is_empty());
+    }
+
+    #[test]
+    fn remove_remote_nonexistent_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        let err = repo.remove_remote("nope").unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn list_remotes_empty_by_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert!(remotes.is_empty());
+    }
+
+    #[test]
+    fn add_multiple_remotes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let repo = Repository::init(root).unwrap();
+
+        repo.add_remote("a", "http://a.example.com").unwrap();
+        repo.add_remote("b", "http://b.example.com").unwrap();
+        repo.add_remote("c", "http://c.example.com").unwrap();
+        let remotes = repo.list_remotes().unwrap();
+        assert_eq!(remotes.len(), 3);
+        assert_eq!(remotes.get("a").unwrap(), "http://a.example.com");
+        assert_eq!(remotes.get("b").unwrap(), "http://b.example.com");
+        assert_eq!(remotes.get("c").unwrap(), "http://c.example.com");
     }
 }

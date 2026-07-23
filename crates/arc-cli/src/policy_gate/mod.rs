@@ -7,6 +7,9 @@ pub mod policy;
 #[allow(missing_docs)]
 pub mod resolver;
 
+#[cfg(test)]
+mod tests;
+
 pub use evaluator::*;
 pub use policy::*;
 pub use resolver::*;

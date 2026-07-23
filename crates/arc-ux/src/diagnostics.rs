@@ -68,3 +68,147 @@ impl Diagnostic for ArcMietteDiagnostic {
         Some(Box::new(self.url.clone()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as StdError;
+
+    #[test]
+    fn format_error_code_clamps_to_valid_range() {
+        assert_eq!(format_error_code(0), "E0001");
+        assert_eq!(format_error_code(1), "E0001");
+        assert_eq!(format_error_code(500), "E0500");
+        assert_eq!(format_error_code(1000), "E1000");
+        assert_eq!(format_error_code(1001), "E1000");
+        assert_eq!(format_error_code(65535), "E1000");
+    }
+
+    #[test]
+    fn stable_error_code_is_deterministic() {
+        let msg = "test error message";
+        let code1 = stable_error_code(msg);
+        let code2 = stable_error_code(msg);
+        assert_eq!(code1, code2);
+        assert!((1..=1000).contains(&code1));
+    }
+
+    #[test]
+    fn stable_error_code_differs_for_different_messages() {
+        let code_a = stable_error_code("message alpha");
+        let code_b = stable_error_code("message beta");
+        assert_ne!(code_a, code_b);
+    }
+
+    #[test]
+    fn build_arrow_chain_empty_when_no_source() {
+        use std::fmt;
+
+        #[derive(Debug)]
+        struct LeafError;
+
+        impl fmt::Display for LeafError {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "leaf")
+            }
+        }
+        impl StdError for LeafError {}
+
+        let err = LeafError;
+        assert_eq!(build_arrow_chain(&err), "no additional causes");
+    }
+
+    #[test]
+    fn build_arrow_chain_joins_multiple_sources() {
+        use std::fmt;
+
+        #[derive(Debug)]
+        struct Inner;
+
+        impl fmt::Display for Inner {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "inner")
+            }
+        }
+        impl StdError for Inner {}
+
+        #[derive(Debug)]
+        struct Outer(Inner);
+
+        impl fmt::Display for Outer {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "outer")
+            }
+        }
+        impl StdError for Outer {
+            fn source(&self) -> Option<&(dyn StdError + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let err = Outer(Inner);
+        let chain = build_arrow_chain(&err);
+        assert!(chain.contains("inner"), "chain should include inner error");
+    }
+
+    #[test]
+    fn arc_miette_diagnostic_display_includes_message_and_arrow_chain() {
+        let diag = ArcMietteDiagnostic {
+            message: "something broke".to_string(),
+            arrow_chain: "root cause".to_string(),
+            help: "try again".to_string(),
+            code: "E0001".to_string(),
+            url: "https://arc-vcs.dev/errors/E0001".to_string(),
+        };
+        let display = format!("{diag}");
+        assert!(display.contains("something broke"));
+        assert!(display.contains("root cause"));
+    }
+
+    #[test]
+    fn arc_miette_diagnostic_code_returns_formatted_code() {
+        let diag = ArcMietteDiagnostic {
+            message: "msg".to_string(),
+            arrow_chain: "no additional causes".to_string(),
+            help: "help".to_string(),
+            code: "E0042".to_string(),
+            url: "https://arc-vcs.dev/errors/E0042".to_string(),
+        };
+        let code = diag.code().expect("code must be present");
+        assert_eq!(format!("{code}"), "E0042");
+    }
+
+    #[test]
+    fn arc_miette_diagnostic_help_returns_help_text() {
+        let diag = ArcMietteDiagnostic {
+            message: "msg".to_string(),
+            arrow_chain: "no additional causes".to_string(),
+            help: "inspect the cause chain".to_string(),
+            code: "E0001".to_string(),
+            url: "https://arc-vcs.dev/errors/E0001".to_string(),
+        };
+        let help = diag.help().expect("help must be present");
+        assert_eq!(format!("{help}"), "inspect the cause chain");
+    }
+
+    #[test]
+    fn arc_miette_diagnostic_url_returns_url() {
+        let diag = ArcMietteDiagnostic {
+            message: "msg".to_string(),
+            arrow_chain: "no additional causes".to_string(),
+            help: "help".to_string(),
+            code: "E0001".to_string(),
+            url: "https://arc-vcs.dev/errors/E0001".to_string(),
+        };
+        let url = diag.url().expect("url must be present");
+        assert!(format!("{url}").starts_with("https://"));
+    }
+
+    #[test]
+    fn arc_error_to_report_produces_valid_report() {
+        let err = ArcError::from_error(arc_error::message("test failure"));
+        let report = arc_error_to_report(err);
+        let report_str = format!("{report}");
+        assert!(!report_str.is_empty());
+    }
+}

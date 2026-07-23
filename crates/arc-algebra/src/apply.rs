@@ -9,8 +9,7 @@ use arc_store_types::Author;
 // predicate closures injected by the caller.
 use ignore::gitignore::Gitignore;
 
-use crate::BlobStore;
-use crate::sparse::SparseMatcher;
+use crate::{BlobStore, sparse::SparseMatcher};
 
 /// A materialized state is the result of replaying a sequence of changes
 /// onto an empty tree. Each key is an AST node path; each value is the
@@ -27,16 +26,15 @@ pub type BlameState = HashMap<NodePath, Blake3Hash>;
 ///
 /// # Replay Law
 ///
-/// - `Insert { at, content_hash }` reads the blob from the provided
-///   [`BlobStore`] boundary and writes it
-///   to the state at `at`.
-/// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is
-///   not consulted during application — it is used for inversion).
+/// - `Insert { at, content_hash }` reads the blob from the provided [`BlobStore`] boundary and
+///   writes it to the state at `at`.
+/// - `Delete { at, prior_hash }` removes the path from state (`prior_hash` is not consulted during
+///   application — it is used for inversion).
 /// - `Directory { path }` records a bare directory existence (empty value).
 /// - `Blob { path, hash }` stores an `ARC_BLOB_REF:` token with the blob hash.
 /// - `Mount { path, coordinate }` stores an `ARC_MOUNT:` token.
-/// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the
-///   serialized conflict payload.
+/// - `Conflict { .. }` stores an `ARC_CONFLICT_REF:` token containing the serialized conflict
+///   payload.
 /// - `Move` and `SemanticsPreserving` currently return an error.
 ///
 /// # AI Security Boundary
@@ -93,8 +91,8 @@ pub fn apply_change_scoped(
                     agent_ignore.matched_path_or_any_parents(checked_path, is_dir).is_ignore();
                 if is_sentinel || is_restricted {
                     return Err(format!(
-                        "Security Violation: AI is not permitted to modify \
-                         '{checked_path}' via .agentignore"
+                        "Security Violation: AI is not permitted to modify '{checked_path}' via \
+                         .agentignore"
                     ));
                 }
             }
@@ -348,7 +346,7 @@ mod tests {
         let (dir, store, _) = make_store_and_hash(b"placeholder");
         let mut state = MaterializedState::new();
         let (author, signing_key) = author::test_keypair();
-        let hash = [0xab_u8; 32];
+        let hash = [0xAB_u8; 32];
 
         let change = Change::new(
             HashSet::new(),
@@ -412,6 +410,290 @@ mod tests {
         let result = apply_change(&mut state, &change, &store, &Gitignore::empty(), None);
         assert!(result.is_err(), "Move atom must return an error (not yet implemented)");
         assert!(result.unwrap_err().contains("Move"), "error message must mention Move");
+        drop(dir);
+    }
+
+    /// `Mount` atoms must store an `ARC_MOUNT:` token with the coordinate URI.
+    #[test]
+    fn test_apply_mount_atom() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = author::test_keypair();
+        let coord = arc_algebra_types::SpacetimeCoordinate {
+            namespace: "org".into(),
+            repo: "lib".into(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+        };
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Mount { path: vec!["vendor".into()], coordinate: coord }],
+            "mount dep",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
+        let key = vec!["vendor".into()];
+        let val = state.get(&key).expect("Mount atom must insert an entry");
+        assert!(
+            val.starts_with(b"ARC_MOUNT:"),
+            "Mount atom must write ARC_MOUNT: prefix, got: {val:?}"
+        );
+        drop(dir);
+    }
+
+    /// `Conflict` atoms must store an `ARC_CONFLICT_REF:` token with serialized payload.
+    #[test]
+    fn test_apply_conflict_atom() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = author::test_keypair();
+        let h1 = [0xAA_u8; 32];
+        let h2 = [0xBB_u8; 32];
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Conflict {
+                bases: vec![h1],
+                sides: vec![h2],
+                at: vec!["file".into(), "merge.rs".into()],
+            }],
+            "conflict",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), None).unwrap();
+        let key = vec!["file".into(), "merge.rs".into()];
+        let val = state.get(&key).expect("Conflict atom must insert an entry");
+        assert!(
+            val.starts_with(b"ARC_CONFLICT_REF:"),
+            "Conflict atom must write ARC_CONFLICT_REF: prefix, got: {val:?}"
+        );
+        drop(dir);
+    }
+
+    /// `SemanticsPreserving` atoms must return an error (unimplemented).
+    #[test]
+    fn test_apply_semantics_preserving_returns_error() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::SemanticsPreserving {
+                at: vec!["file".into(), "fmt.rs".into()],
+                description: "reformat".into(),
+            }],
+            "fmt",
+            author,
+            &signing_key,
+        );
+
+        let result = apply_change(&mut state, &change, &store, &Gitignore::empty(), None);
+        assert!(result.is_err(), "SemanticsPreserving atom must return an error");
+        assert!(result.unwrap_err().contains("SemanticsPreserving"));
+        drop(dir);
+    }
+
+    /// `.agentignore` dir-prefix hash matching: AI can't modify a dir under an ignored prefix.
+    #[test]
+    fn test_agentignore_dir_prefix_blocked() {
+        use ignore::gitignore::GitignoreBuilder;
+        let mut builder = GitignoreBuilder::new("/");
+        builder.add_line(None, "secrets/").unwrap();
+        let agent_ignore = builder.build().unwrap();
+
+        let (dir, store, _) = make_store_and_hash(b"secret");
+        let hash = store.write_blob(b"secret").unwrap();
+        let mut state = MaterializedState::new();
+        let (_, signing_key) = author::test_keypair();
+        let key = signing_key.verifying_key().to_bytes();
+        let ai_author = author::Author::AI { model: "gpt-99".to_string(), human_sponsor: key };
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["dir".into(), "secrets/api.key".into()],
+                content_hash: hash,
+            }],
+            "steal secrets",
+            ai_author,
+            &signing_key,
+        );
+
+        let result = apply_change(&mut state, &change, &store, &agent_ignore, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Security Violation"));
+        drop(dir);
+    }
+
+    /// Directory atom with blame state populated.
+    #[test]
+    fn test_apply_directory_blame() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+        let (author, signing_key) = author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Directory { path: vec!["dir".into(), "out".into()] }],
+            "create dir",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        assert_eq!(
+            blame.get(&vec!["dir".into(), "out".into()]),
+            Some(&change.id),
+            "blame must attribute directory to its change"
+        );
+        drop(dir);
+    }
+
+    /// Blob atom with blame state populated.
+    #[test]
+    fn test_apply_blob_blame() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+        let (author, signing_key) = author::test_keypair();
+        let hash = [0xCD_u8; 32];
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Blob { path: "icon.png".into(), hash: hash.into(), size: 0 }],
+            "add icon",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        let key = vec!["file".into(), "icon.png".into()];
+        assert_eq!(blame.get(&key), Some(&change.id), "blame must attribute blob to its change");
+        drop(dir);
+    }
+
+    /// Mount atom with blame state populated.
+    #[test]
+    fn test_apply_mount_blame() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+        let (author, signing_key) = author::test_keypair();
+        let coord = arc_algebra_types::SpacetimeCoordinate {
+            namespace: "n".into(),
+            repo: "r".into(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+        };
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Mount { path: vec!["dep".into()], coordinate: coord }],
+            "mount",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        assert_eq!(
+            blame.get(&vec!["dep".into()]),
+            Some(&change.id),
+            "blame must attribute mount to its change"
+        );
+        drop(dir);
+    }
+
+    /// Conflict atom with blame state populated.
+    #[test]
+    fn test_apply_conflict_blame() {
+        let (dir, store, _) = make_store_and_hash(b"placeholder");
+        let mut state = MaterializedState::new();
+        let mut blame = BlameState::new();
+        let (author, signing_key) = author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Conflict {
+                bases: vec![[0u8; 32]],
+                sides: vec![[1u8; 32]],
+                at: vec!["file".into(), "conflict.rs".into()],
+            }],
+            "conflict",
+            author,
+            &signing_key,
+        );
+
+        apply_change(&mut state, &change, &store, &Gitignore::empty(), Some(&mut blame)).unwrap();
+        assert_eq!(
+            blame.get(&vec!["file".into(), "conflict.rs".into()]),
+            Some(&change.id),
+            "blame must attribute conflict to its change"
+        );
+        drop(dir);
+    }
+
+    /// AI author modifying a dir node that's not explicitly ignored — should pass.
+    #[test]
+    fn test_agentignore_non_ignored_dir_allowed() {
+        use ignore::gitignore::GitignoreBuilder;
+        let mut builder = GitignoreBuilder::new("/");
+        builder.add_line(None, "crypto/").unwrap();
+        let agent_ignore = builder.build().unwrap();
+
+        let (dir, store, _) = make_store_and_hash(b"safe");
+        let hash = store.write_blob(b"safe").unwrap();
+        let mut state = MaterializedState::new();
+        let (_, signing_key) = author::test_keypair();
+        let key = signing_key.verifying_key().to_bytes();
+        let ai_author = author::Author::AI { model: "gpt-99".to_string(), human_sponsor: key };
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["dir".into(), "build/output".into()],
+                content_hash: hash,
+            }],
+            "write build",
+            ai_author,
+            &signing_key,
+        );
+
+        let result = apply_change(&mut state, &change, &store, &agent_ignore, None);
+        assert!(result.is_ok(), "non-ignored dir path should be allowed for AI");
+        drop(dir);
+    }
+
+    /// Human author is not restricted by agentignore.
+    #[test]
+    fn test_human_author_not_restricted() {
+        use ignore::gitignore::GitignoreBuilder;
+        let mut builder = GitignoreBuilder::new("/");
+        builder.add_line(None, "secret.rs").unwrap();
+        let agent_ignore = builder.build().unwrap();
+
+        let (dir, store, _) = make_store_and_hash(b"secret");
+        let hash = store.write_blob(b"secret").unwrap();
+        let mut state = MaterializedState::new();
+        let (author, signing_key) = author::test_keypair();
+
+        let change = Change::new(
+            HashSet::new(),
+            vec![Atom::Insert {
+                at: vec!["file".into(), "secret.rs".into(), "fn_leak".into()],
+                content_hash: hash,
+            }],
+            "modify secret",
+            author,
+            &signing_key,
+        );
+
+        let result = apply_change(&mut state, &change, &store, &agent_ignore, None);
+        assert!(result.is_ok(), "human author should not be restricted by agentignore");
         drop(dir);
     }
 

@@ -1,6 +1,7 @@
+use std::hint::black_box;
+
 use arc_core::store::cas::ObjectStore;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use std::hint::black_box;
 
 fn bench_cas_blob_roundtrip(c: &mut Criterion) {
     let mut group = c.benchmark_group("arc_core_cas");

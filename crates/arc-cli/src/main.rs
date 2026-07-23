@@ -1,39 +1,49 @@
-use anyhow::Context as _;
-use arc_cli::ops::{OperationStage, SloTimer};
-use arc_cli::progress::{PipelineStage, Progress};
-use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::{CommandFactory, Parser, Subcommand};
-use inquire::Text;
-use std::collections::{BTreeSet, HashSet};
-use std::io::IsTerminal;
-use std::path::PathBuf;
-use std::sync::OnceLock;
-
-use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
-use arc_cli::governance::audit_github_governance;
-use arc_cli::graph_render::{GraphDecorations, GraphRenderer, LogTemplate};
-use arc_cli::interop::git::import_repo;
-use arc_cli::repo::{
-    ArcConfig, Repository, global_config_file_path, load_global_config_layer, load_merged_config,
-    local_config_file_path, save_global_config, save_local_config,
+use std::{
+    collections::{BTreeSet, HashSet},
+    io::IsTerminal,
+    path::PathBuf,
+    sync::OnceLock,
 };
-use arc_cli::sync::{fetch, pull};
-use arc_cli::tooling::audit_workspace_tooling;
-use arc_cli::workspace_policy::audit_workspace_policy;
+
+use anyhow::Context as _;
+use arc_algebra_types::{Blake3Hash, SpacetimeCoordinate};
+use arc_cli::{
+    governance::audit_github_governance,
+    graph_render::{GraphDecorations, GraphRenderer, LogTemplate},
+    interop::git::import_repo,
+    ops::{OperationStage, SloTimer},
+    progress::{PipelineStage, Progress},
+    repo::{
+        ArcConfig, Repository, global_config_file_path, load_global_config_layer,
+        load_merged_config, local_config_file_path, save_global_config, save_local_config,
+    },
+    sync::{fetch, pull},
+    tooling::audit_workspace_tooling,
+    workspace_policy::audit_workspace_policy,
+};
 use arc_diagnostics::{ResultExt, init_tracing};
 use arc_net::ai::build_provider;
 use arc_store_policy::{ArcIgnoreMatcher, PathPolicyDecision, explain_config_key};
-use arc_store_types::author::{Author, load_identity, save_identity};
-use arc_store_types::newtypes::{ChangeId, SnapshotId};
-use arc_store_view::View;
-use arc_store_view::oplog::OperationAgent;
-use arc_store_view::synthesis::{SynthesisSnapshot, list_snapshot_ids};
+use arc_store_types::{
+    author::{Author, load_identity, save_identity},
+    newtypes::{ChangeId, SnapshotId},
+};
+use arc_store_view::{
+    View,
+    oplog::OperationAgent,
+    synthesis::{SynthesisSnapshot, list_snapshot_ids},
+};
 use arc_ux::{
     HumanPlainRenderer, HumanRichRenderer, JsonRenderer, OutputEvent, RenderMode, Renderer,
     TerminalCapabilities, arc_error_to_report, detect_capabilities, hyperlink_for_hash,
     hyperlink_for_path,
 };
+use clap::{
+    CommandFactory, Parser, Subcommand,
+    builder::styling::{AnsiColor, Effects, Styles},
+};
 use comfy_table::{Cell, Color, Table, presets};
+use inquire::Text;
 use owo_colors::OwoColorize;
 
 static OUTPUT_PREFS: OnceLock<(bool, bool)> = OnceLock::new();
@@ -52,9 +62,8 @@ struct EphemeralSession {
 ///
 /// Priority:
 /// 1. `.arc/local/session.json` if it already exists (stable within a session).
-/// 2. Generate a fresh keypair whose `session_id` comes from the
-///    `ARC_EPHEMERAL_RUNNER` environment variable (or the OS process ID as a
-///    fallback), then persist it for subsequent commands.
+/// 2. Generate a fresh keypair whose `session_id` comes from the `ARC_EPHEMERAL_RUNNER` environment
+///    variable (or the OS process ID as a fallback), then persist it for subsequent commands.
 ///
 /// Global permanent identity (`~/.arc/identity.json`) is intentionally ignored
 /// when `ARC_EPHEMERAL_RUNNER` is set — the caller opted into ephemeral mode.
@@ -97,8 +106,7 @@ fn load_identity_with_ephemeral_fallback(
     } else {
         load_identity().map_err(|_| {
             anyhow::anyhow!(
-                "No cryptographic identity found. \
-                 Run 'arc auth generate' to create one, or set \
+                "No cryptographic identity found. Run 'arc auth generate' to create one, or set \
                  ARC_EPHEMERAL_RUNNER for CI/CD pipelines."
             )
         })
@@ -476,8 +484,7 @@ enum Command {
     /// Interactively edit the AST content of an existing change.
     ///
     /// Two-step workflow:
-    ///  1. `arc diffedit --prepare <change>` — check out the change's state
-    ///     to the working dir.
+    ///  1. `arc diffedit --prepare <change>` — check out the change's state to the working dir.
     ///  2. Edit files with any editor.
     ///  3. `arc diffedit --apply` — compute the diff and record the replacement.
     Diffedit {
@@ -1213,8 +1220,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 .map(|a| a.commit_count)
                                 .unwrap_or(0);
                             eprint!(
-                                "Detected Git repository with {count} commit{}. \
-                             Import history as arc Changes? [Y/n] ",
+                                "Detected Git repository with {count} commit{}. Import history as \
+                                 arc Changes? [Y/n] ",
                                 if count == 1 { "" } else { "s" }
                             );
                             use std::io::Write;
@@ -1256,9 +1263,9 @@ fn run_cli() -> anyhow::Result<()> {
                             let (git_name, git_email) = arc_git::read_git_user_config(target_path)
                                 .unwrap_or_else(|| ("arc user".into(), "".into()));
                             eprintln!(
-                                "No arc cryptographic identity found.\n\
-                             Generating Ed25519 keypair for {git_name} <{git_email}>\n\
-                             Press Enter to confirm, or Ctrl-C to abort."
+                                "No arc cryptographic identity found.\nGenerating Ed25519 keypair \
+                                 for {git_name} <{git_email}>\nPress Enter to confirm, or Ctrl-C \
+                                 to abort."
                             );
                             use std::io::Write;
                             let _ = std::io::stderr().flush();
@@ -1277,9 +1284,8 @@ fn run_cli() -> anyhow::Result<()> {
                     // --- Import ---
                     let n = import_repo(&target, &mut repo, &author, &signing_key)?;
                     println!(
-                        "Imported {n} change{} across all branches.\n\
-                     Note: Rust source files imported semantically; \
-                     other file types imported as blobs.",
+                        "Imported {n} change{} across all branches.\nNote: Rust source files \
+                         imported semantically; other file types imported as blobs.",
                         if n == 1 { "" } else { "s" }
                     );
                 }
@@ -1574,8 +1580,8 @@ fn run_cli() -> anyhow::Result<()> {
                     match repo.resolve_last_policy_error_with_ai() {
                         Ok(true) => {
                             println!(
-                                "[arc] Policy mismatch converted into a Lensed Ghost Node. \
-                             Review changes then run 'arc ai approve <hash>'."
+                                "[arc] Policy mismatch converted into a Lensed Ghost Node. Review \
+                                 changes then run 'arc ai approve <hash>'."
                             );
                             return Ok(());
                         }
@@ -1595,8 +1601,8 @@ fn run_cli() -> anyhow::Result<()> {
                         match result {
                             Ok(()) => {
                                 println!(
-                                    "[arc] Resolution staged as Ghost Node. \
-                                 Review changes then run 'arc ai approve'."
+                                    "[arc] Resolution staged as Ghost Node. Review changes then \
+                                     run 'arc ai approve'."
                                 );
                             }
                             Err(err) => {
@@ -1610,7 +1616,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 }
 
                                 eprintln!(
-                                    "[arc] Merge-tool resolution failed ({err_text}). Falling back to AI provider."
+                                    "[arc] Merge-tool resolution failed ({err_text}). Falling \
+                                     back to AI provider."
                                 );
                                 let provider_name =
                                     cfg.ai.provider.as_deref().unwrap_or("openai-compatible");
@@ -1621,10 +1628,11 @@ fn run_cli() -> anyhow::Result<()> {
                                     .unwrap_or_else(|| "gpt-4o-mini".to_string());
                                 let endpoint = cfg.ai.endpoint.clone();
                                 let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
-                                anyhow::anyhow!(
-                                    "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
-                                )
-                            })?;
+                                    anyhow::anyhow!(
+                                        "ARC_AI_API_KEY is required for 'arc ai resolve' and is \
+                                         read only at runtime"
+                                    )
+                                })?;
 
                                 let provider =
                                     build_provider(provider_name, &model, endpoint, api_key)?;
@@ -1641,8 +1649,8 @@ fn run_cli() -> anyhow::Result<()> {
                                 )?;
 
                                 println!(
-                                    "[arc] Resolution staged as Ghost Node. \
-                                 Review changes then run 'arc ai approve'."
+                                    "[arc] Resolution staged as Ghost Node. Review changes then \
+                                     run 'arc ai approve'."
                                 );
                             }
                         }
@@ -1653,10 +1661,11 @@ fn run_cli() -> anyhow::Result<()> {
                             cfg.ai.model.clone().unwrap_or_else(|| "gpt-4o-mini".to_string());
                         let endpoint = cfg.ai.endpoint.clone();
                         let api_key = std::env::var("ARC_AI_API_KEY").map_err(|_| {
-                        anyhow::anyhow!(
-                            "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only at runtime"
-                        )
-                    })?;
+                            anyhow::anyhow!(
+                                "ARC_AI_API_KEY is required for 'arc ai resolve' and is read only \
+                                 at runtime"
+                            )
+                        })?;
 
                         let provider = build_provider(provider_name, &model, endpoint, api_key)?;
                         eprintln!(
@@ -1671,8 +1680,8 @@ fn run_cli() -> anyhow::Result<()> {
                         )?;
 
                         println!(
-                            "[arc] Resolution staged as Ghost Node. \
-                         Review changes then run 'arc ai approve'."
+                            "[arc] Resolution staged as Ghost Node. Review changes then run 'arc \
+                             ai approve'."
                         );
                     }
                 }
@@ -1734,7 +1743,8 @@ fn run_cli() -> anyhow::Result<()> {
                         snapshots.clone(),
                     )?;
                     println!(
-                        "Tooling policy verified: {} codespell rules, {} required mise tasks, nextest default timeout {}, ci terminate-after {}.",
+                        "Tooling policy verified: {} codespell rules, {} required mise tasks, \
+                         nextest default timeout {}, ci terminate-after {}.",
                         report.codespell_rules,
                         report.present_required_tasks.len(),
                         report.default_slow_timeout_period,
@@ -1756,7 +1766,8 @@ fn run_cli() -> anyhow::Result<()> {
                         snapshots.clone(),
                     )?;
                     println!(
-                        "Governance policy verified: {} required workflows, {} pinned action reference(s), dependabot ecosystems [{}].",
+                        "Governance policy verified: {} required workflows, {} pinned action \
+                         reference(s), dependabot ecosystems [{}].",
                         report.required_workflows.len(),
                         report.pinned_action_references,
                         report.dependabot_ecosystems.join(", ")
@@ -2426,10 +2437,11 @@ fn run_cli() -> anyhow::Result<()> {
                     let (author, signing_key) = load_identity()?;
                     repo.set_identity(author, signing_key);
                     let coord = SpacetimeCoordinate::from_uri(&coordinate).map_err(|e| {
-                    anyhow::anyhow!(
-                        "invalid coordinate '{coordinate}': {e} (expected arc://<namespace>/<repo>@<hash>)"
-                    )
-                })?;
+                        anyhow::anyhow!(
+                            "invalid coordinate '{coordinate}': {e} (expected \
+                             arc://<namespace>/<repo>@<hash>)"
+                        )
+                    })?;
                     let id = repo.mount_add(&path, coord)?;
                     repo.refresh_projection()?;
                     let hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
@@ -2490,8 +2502,7 @@ fn run_cli() -> anyhow::Result<()> {
             },
             Command::Util { action } => match action {
                 UtilAction::Completion { shell } => {
-                    use clap_complete::Shell;
-                    use clap_complete::generate;
+                    use clap_complete::{Shell, generate};
                     use clap_complete_nushell::Nushell;
 
                     let mut cmd = Cli::command();
@@ -2780,8 +2791,8 @@ fn run_cli() -> anyhow::Result<()> {
             Command::Identity { name, email } => {
                 save_identity(&name, &email)?;
                 println!(
-                    "Identity configured: {name} <{email}> (Ed25519 keypair active)\n\
-                 Run 'arc auth whoami' to inspect your public key."
+                    "Identity configured: {name} <{email}> (Ed25519 keypair active)\nRun 'arc \
+                     auth whoami' to inspect your public key."
                 );
             }
             Command::Diff { semantic } => {
@@ -3530,11 +3541,10 @@ fn config_set(cfg: &mut ArcConfig, key: &str, value: &str) -> anyhow::Result<()>
                 cfg.colors.insert(name.to_string(), value.to_string());
             } else {
                 anyhow::bail!(
-                    "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, ui.pager, ui.editor, \
-                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                    "unknown config key '{key}'; known keys: user.name, user.email, ui.color, \
+                     ui.pager, ui.editor, ui.graph_style, ui.diff_formatter, \
+                     ui.conflict_marker_style, ui.progress_indicator, ui.greet, ui.movement.edit, \
+                     merge.tool, ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
                      template-aliases.<name>, colors.<name>"
@@ -3585,11 +3595,10 @@ fn config_unset(cfg: &mut ArcConfig, key: &str) -> anyhow::Result<()> {
                 cfg.colors.remove(name);
             } else {
                 anyhow::bail!(
-                    "unknown config key '{key}'; known keys: \
-                     user.name, user.email, ui.color, ui.pager, ui.editor, \
-                     ui.graph_style, ui.diff_formatter, ui.conflict_marker_style, \
-                     ui.progress_indicator, ui.greet, ui.movement.edit, merge.tool, \
-                     ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
+                    "unknown config key '{key}'; known keys: user.name, user.email, ui.color, \
+                     ui.pager, ui.editor, ui.graph_style, ui.diff_formatter, \
+                     ui.conflict_marker_style, ui.progress_indicator, ui.greet, ui.movement.edit, \
+                     merge.tool, ai.provider, ai.model, ai.endpoint, hints.resolving_conflicts, \
                      snapshot.max_new_file_size, snapshot.auto_track, snapshot.auto_update_stale, \
                      remotes.<name>, aliases.<name>, revsets.<name>, templates.<name>, \
                      template-aliases.<name>, colors.<name>"
@@ -3674,6 +3683,11 @@ fn atom_display_label(atom: &Atom) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arc_cli::ops::DEFAULT_SYNC_SLO_MS;
+    use arc_cli::policy_gate::{
+        AiResolver, ArcPolicy, Ast, Evaluator, MockAiResolver, PolicyError, RUST_BOUNDARY_QUERY,
+        RUST_INVOCATION_QUERY, TreeSitterEvaluator, ast_context, default_evaluator, verify_lens,
+    };
 
     fn test_raw_args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_string()).collect()
@@ -3912,5 +3926,1091 @@ mod tests {
         assert!(help.contains("snap"));
         assert!(help.contains("watch"));
         assert!(help.contains("sync"));
+    }
+
+    // --- dehex tests -------------------------------------------------------
+
+    #[test]
+    fn dehex_digit_zero_through_nine() {
+        for d in 0..=9u8 {
+            let ch = b'0' + d;
+            assert_eq!(dehex(ch).unwrap(), d, "dehex({} as char) should be {d}", ch as char);
+        }
+    }
+
+    #[test]
+    fn dehex_lowercase_a_through_f() {
+        for (i, expected) in (10..=15u8).enumerate() {
+            let ch = b'a' + i as u8;
+            assert_eq!(dehex(ch).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn dehex_uppercase_a_through_f() {
+        for (i, expected) in (10..=15u8).enumerate() {
+            let ch = b'A' + i as u8;
+            assert_eq!(dehex(ch).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn dehex_invalid_character_returns_error() {
+        let err = dehex(b'x').expect_err("expected error for 'x'");
+        assert!(err.to_string().contains("invalid hex character"));
+    }
+
+    #[test]
+    fn dehex_space_is_invalid() {
+        assert!(dehex(b' ').is_err());
+    }
+
+    // --- hex_to_hash tests -------------------------------------------------
+
+    #[test]
+    fn hex_to_hash_valid_64_char_string() {
+        let hex = "00".repeat(32);
+        let hash = hex_to_hash(&hex).expect("valid hex should succeed");
+        assert_eq!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn hex_to_hash_all_ff_bytes() {
+        let hex = "ff".repeat(32);
+        let hash = hex_to_hash(&hex).expect("valid hex should succeed");
+        assert_eq!(hash, [0xff; 32]);
+    }
+
+    #[test]
+    fn hex_to_hash_known_pattern() {
+        // "0a1b" -> first two bytes are 0x0a and 0x1b
+        let mut hex = String::with_capacity(64);
+        for i in 0..32u8 {
+            hex.push_str(&format!("{:02x}", i));
+        }
+        let hash = hex_to_hash(&hex).expect("valid hex should succeed");
+        for i in 0..32u8 {
+            assert_eq!(hash[i as usize], i);
+        }
+    }
+
+    #[test]
+    fn hex_to_hash_too_short_returns_error() {
+        let err = hex_to_hash("abcd").expect_err("expected error for short input");
+        assert!(err.to_string().contains("must be exactly 64"));
+    }
+
+    #[test]
+    fn hex_to_hash_too_long_returns_error() {
+        let err = hex_to_hash(&"ab".repeat(33)).expect_err("expected error for long input");
+        assert!(err.to_string().contains("must be exactly 64"));
+    }
+
+    #[test]
+    fn hex_to_hash_invalid_chars_returns_error() {
+        let hex = "gg".repeat(32);
+        assert!(hex_to_hash(&hex).is_err());
+    }
+
+    // --- short_change_id tests ---------------------------------------------
+
+    #[test]
+    fn short_change_id_returns_first_8_hex_chars() {
+        let hash = [
+            0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f, 0x6a, 0x7b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let id = ChangeId(hash);
+        let short = short_change_id(id);
+        assert_eq!(short.len(), 8);
+        assert_eq!(short, "0a1b2c3d");
+    }
+
+    // --- display_bisect_counts tests ----------------------------------------
+
+    fn make_bisect_state(
+        good: usize,
+        bad: usize,
+        untested: usize,
+        find_good: bool,
+    ) -> arc_store_graph::bisect::BisectState {
+        use arc_store_graph::bisect::{BisectMark, BisectState};
+        let mut marks = std::collections::BTreeMap::new();
+        let mut candidates = BTreeSet::new();
+        let mut id_bytes = [0u8; 32];
+        for i in 0..(good + bad + untested) {
+            id_bytes[31] = i as u8;
+            let id = ChangeId(id_bytes);
+            candidates.insert(id);
+            let mark = if i < good {
+                BisectMark::Good
+            } else if i < good + bad {
+                BisectMark::Bad
+            } else {
+                BisectMark::Untested
+            };
+            marks.insert(id, mark);
+        }
+        BisectState {
+            range_expr: "test".to_string(),
+            find_good,
+            candidates,
+            marks,
+            current: None,
+            started_at_unix: 0,
+        }
+    }
+
+    #[test]
+    fn display_bisect_counts_find_good_swaps_order() {
+        let state = make_bisect_state(3, 2, 5, true);
+        let (first, second) = display_bisect_counts(&state);
+        // When find_good=true: returns (bad_count, good_count)
+        assert_eq!(first, 2); // bad
+        assert_eq!(second, 3); // good
+    }
+
+    #[test]
+    fn display_bisect_counts_find_bad_natural_order() {
+        let state = make_bisect_state(3, 2, 5, false);
+        let (first, second) = display_bisect_counts(&state);
+        // When find_good=false: returns (good_count, bad_count)
+        assert_eq!(first, 3); // good
+        assert_eq!(second, 2); // bad
+    }
+
+    // --- atom_display_label tests -------------------------------------------
+
+    #[test]
+    fn atom_display_label_insert_contains_added() {
+        let atom = Atom::Insert {
+            at: vec!["file.rs".to_string(), "fn_main".to_string()],
+            content_hash: [0u8; 32],
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Added"));
+        assert!(label.contains("fn_main"));
+    }
+
+    #[test]
+    fn atom_display_label_delete_contains_deleted() {
+        let atom = Atom::Delete {
+            at: vec!["file.rs".to_string(), "fn_old".to_string()],
+            prior_hash: [0u8; 32],
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Deleted"));
+        assert!(label.contains("fn_old"));
+    }
+
+    #[test]
+    fn atom_display_label_move_contains_moved() {
+        let atom = Atom::Move { from: vec!["old.rs".to_string()], to: vec!["new.rs".to_string()] };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Moved"));
+        assert!(label.contains("old.rs"));
+        assert!(label.contains("new.rs"));
+    }
+
+    #[test]
+    fn atom_display_label_directory_contains_dir() {
+        let atom = Atom::Directory { path: vec!["src".to_string(), "utils".to_string()] };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Dir"));
+        assert!(label.contains("utils"));
+    }
+
+    #[test]
+    fn atom_display_label_blob_contains_blob() {
+        let atom = Atom::Blob {
+            path: "assets/logo.png".to_string(),
+            hash: blake3::Hash::from_bytes([0u8; 32]),
+            size: 1024,
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Blob"));
+        assert!(label.contains("assets/logo.png"));
+    }
+
+    #[test]
+    fn atom_display_label_conflict_contains_conflict() {
+        let atom = Atom::Conflict {
+            at: vec!["file.rs".to_string()],
+            bases: vec![[0u8; 32]],
+            sides: vec![[1u8; 32], [2u8; 32]],
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Conflict"));
+        assert!(label.contains("file.rs"));
+    }
+
+    #[test]
+    fn atom_display_label_empty_path_shows_question_mark() {
+        let atom = Atom::Insert { at: vec![], content_hash: [0u8; 32] };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("?"));
+    }
+
+    // --- config_get tests --------------------------------------------------
+
+    #[test]
+    fn config_get_returns_user_name() {
+        let mut cfg = ArcConfig::default();
+        cfg.user.name = Some("Alice".to_string());
+        assert_eq!(config_get(&cfg, "user.name"), Some("Alice".to_string()));
+    }
+
+    #[test]
+    fn config_get_returns_none_for_unset_key() {
+        let cfg = ArcConfig::default();
+        assert_eq!(config_get(&cfg, "user.name"), None);
+    }
+
+    #[test]
+    fn config_get_returns_remote() {
+        let mut cfg = ArcConfig::default();
+        cfg.remotes.insert("origin".to_string(), "https://example.com".to_string());
+        assert_eq!(config_get(&cfg, "remotes.origin"), Some("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn config_get_returns_alias() {
+        let mut cfg = ArcConfig::default();
+        cfg.aliases.insert("st".to_string(), "status".to_string());
+        assert_eq!(config_get(&cfg, "aliases.st"), Some("status".to_string()));
+    }
+
+    #[test]
+    fn config_get_returns_none_for_unknown_key() {
+        let cfg = ArcConfig::default();
+        assert_eq!(config_get(&cfg, "nonexistent.key"), None);
+    }
+
+    // --- config_set tests --------------------------------------------------
+
+    #[test]
+    fn config_set_sets_user_name() {
+        let mut cfg = ArcConfig::default();
+        config_set(&mut cfg, "user.name", "Bob").unwrap();
+        assert_eq!(cfg.user.name, Some("Bob".to_string()));
+    }
+
+    #[test]
+    fn config_set_sets_remote() {
+        let mut cfg = ArcConfig::default();
+        config_set(&mut cfg, "remotes.origin", "https://github.com/test").unwrap();
+        assert_eq!(cfg.remotes.get("origin").unwrap(), "https://github.com/test");
+    }
+
+    #[test]
+    fn config_set_sets_alias() {
+        let mut cfg = ArcConfig::default();
+        config_set(&mut cfg, "aliases.st", "status").unwrap();
+        assert_eq!(cfg.aliases.get("st").unwrap(), "status");
+    }
+
+    #[test]
+    fn config_set_sets_bool_field() {
+        let mut cfg = ArcConfig::default();
+        config_set(&mut cfg, "snapshot.auto_track", "true").unwrap();
+        assert_eq!(cfg.snapshot.auto_track, Some("true".to_string()));
+    }
+
+    #[test]
+    fn config_set_invalid_bool_returns_error() {
+        let mut cfg = ArcConfig::default();
+        let err = config_set(&mut cfg, "snapshot.auto_update_stale", "notabool")
+            .expect_err("expected error for invalid bool");
+        assert!(err.to_string().contains("must be true or false"));
+    }
+
+    #[test]
+    fn config_set_unknown_key_returns_error() {
+        let mut cfg = ArcConfig::default();
+        let err =
+            config_set(&mut cfg, "unknown.key", "val").expect_err("expected error for unknown key");
+        assert!(err.to_string().contains("unknown config key"));
+    }
+
+    // --- config_unset tests ------------------------------------------------
+
+    #[test]
+    fn config_unset_clears_user_name() {
+        let mut cfg = ArcConfig::default();
+        cfg.user.name = Some("Alice".to_string());
+        config_unset(&mut cfg, "user.name").unwrap();
+        assert_eq!(cfg.user.name, None);
+    }
+
+    #[test]
+    fn config_unset_removes_remote() {
+        let mut cfg = ArcConfig::default();
+        cfg.remotes.insert("origin".to_string(), "url".to_string());
+        config_unset(&mut cfg, "remotes.origin").unwrap();
+        assert!(!cfg.remotes.contains_key("origin"));
+    }
+
+    #[test]
+    fn config_unset_removes_alias() {
+        let mut cfg = ArcConfig::default();
+        cfg.aliases.insert("st".to_string(), "status".to_string());
+        config_unset(&mut cfg, "aliases.st").unwrap();
+        assert!(!cfg.aliases.contains_key("st"));
+    }
+
+    #[test]
+    fn config_unset_unknown_key_returns_error() {
+        let mut cfg = ArcConfig::default();
+        let err =
+            config_unset(&mut cfg, "unknown.key").expect_err("expected error for unknown key");
+        assert!(err.to_string().contains("unknown config key"));
+    }
+
+    // --- find_command_token_index tests -------------------------------------
+
+    fn command_names_set() -> HashSet<String> {
+        Cli::command().get_subcommands().map(|c| c.get_name().to_string()).collect()
+    }
+
+    #[test]
+    fn find_command_token_index_finds_command() {
+        let cfg = ArcConfig::default();
+        let names = command_names_set();
+        let args = test_raw_args(&["arc", "status"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn find_command_token_index_skips_flags() {
+        let cfg = ArcConfig::default();
+        let names = command_names_set();
+        let args = test_raw_args(&["arc", "--json", "status"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, Some(2));
+    }
+
+    #[test]
+    fn find_command_token_index_returns_none_after_double_dash() {
+        let cfg = ArcConfig::default();
+        let names = command_names_set();
+        let args = test_raw_args(&["arc", "--", "status"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, None);
+    }
+
+    #[test]
+    fn find_command_token_index_expands_alias() {
+        let mut cfg = ArcConfig::default();
+        cfg.aliases.insert("st".to_string(), "status".to_string());
+        let names = command_names_set();
+        let args = test_raw_args(&["arc", "st"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn find_command_token_index_too_few_args_returns_none() {
+        let cfg = ArcConfig::default();
+        let names = command_names_set();
+        let args = test_raw_args(&["arc"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, None);
+    }
+
+    #[test]
+    fn find_command_token_index_no_command_returns_none() {
+        let cfg = ArcConfig::default();
+        let names = command_names_set();
+        let args = test_raw_args(&["arc", "notarealcommand"]);
+        let idx = find_command_token_index(&args, &cfg, &names);
+        assert_eq!(idx, None);
+    }
+
+    // --- normalize_blob_extension tests -------------------------------------
+
+    #[test]
+    fn normalize_blob_extension_strips_leading_dot() {
+        assert_eq!(normalize_blob_extension(".rs").unwrap(), "rs");
+    }
+
+    #[test]
+    fn normalize_blob_extension_lowercases() {
+        assert_eq!(normalize_blob_extension("PNG").unwrap(), "png");
+    }
+
+    #[test]
+    fn normalize_blob_extension_trims_whitespace() {
+        assert_eq!(normalize_blob_extension("  js  ").unwrap(), "js");
+    }
+
+    #[test]
+    fn normalize_blob_extension_allows_hyphen_and_underscore() {
+        assert_eq!(normalize_blob_extension("my-ext").unwrap(), "my-ext");
+        assert_eq!(normalize_blob_extension("my_ext").unwrap(), "my_ext");
+    }
+
+    #[test]
+    fn normalize_blob_extension_empty_returns_error() {
+        assert!(normalize_blob_extension("").is_err());
+    }
+
+    #[test]
+    fn normalize_blob_extension_dot_only_returns_error() {
+        assert!(normalize_blob_extension(".").is_err());
+    }
+
+    #[test]
+    fn normalize_blob_extension_invalid_chars_returns_error() {
+        assert!(normalize_blob_extension("file name").is_err());
+        assert!(normalize_blob_extension("a@b").is_err());
+    }
+
+    // --- PolicyError::to_mcp_payload tests ---------------------------------
+
+    #[test]
+    fn policy_error_signature_mismatch_payload() {
+        let err = PolicyError::SignatureMismatch {
+            broken_functions: vec!["read()".into(), "write()".into()],
+            old_signature: "fn read(&self)".into(),
+            new_signature: "fn read(&mut self)".into(),
+        };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "SignatureMismatch");
+        let broken = payload["broken_functions"].as_array().unwrap();
+        assert_eq!(broken.len(), 2);
+        assert_eq!(broken[0], "read()");
+        assert_eq!(broken[1], "write()");
+        assert_eq!(payload["old_signature"], "fn read(&self)");
+        assert_eq!(payload["new_signature"], "fn read(&mut self)");
+    }
+
+    #[test]
+    fn policy_error_missing_dependency_payload() {
+        let err = PolicyError::MissingDependency { dependency: "tree-sitter-rust".into() };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "MissingDependency");
+        assert_eq!(payload["dependency"], "tree-sitter-rust");
+    }
+
+    #[test]
+    fn policy_error_read_config_payload() {
+        let err = PolicyError::ReadConfig {
+            path: "policy.json".into(),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied"),
+        };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "ReadConfig");
+        assert_eq!(payload["path"], "policy.json");
+        assert!(payload["error"].as_str().unwrap().contains("permission denied"));
+    }
+
+    #[test]
+    fn policy_error_parse_config_payload() {
+        let err = PolicyError::ParseConfig {
+            path: "policy.json".into(),
+            source: serde_json::from_str::<serde_json::Value>("not valid json {{{").unwrap_err(),
+        };
+        let payload = err.to_mcp_payload();
+        assert_eq!(payload["type"], "ParseConfig");
+        assert_eq!(payload["path"], "policy.json");
+        assert!(payload["error"].as_str().unwrap().contains("expected"));
+    }
+
+    // --- InterruptState tests -----------------------------------------------
+
+    #[test]
+    fn interrupt_state_new_is_not_interrupted() {
+        let state = arc_cli::devtools::interrupt::InterruptState::new();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn interrupt_state_mark_interrupted() {
+        let state = arc_cli::devtools::interrupt::InterruptState::new();
+        state.mark_interrupted();
+        assert!(state.is_interrupted());
+    }
+
+    #[test]
+    fn interrupt_state_default_not_interrupted() {
+        let state = arc_cli::devtools::interrupt::InterruptState::default();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn interrupt_state_clone_shares_atomic() {
+        let a = arc_cli::devtools::interrupt::InterruptState::new();
+        let b = a.clone();
+        a.mark_interrupted();
+        assert!(b.is_interrupted());
+    }
+
+    #[test]
+    fn interrupt_state_two_instances_independent() {
+        let a = arc_cli::devtools::interrupt::InterruptState::new();
+        let b = arc_cli::devtools::interrupt::InterruptState::new();
+        a.mark_interrupted();
+        assert!(!b.is_interrupted());
+    }
+
+    // --- policy.rs tests ---------------------------------------------------
+
+    #[test]
+    fn arc_policy_default_values() {
+        let policy = ArcPolicy::default();
+        assert!(!policy.require_ghost_node_sponsor);
+        assert!(!policy.block_unresolved_sem_breaks);
+    }
+
+    #[test]
+    fn arc_policy_default_evaluator_returns_non_null() {
+        let policy = ArcPolicy::default();
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let result = evaluator.evaluate_delta_impact(&ast, &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn arc_policy_load_from_missing_file_returns_default() {
+        let path = std::path::Path::new("/nonexistent/policy/path/that/does/not/exist.json");
+        let policy = ArcPolicy::load_from_path(path).unwrap();
+        assert!(!policy.require_ghost_node_sponsor);
+        assert!(!policy.block_unresolved_sem_breaks);
+    }
+
+    #[test]
+    fn arc_policy_load_from_bad_json_returns_parse_error() {
+        let dir = std::env::temp_dir().join("arc_test_policy_parse");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("bad.json");
+        std::fs::write(&path, "{not valid json").unwrap();
+        let err = ArcPolicy::load_from_path(&path).expect_err("expected parse error");
+        assert!(err.to_string().contains("failed to parse policy file"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // --- resolver.rs tests -------------------------------------------------
+
+    #[test]
+    fn default_evaluator_returns_evaluator_with_default_policy() {
+        let policy = ArcPolicy::default();
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let result = evaluator.evaluate_delta_impact(&ast, &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ast_context_returns_ast_with_sources() {
+        let local = vec!["fn main() {}".to_string()];
+        let foreign = vec!["fn helper() {}".to_string()];
+        let ctx = ast_context(local.clone(), foreign.clone());
+        assert_eq!(ctx.local_rust_sources, local);
+        assert_eq!(ctx.foreign_rust_sources, foreign);
+    }
+
+    #[test]
+    fn ast_context_empty_sources() {
+        let ctx = ast_context(vec![], vec![]);
+        assert!(ctx.local_rust_sources.is_empty());
+        assert!(ctx.foreign_rust_sources.is_empty());
+        assert!(ctx.expected_api_signatures.is_empty());
+    }
+
+    #[test]
+    fn mock_ai_resolver_synthesize_lens_with_signature_mismatch() {
+        let resolver = MockAiResolver;
+        let err = PolicyError::SignatureMismatch {
+            broken_functions: vec!["read".into()],
+            old_signature: "fn read(&self)".into(),
+            new_signature: "fn read(&mut self)".into(),
+        };
+        let result = resolver.synthesize_lens(&err);
+        let atoms = result.unwrap();
+        assert_eq!(atoms.len(), 1);
+    }
+
+    #[test]
+    fn mock_ai_resolver_synthesize_lens_with_missing_dep() {
+        let resolver = MockAiResolver;
+        let err = PolicyError::MissingDependency { dependency: "foo".into() };
+        let result = resolver.synthesize_lens(&err);
+        // MissingDependency has no broken_functions key, so synthesis fails
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_lens_with_no_breaks() {
+        let policy = ArcPolicy::default();
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let local_ast = Ast::default();
+        let result = verify_lens(&evaluator, &local_ast, &[], &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_lens_with_empty_lens_atoms() {
+        let policy = ArcPolicy::default();
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let local_ast = Ast::default();
+        let incoming =
+            vec![Atom::Insert { at: vec!["file.rs".to_string()], content_hash: [0u8; 32] }];
+        let result = verify_lens(&evaluator, &local_ast, &incoming, &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn default_evaluator_fn_returns_working_evaluator() {
+        let evaluator = default_evaluator();
+        let ast = Ast::default();
+        let result = evaluator.evaluate_delta_impact(&ast, &[]);
+        assert!(result.is_ok());
+    }
+
+    // --- OperationStage (extend existing) ----------------------------------
+
+    #[test]
+    fn operation_stage_all_variants_display() {
+        let stages = [
+            OperationStage::Discover,
+            OperationStage::Negotiate,
+            OperationStage::Transfer,
+            OperationStage::Materialize,
+            OperationStage::Finalize,
+        ];
+        for stage in stages {
+            let s = format!("{}", stage);
+            assert!(!s.is_empty());
+        }
+    }
+
+    #[test]
+    fn operation_stage_as_str_matches_display() {
+        let stages = [
+            OperationStage::Discover,
+            OperationStage::Negotiate,
+            OperationStage::Transfer,
+            OperationStage::Materialize,
+            OperationStage::Finalize,
+        ];
+        for stage in stages {
+            assert_eq!(stage.as_str(), stage.to_string());
+        }
+    }
+
+    #[test]
+    fn slo_timer_finish_returns_positive_duration() {
+        let timer = SloTimer::new("test-op", std::time::Duration::from_secs(10));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let elapsed = timer.finish();
+        assert!(elapsed.as_millis() >= 10, "elapsed must be at least 10ms");
+    }
+
+    #[test]
+    fn slo_timer_stage_runs_closure() {
+        let timer = SloTimer::new("stage-test", std::time::Duration::from_secs(10));
+        let result = timer.stage(OperationStage::Transfer, || 42);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn default_slo_ms_constant() {
+        assert_eq!(DEFAULT_SYNC_SLO_MS, 500);
+    }
+
+    // --- evaluator.rs query constants tests --------------------------------
+
+    #[test]
+    fn rust_boundary_query_is_non_empty() {
+        assert!(!RUST_BOUNDARY_QUERY.is_empty());
+        assert!(RUST_BOUNDARY_QUERY.contains("function_item"));
+    }
+
+    #[test]
+    fn rust_invocation_query_is_non_empty() {
+        assert!(!RUST_INVOCATION_QUERY.is_empty());
+        assert!(RUST_INVOCATION_QUERY.contains("call_expression"));
+    }
+
+    // --- evaluator.rs evaluate_delta_impact edge cases ----------------------
+
+    #[test]
+    fn evaluator_rejects_mount_with_ghost_sponsor_policy() {
+        let policy =
+            ArcPolicy { require_ghost_node_sponsor: true, block_unresolved_sem_breaks: false };
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let atoms = vec![Atom::Mount {
+            path: vec!["some".to_string(), "path".to_string()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "ns".into(),
+                repo: "repo".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+            },
+        }];
+        let result = evaluator.evaluate_delta_impact(&ast, &atoms);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            PolicyError::SignatureMismatch { broken_functions, .. } => {
+                assert!(broken_functions.contains(&"<ghost-node-sponsor>".to_string()));
+            }
+            other => panic!("expected SignatureMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn evaluator_allows_mount_without_ghost_sponsor_policy() {
+        let policy =
+            ArcPolicy { require_ghost_node_sponsor: false, block_unresolved_sem_breaks: false };
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let atoms = vec![Atom::Mount {
+            path: vec!["some".to_string(), "path".to_string()],
+            coordinate: arc_algebra_types::SpacetimeCoordinate {
+                namespace: "ns".into(),
+                repo: "repo".into(),
+                hash: blake3::Hash::from_bytes([1u8; 32]),
+            },
+        }];
+        let result = evaluator.evaluate_delta_impact(&ast, &atoms);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn evaluator_blocks_sem_breaks_with_empty_sources() {
+        let policy =
+            ArcPolicy { require_ghost_node_sponsor: false, block_unresolved_sem_breaks: true };
+        let evaluator = TreeSitterEvaluator::new(policy);
+        let ast = Ast::default();
+        let result = evaluator.evaluate_delta_impact(&ast, &[]);
+        assert!(result.is_ok());
+    }
+
+    // ── AnyhowCompat ──────────────────────────────────────────────
+
+    #[test]
+    fn anyhow_compat_display_uses_alternate() {
+        let inner = anyhow::anyhow!("test error message");
+        let compat = AnyhowCompat(inner);
+        assert_eq!(format!("{compat}"), "test error message");
+    }
+
+    #[test]
+    fn anyhow_compat_display_with_context() {
+        let inner = anyhow::anyhow!("outer").context("inner context");
+        let compat = AnyhowCompat(inner);
+        let s = format!("{compat}");
+        assert!(s.contains("inner context"));
+        assert!(s.contains("outer"));
+    }
+
+    #[test]
+    fn anyhow_compat_implements_std_error() {
+        let compat = AnyhowCompat(anyhow::anyhow!("e"));
+        let e: &dyn std::error::Error = &compat;
+        assert!(e.to_string().contains("e"));
+    }
+
+    #[test]
+    fn anyhow_compat_debug_derive() {
+        let compat = AnyhowCompat(anyhow::anyhow!("debug test"));
+        let dbg = format!("{compat:?}");
+        assert!(dbg.contains("AnyhowCompat"));
+    }
+
+    // ── make_renderer ─────────────────────────────────────────────
+
+    #[test]
+    fn make_renderer_human_rich() {
+        let caps = TerminalCapabilities {
+            mode: RenderMode::HumanRich,
+            supports_osc8: true,
+            supports_unicode: true,
+        };
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Started("test".to_string()));
+    }
+
+    #[test]
+    fn make_renderer_human_plain() {
+        let caps = TerminalCapabilities {
+            mode: RenderMode::HumanPlain,
+            supports_osc8: false,
+            supports_unicode: false,
+        };
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Started("test".to_string()));
+    }
+
+    #[test]
+    fn make_renderer_machine_json() {
+        let caps = TerminalCapabilities {
+            mode: RenderMode::MachineJson,
+            supports_osc8: false,
+            supports_unicode: true,
+        };
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Started("test".to_string()));
+    }
+
+    // ── render_diagnostic_error ───────────────────────────────────
+
+    #[test]
+    fn render_diagnostic_error_plain_does_not_panic() {
+        let err = anyhow::anyhow!("unit-test diagnostic");
+        render_diagnostic_error(err, false, false);
+    }
+
+    #[test]
+    fn render_diagnostic_error_json_does_not_panic() {
+        let err = anyhow::anyhow!("json diagnostic test");
+        render_diagnostic_error(err, true, false);
+    }
+
+    #[test]
+    fn render_diagnostic_error_quiet_does_not_panic() {
+        let err = anyhow::anyhow!("quiet diagnostic test");
+        render_diagnostic_error(err, false, true);
+    }
+
+    #[test]
+    fn render_diagnostic_error_with_context_does_not_panic() {
+        let err = anyhow::anyhow!("root cause").context("wrapper context");
+        render_diagnostic_error(err, false, false);
+    }
+
+    // ── resolve_sync_token ────────────────────────────────────────
+
+    #[test]
+    fn resolve_sync_token_env_var_scenarios() {
+        // SAFETY: env var manipulation is process-global; this single test
+        // serialises all scenarios to avoid parallel-test races.
+        let run = |val: &str| -> Option<String> {
+            // SAFETY: single-threaded test; env manipulation is safe here
+            unsafe { std::env::set_var("ARC_SYNC_TOKEN", val) };
+            let r = resolve_sync_token().unwrap();
+            // SAFETY: single-threaded test; restoring env to clean state
+            unsafe { std::env::remove_var("ARC_SYNC_TOKEN") };
+            r
+        };
+
+        // normal value
+        assert_eq!(run("test-token-abc123"), Some("test-token-abc123".into()));
+        // whitespace-only → treated as empty
+        assert_eq!(run("   \t\n  "), None);
+        // empty string
+        assert_eq!(run(""), None);
+        // leading/trailing whitespace preserved (not trimmed by the function)
+        assert_eq!(run("  my-token  "), Some("  my-token  ".into()));
+    }
+
+    // ── detect_capabilities ───────────────────────────────────────
+
+    #[test]
+    fn detect_capabilities_force_json() {
+        let caps = detect_capabilities(true, false);
+        assert_eq!(caps.mode, RenderMode::MachineJson);
+    }
+
+    #[test]
+    fn detect_capabilities_quiet_plain() {
+        let caps = detect_capabilities(false, true);
+        assert_eq!(caps.mode, RenderMode::HumanPlain);
+    }
+
+    #[test]
+    fn detect_capabilities_force_json_overrides_quiet() {
+        let caps = detect_capabilities(true, true);
+        assert_eq!(caps.mode, RenderMode::MachineJson);
+    }
+
+    // ── hyperlink_for_hash ────────────────────────────────────────
+
+    #[test]
+    fn hyperlink_for_hash_no_osc8_returns_bare_hash() {
+        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let result = hyperlink_for_hash(hash, false);
+        assert_eq!(result, hash);
+    }
+
+    #[test]
+    fn hyperlink_for_hash_with_osc8_returns_osc8_link() {
+        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let result = hyperlink_for_hash(hash, true);
+        assert!(result.starts_with("\x1B]8;;"));
+        assert!(result.contains(hash));
+        assert!(result.ends_with("\x1B\\"));
+    }
+
+    // ── hyperlink_for_path ────────────────────────────────────────
+
+    #[test]
+    fn hyperlink_for_path_no_osc8_returns_bare_path() {
+        let result = hyperlink_for_path("src/main.rs", 42, false);
+        assert_eq!(result, "src/main.rs:42");
+    }
+
+    #[test]
+    fn hyperlink_for_path_with_osc8_returns_osc8_link() {
+        let result = hyperlink_for_path("src/main.rs", 42, true);
+        assert!(result.starts_with("\x1B]8;;"));
+        assert!(result.contains("src/main.rs:42"));
+        assert!(result.ends_with("\x1B\\"));
+    }
+
+    // ── format_error_code ─────────────────────────────────────────
+
+    #[test]
+    fn format_error_code_zero_clamps_to_e0001() {
+        assert_eq!(arc_ux::diagnostics::format_error_code(0), "E0001");
+    }
+
+    #[test]
+    fn format_error_code_one() {
+        assert_eq!(arc_ux::diagnostics::format_error_code(1), "E0001");
+    }
+
+    #[test]
+    fn format_error_code_999() {
+        assert_eq!(arc_ux::diagnostics::format_error_code(999), "E0999");
+    }
+
+    #[test]
+    fn format_error_code_1000_clamps() {
+        assert_eq!(arc_ux::diagnostics::format_error_code(1000), "E1000");
+    }
+
+    #[test]
+    fn format_error_code_over_1000_clamps() {
+        assert_eq!(arc_ux::diagnostics::format_error_code(5000), "E1000");
+    }
+
+    // ── diagnostic_lines ──────────────────────────────────────────
+
+    #[test]
+    fn diagnostic_lines_returns_non_empty_for_error() {
+        let err = anyhow::anyhow!("simple error");
+        let lines = diagnostic_lines(&err);
+        assert!(!lines.is_empty());
+        assert!(lines[0].contains("simple error"));
+    }
+
+    #[test]
+    fn diagnostic_lines_includes_causes() {
+        let err = anyhow::anyhow!("root").context("middle").context("top");
+        let lines = diagnostic_lines(&err);
+        assert!(lines.len() >= 2);
+    }
+
+    // ── OutputEvent rendering round-trips ─────────────────────────
+
+    #[test]
+    fn output_event_progress_rendering() {
+        let caps = detect_capabilities(false, true);
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Progress(1, 5, "doing stuff".to_string()));
+    }
+
+    #[test]
+    fn output_event_warning_rendering() {
+        let caps = detect_capabilities(false, true);
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Warning("heads up".to_string()));
+    }
+
+    #[test]
+    fn output_event_success_with_details() {
+        let caps = detect_capabilities(false, true);
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Success(
+            "done".to_string(),
+            vec!["detail1".to_string(), "detail2".to_string()],
+        ));
+    }
+
+    #[test]
+    fn output_event_diagnostic_rendering() {
+        use arc_ux::diagnostics::arc_error_to_report;
+        let arc_err =
+            arc_error::Error::from_error(AnyhowCompat(anyhow::anyhow!("ux diagnostic test")));
+        let report = arc_error_to_report(arc_err);
+        let caps = detect_capabilities(false, true);
+        let mut renderer = make_renderer(&caps);
+        renderer.render(OutputEvent::Diagnostic(report));
+    }
+
+    // ── cli_styles ────────────────────────────────────────────────
+
+    #[test]
+    fn cli_styles_returns_configured_styles() {
+        let _styles = cli_styles();
+    }
+
+    // ── run_mock_snap_demo ────────────────────────────────────────
+
+    #[test]
+    fn run_mock_snap_demo_plain_does_not_panic() {
+        let caps = detect_capabilities(false, true);
+        run_mock_snap_demo(&caps);
+    }
+
+    #[test]
+    fn run_mock_snap_demo_json_does_not_panic() {
+        let caps = detect_capabilities(true, true);
+        run_mock_snap_demo(&caps);
+    }
+
+    // ── Atom::Mount and Atom::Conflict display coverage ───────────
+
+    #[test]
+    fn atom_display_label_mount_shows_mount() {
+        use arc_algebra_types::SpacetimeCoordinate;
+        let atom = Atom::Mount {
+            path: vec!["lib".to_string(), "core".to_string()],
+            coordinate: SpacetimeCoordinate {
+                namespace: "ns".to_string(),
+                repo: "repo".to_string(),
+                hash: blake3::Hash::from_bytes([0xAA; 32]),
+            },
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Mount"));
+        assert!(label.contains("core"));
+    }
+
+    #[test]
+    fn atom_display_label_conflict_shows_conflict() {
+        let atom = Atom::Conflict {
+            at: vec!["lib.rs".to_string()],
+            bases: vec![[0xAA; 32]],
+            sides: vec![[0xBB; 32], [0xCC; 32]],
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Conflict"));
+        assert!(label.contains("lib.rs"));
+    }
+
+    #[test]
+    fn atom_display_label_move_shows_arrow() {
+        let atom = Atom::Move { from: vec!["old.rs".to_string()], to: vec!["new.rs".to_string()] };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Moved"));
+        assert!(label.contains("old.rs"));
+        assert!(label.contains("new.rs"));
+    }
+
+    #[test]
+    fn atom_display_label_semantics_preserving_shows_reformat() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["style.rs".to_string()],
+            description: "reformat".to_string(),
+        };
+        let label = atom_display_label(&atom);
+        assert!(label.contains("Reformat"));
+        assert!(label.contains("style.rs"));
+        assert!(label.contains("reformat"));
     }
 }

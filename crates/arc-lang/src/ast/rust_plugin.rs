@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use arc_algebra_types::{Atom, NodePath};
+use arc_store_cas::ObjectStore;
 use tree_sitter::{Node, Parser};
 
 use crate::ast::LanguagePlugin;
-use arc_algebra_types::{Atom, NodePath};
-use arc_store_cas::ObjectStore;
 
 /// Raw AST node content (serialized bytes) — internal to this module only.
 type ASTNode = Vec<u8>;

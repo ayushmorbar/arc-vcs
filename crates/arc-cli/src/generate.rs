@@ -1,15 +1,13 @@
 //! `arc generate` — agentic, context-aware code generation.
 //!
 //! Flow:
-//! 1. Read the target file (capped at [`FILE_CONTENT_BUDGET`] chars to stay
-//!    within any provider's context window — the architectural guardrail noted
-//!    in the Phase 42 plan).
-//! 2. Query the local intent vector store for the top-3 semantically similar
-//!    prior changes so the AI is grounded in this repository's conventions.
+//! 1. Read the target file (capped at [`FILE_CONTENT_BUDGET`] chars to stay within any provider's
+//!    context window — the architectural guardrail noted in the Phase 42 plan).
+//! 2. Query the local intent vector store for the top-3 semantically similar prior changes so the
+//!    AI is grounded in this repository's conventions.
 //! 3. Build a structured prompt and call `arc_ai::generate_code`.
 //! 4. Write the result back to the file.
-//! 5. Save a Ghost Node (`PendingAiChange { kind: Generate }`) to
-//!    `.arc/ai/pending.json`.
+//! 5. Save a Ghost Node (`PendingAiChange { kind: Generate }`) to `.arc/ai/pending.json`.
 //!
 //! The user reviews the diff, then runs `arc ai approve` to cryptographically
 //! sign and commit the change as `Author::AI { model, human_sponsor }`.
@@ -19,8 +17,10 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use arc_ai::extract_code_fence;
 
-use crate::ai_pending::{PendingAiChange, has_pending_ai, save_pending_ai};
-use crate::repo::Repository;
+use crate::{
+    ai_pending::{PendingAiChange, has_pending_ai, save_pending_ai},
+    repo::Repository,
+};
 
 /// Maximum characters of file content to include in the prompt.
 ///
@@ -36,9 +36,8 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
     // State Lock: refuse if another AI change is already staged.
     if has_pending_ai(&repo.shared_root) {
         anyhow::bail!(
-            "An AI change is already pending approval.\n\
-             Run 'arc ai approve' to sign and commit it, \
-             or delete '.arc/ai/pending.json' to discard it."
+            "An AI change is already pending approval.\nRun 'arc ai approve' to sign and commit \
+             it, or delete '.arc/ai/pending.json' to discard it."
         );
     }
 
@@ -103,8 +102,10 @@ pub fn run(goal: &str, file: Option<&Path>, repo: &mut Repository) -> Result<()>
 /// embedding provider is unavailable.  This is a best-effort operation —
 /// `arc generate` still proceeds without context on failure.
 fn retrieve_prior_context(goal: &str, repo: &mut Repository) -> String {
-    use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
-    use arc_ai::vector_store::VectorStore;
+    use arc_ai::{
+        embedding::{EmbeddingProvider, HybridProvider},
+        vector_store::VectorStore,
+    };
 
     let db_path = repo.shared_root.join(".arc").join("ai").join("embeddings.db");
     if !db_path.exists() {
@@ -165,4 +166,95 @@ fn build_prompt(goal: &str, file_context: &str, prior_context: &str) -> String {
     }
     prompt.push_str(&format!("\nGoal: {goal}\n"));
     prompt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_hash_valid() {
+        let hex = "a".repeat(64);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_some(), "valid 64-char hex must parse");
+    }
+
+    #[test]
+    fn parse_hex_hash_short() {
+        let hex = "abcd1234";
+        let result = parse_hex_hash(hex);
+        assert!(result.is_none(), "short hex must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_long() {
+        let hex = "a".repeat(65);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_none(), "long hex must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_invalid_chars() {
+        let hex = "g".repeat(64);
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_none(), "hex with non-hex chars must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_empty() {
+        let result = parse_hex_hash("");
+        assert!(result.is_none(), "empty string must return None");
+    }
+
+    #[test]
+    fn parse_hex_hash_mixed_case() {
+        let mut hex = String::with_capacity(64);
+        for i in 0..64 {
+            if i % 2 == 0 {
+                hex.push('a');
+            } else {
+                hex.push('F');
+            }
+        }
+        let result = parse_hex_hash(&hex);
+        assert!(result.is_some(), "mixed-case hex must parse");
+    }
+
+    #[test]
+    fn build_prompt_empty() {
+        let prompt = build_prompt("fix bug", "", "");
+        assert!(prompt.contains("fix bug"));
+        assert!(prompt.ends_with("Goal: fix bug\n"));
+    }
+
+    #[test]
+    fn build_prompt_with_prior() {
+        let prior = "Relevant prior changes:\n- (similarity 0.85) fix typo\n";
+        let prompt = build_prompt("fix bug", "", prior);
+        assert!(prompt.starts_with("Relevant prior"));
+        assert!(prompt.contains("fix bug"));
+    }
+
+    #[test]
+    fn build_prompt_with_file() {
+        let file_ctx = "Current file (src/main.rs):\n```\nfn main() {}\n```";
+        let prompt = build_prompt("fix bug", file_ctx, "");
+        assert!(prompt.contains("Current file"));
+        assert!(prompt.contains("fix bug"));
+    }
+
+    #[test]
+    fn build_prompt_with_all() {
+        let prior = "Relevant prior changes:\n- (similarity 0.85) fix typo\n";
+        let file_ctx = "Current file (src/main.rs):\n```\nfn main() {}\n```";
+        let prompt = build_prompt("fix bug", file_ctx, prior);
+        assert!(prompt.starts_with("Relevant prior"));
+        assert!(prompt.contains("Current file"));
+        assert!(prompt.contains("Goal: fix bug"));
+    }
+
+    #[test]
+    fn file_content_budget_constant() {
+        assert_eq!(FILE_CONTENT_BUDGET, 4_000);
+    }
 }

@@ -1,16 +1,19 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Result, anyhow, bail};
-use arc_core::algebra::{Atom, Blake3Hash};
-use arc_core::store::author::Author;
-use arc_core::store::change::Change;
+use arc_core::{
+    algebra::{Atom, Blake3Hash},
+    store::{author::Author, change::Change},
+};
 
 use crate::object::{
     GIT_OBJECT_BLOB, GIT_OBJECT_COMMIT, GIT_OBJECT_TREE, GitIdentity, GitSha1, hash_blob,
     hash_commit, hash_tree,
 };
 
-const CONFLICT_EXPORT_ERROR: &str = "Cannot translate unresolved mathematical conflicts to legacy Git snapshots. Please resolve the conflict in arc before exporting.";
+const CONFLICT_EXPORT_ERROR: &str = "Cannot translate unresolved mathematical conflicts to legacy \
+                                     Git snapshots. Please resolve the conflict in arc before \
+                                     exporting.";
 
 /// In-memory object database containing raw Git object bytes keyed by SHA-1.
 #[derive(Debug, Default)]

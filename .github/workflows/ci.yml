@@ -36,15 +36,19 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: lint
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: just fmt-check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps
+        run: just lint
 
   build:
     name: Build
@@ -62,12 +66,16 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: build
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
       - name: Check compilation
-        run: cargo check --workspace
+        run: just check
 
   test:
     name: Tests
@@ -85,17 +93,16 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: test
 
-      - name: Install nextest
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
-          tool: cargo-nextest
+          tool: just@1.39.0,cargo-nextest@0.9.140
 
       - name: Run tests
-        run: cargo nextest run --workspace --no-fail-fast
+        run: just test
 
   doctests:
     name: Doctests
@@ -113,12 +120,16 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: doctests
 
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
       - name: Run doctests
-        run: cargo test --workspace --doc --no-fail-fast
+        run: just doc-tests
 
   policy:
     name: Policy
@@ -136,14 +147,14 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: policy
 
       - name: Install nextest
-        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.140
 
       - name: Policy regression tests
         run: cargo nextest run --workspace --no-fail-fast -E 'test(workspace_policy)' -E 'test(enforce_policy)' -E 'test(policy_denies)' -E 'test(policy_gate)'
@@ -171,7 +182,7 @@ jobs:
         with:
           toolchain: nightly
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: api-drift
 
@@ -199,12 +210,121 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: arch-drift
 
       - name: Detect architecture drift
         run: bash scripts/ci/detect-arch-drift.sh
+
+  supply-chain:
+    name: Supply Chain Audit
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: supply-chain
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0,cargo-deny@0.19.9
+
+      - name: Check advisories, licenses, bans, sources
+        run: just audit
+
+  fuzz:
+    name: Fuzz Smoke Test
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: fuzz
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0,cargo-fuzz@0.13.2
+
+      - name: Run fuzz smoke tests
+        run: just fuzz-check
+
+  beta:
+    name: Beta Compiler
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: beta
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: beta
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
+      - name: Check compilation on beta
+        run: just check
+
+  no-default-features:
+    name: No Default Features
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: no-default-features
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
+      - name: Check crates compile without default features
+        run: just no-default-features
 
   miri:
     name: Miri
@@ -223,7 +343,7 @@ jobs:
           toolchain: nightly
           components: miri
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: miri
 
@@ -233,3 +353,61 @@ jobs:
         run: |
           cargo +nightly miri setup
           cargo +nightly miri test -p arc-algebra --no-fail-fast
+
+  coverage:
+    name: Coverage Gate
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: coverage
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0,cargo-tarpaulin@0.31.5
+
+      # Recommended threshold: 70% (raise as coverage improves).
+      # Current baseline: ~55%. Gate set to 50% to block regressions.
+      - name: Run coverage (fail under 50%)
+        run: just coverage
+
+  bench:
+    name: Benchmarks
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: bench
+
+      - uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: just@1.39.0
+
+      - name: Run benchmarks (smoke)
+        run: just bench

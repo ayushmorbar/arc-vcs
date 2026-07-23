@@ -4,8 +4,10 @@ use arc_algebra_types::Atom;
 use arc_change::Change;
 use arc_store_types::author;
 
-use crate::diff::generator::{DiffGenerator, InMemoryBlobStore};
-use crate::model::ChangeEntry;
+use crate::{
+    diff::generator::{DiffGenerator, InMemoryBlobStore},
+    model::ChangeEntry,
+};
 
 pub trait ChangeProvider {
     fn list_changes(&self) -> Vec<ChangeEntry>;

@@ -1,6 +1,4 @@
-use arc_tui::app::App;
-use arc_tui::bridge::BackendBridge;
-use arc_tui::provider::MockProvider;
+use arc_tui::{app::App, bridge::BackendBridge, provider::MockProvider};
 use arc_ux::OutputEvent;
 
 fn main() -> anyhow::Result<()> {

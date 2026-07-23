@@ -1,5 +1,7 @@
-use arc_algebra::BlobStore;
-use arc_algebra::apply::{BlameState, MaterializedState};
+use arc_algebra::{
+    BlobStore,
+    apply::{BlameState, MaterializedState},
+};
 use arc_algebra_types::Blake3Hash;
 use arc_change::Change;
 use arc_store_cas::ObjectStore;

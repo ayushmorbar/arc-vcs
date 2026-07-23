@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::Context as _;
 
@@ -45,8 +47,7 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
 
     #[cfg(unix)]
     {
-        use signal_hook::consts::signal::SIGTERM;
-        use signal_hook::iterator::Signals;
+        use signal_hook::{consts::signal::SIGTERM, iterator::Signals};
 
         let mut signals =
             Signals::new([SIGTERM]).context("failed to register SIGTERM cleanup handler")?;
@@ -65,4 +66,36 @@ pub fn install_cleanup_handlers(state: InterruptState) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InterruptState;
+
+    #[test]
+    fn new_state_is_not_interrupted() {
+        let state = InterruptState::new();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn default_state_is_not_interrupted() {
+        let state = InterruptState::default();
+        assert!(!state.is_interrupted());
+    }
+
+    #[test]
+    fn mark_interrupted_sets_flag() {
+        let state = InterruptState::new();
+        state.mark_interrupted();
+        assert!(state.is_interrupted());
+    }
+
+    #[test]
+    fn clone_shares_interrupt_flag() {
+        let state = InterruptState::new();
+        let clone = state.clone();
+        state.mark_interrupted();
+        assert!(clone.is_interrupted());
+    }
 }

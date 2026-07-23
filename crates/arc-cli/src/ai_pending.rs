@@ -12,8 +12,10 @@
 //! - `arc ai resolve` / `arc generate` bail if `pending.json` already exists.
 //! - `arc ai approve` removes `pending.json` after committing.
 
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Result;
 use arc_algebra_types::{Atom, Blake3Hash};

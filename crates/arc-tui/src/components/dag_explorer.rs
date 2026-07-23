@@ -1,6 +1,8 @@
-use ratatui::layout::Constraint;
-use ratatui::style::{Modifier, Style};
-use ratatui::widgets::{Cell, Row, Table, TableState};
+use ratatui::{
+    layout::Constraint,
+    style::{Modifier, Style},
+    widgets::{Cell, Row, Table, TableState},
+};
 
 use crate::model::AppState;
 

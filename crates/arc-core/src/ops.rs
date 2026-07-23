@@ -101,7 +101,7 @@ impl SloTimer {
 
 #[cfg(test)]
 mod tests {
-    use super::OperationStage;
+    use super::*;
 
     #[test]
     fn stage_tokens_are_stable_and_lowercase() {
@@ -117,5 +117,63 @@ mod tests {
             assert_eq!(stage.as_str(), expected);
             assert_eq!(stage.to_string(), expected);
         }
+    }
+
+    #[test]
+    fn slo_timer_new_sets_operation() {
+        let timer = SloTimer::new("sync", Duration::from_millis(500));
+        assert_eq!(timer.operation, "sync");
+        assert_eq!(timer.threshold, Duration::from_millis(500));
+    }
+
+    #[test]
+    fn slo_timer_from_env_default_and_override() {
+        // SAFETY: tests run single-threaded; we clean up after ourselves.
+        unsafe { std::env::remove_var("ARC_SYNC_SLO_MS") };
+        let timer = SloTimer::from_env("test");
+        assert_eq!(timer.threshold, Duration::from_millis(DEFAULT_SYNC_SLO_MS));
+
+        // SAFETY: tests run single-threaded; we clean up after ourselves.
+        unsafe { std::env::set_var("ARC_SYNC_SLO_MS", "1000") };
+        let timer = SloTimer::from_env("test");
+        assert_eq!(timer.threshold, Duration::from_millis(1000));
+        // SAFETY: tests run single-threaded; we clean up after ourselves.
+        unsafe { std::env::remove_var("ARC_SYNC_SLO_MS") };
+    }
+
+    #[test]
+    fn slo_timer_stage_returns_result() {
+        let timer = SloTimer::new("test", Duration::from_secs(10));
+        let result = timer.stage(OperationStage::Discover, || 42);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn slo_timer_finish_returns_duration() {
+        let timer = SloTimer::new("test", Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(5));
+        let elapsed = timer.finish();
+        assert!(elapsed >= Duration::from_millis(1));
+    }
+
+    #[test]
+    fn slo_timer_finish_warns_when_exceeded() {
+        let timer = SloTimer::new("test", Duration::from_millis(0));
+        let elapsed = timer.finish();
+        assert!(elapsed >= Duration::ZERO);
+    }
+
+    #[test]
+    fn operation_stage_debug_format() {
+        let stage = OperationStage::Transfer;
+        let debug = format!("{:?}", stage);
+        assert_eq!(debug, "Transfer");
+    }
+
+    #[test]
+    fn operation_stage_clone() {
+        let stage = OperationStage::Finalize;
+        let cloned = stage;
+        assert_eq!(stage, cloned);
     }
 }

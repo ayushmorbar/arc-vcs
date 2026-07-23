@@ -79,4 +79,39 @@ mod tests {
         let normalized = normalize_invocation_args(args);
         assert_eq!(normalized, vec!["arc".to_string(), "status".to_string()]);
     }
+
+    #[test]
+    fn dispatches_arc_mode_from_plain_name() {
+        assert_eq!(mode_from_executable("arc"), InvocationMode::Arc);
+    }
+
+    #[test]
+    fn dispatches_arc_mode_from_unknown_name() {
+        assert_eq!(mode_from_executable("something-else"), InvocationMode::Arc);
+    }
+
+    #[test]
+    fn mode_from_executable_strips_path_prefix() {
+        assert_eq!(mode_from_executable("/usr/bin/arc-daemon"), InvocationMode::Daemon);
+    }
+
+    #[test]
+    fn normalize_empty_args_returns_arc() {
+        let normalized = normalize_invocation_args(Vec::new());
+        assert_eq!(normalized, vec!["arc".to_string()]);
+    }
+
+    #[test]
+    fn normalize_arc_mode_passes_through() {
+        let args = vec!["arc".to_string(), "status".to_string()];
+        let normalized = normalize_invocation_args(args.clone());
+        assert_eq!(normalized, args);
+    }
+
+    #[test]
+    fn normalize_sync_injects_sync_subcommand() {
+        let args = vec!["arc-sync".to_string(), "--help".to_string()];
+        let normalized = normalize_invocation_args(args);
+        assert_eq!(normalized, vec!["arc".to_string(), "sync".to_string(), "--help".to_string()]);
+    }
 }

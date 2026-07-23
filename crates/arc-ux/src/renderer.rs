@@ -211,3 +211,81 @@ fn percent_encode_uri_path(value: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hyperlink_for_hash_disabled_returns_plain() {
+        let result = hyperlink_for_hash("abc123", false);
+        assert_eq!(result, "abc123");
+    }
+
+    #[test]
+    fn hyperlink_for_hash_enabled_wraps_in_osc8() {
+        let result = hyperlink_for_hash("abc123", true);
+        assert!(result.starts_with("\u{1b}]8;;"));
+        assert!(result.contains("arc://diff/abc123"));
+        assert!(result.contains("abc123"));
+    }
+
+    #[test]
+    fn hyperlink_for_path_disabled_returns_plain() {
+        let result = hyperlink_for_path("src/main.rs", 42, false);
+        assert_eq!(result, "src/main.rs:42");
+    }
+
+    #[test]
+    fn hyperlink_for_path_enabled_wraps_in_osc8() {
+        let result = hyperlink_for_path("src/main.rs", 42, true);
+        assert!(result.starts_with("\u{1b}]8;;"));
+        assert!(result.contains("42"));
+    }
+
+    #[test]
+    fn percent_encode_uri_path_passthrough_ascii() {
+        assert_eq!(percent_encode_uri_path("hello"), "hello");
+        assert_eq!(percent_encode_uri_path("a/b/c.rs"), "a/b/c.rs");
+        assert_eq!(percent_encode_uri_path("test-123_file.txt"), "test-123_file.txt");
+    }
+
+    #[test]
+    fn percent_encode_uri_path_encodes_spaces() {
+        assert_eq!(percent_encode_uri_path("hello world"), "hello%20world");
+    }
+
+    #[test]
+    fn percent_encode_uri_path_encodes_special_chars() {
+        assert_eq!(percent_encode_uri_path("a@b"), "a%40b");
+        assert_eq!(percent_encode_uri_path("a&b=c"), "a%26b%3Dc");
+    }
+
+    #[test]
+    fn json_renderer_new() {
+        let r = JsonRenderer { ndjson: false };
+        assert!(!r.ndjson);
+    }
+
+    #[test]
+    fn json_renderer_ndjson_true() {
+        let r = JsonRenderer { ndjson: true };
+        assert!(r.ndjson);
+    }
+
+    #[test]
+    fn human_plain_renderer_new() {
+        let _r = HumanPlainRenderer;
+    }
+
+    #[test]
+    fn human_rich_renderer_new() {
+        let _r = HumanRichRenderer::new(false);
+    }
+
+    #[test]
+    fn human_rich_renderer_new_osc8() {
+        let r = HumanRichRenderer::new(true);
+        assert!(r.supports_osc8);
+    }
+}

@@ -1,6 +1,14 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
+};
 
+use arc_algebra_types::{Atom, Blake3Hash};
+use arc_change::Change;
+use arc_network::{DeltaPayload, SyncResponse, verify_payload};
+use arc_store_cas::ObjectStore;
+use arc_store_types::author::Author;
+use arc_store_view::View;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -11,13 +19,6 @@ use axum::{
 use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
-
-use arc_algebra_types::{Atom, Blake3Hash};
-use arc_change::Change;
-use arc_network::{DeltaPayload, SyncResponse, verify_payload};
-use arc_store_cas::ObjectStore;
-use arc_store_types::author::Author;
-use arc_store_view::View;
 
 fn write_change(store: &ObjectStore, change: &Change) -> Result<(), ()> {
     let bytes = bincode::serialize(change).map_err(|_| ())?;
@@ -371,8 +372,8 @@ async fn post_sync(
 /// - `GET  /objects/:hash`    → raw `bincode` bytes of a [`arc_change::Change`]
 /// - `GET  /blobs/:hash`      → raw bytes of a CAS blob
 /// - `PUT  /blobs/:hash`      → streaming blob intake with BLAKE3 verification
-/// - `POST /sync/:view_name`  → accepts a [`DeltaPayload`]; verifies Ed25519 signatures;
-///   writes changes to CAS; runs Dual-Provenance Identity Collapsing; advances view
+/// - `POST /sync/:view_name`  → accepts a [`DeltaPayload`]; verifies Ed25519 signatures; writes
+///   changes to CAS; runs Dual-Provenance Identity Collapsing; advances view
 ///
 /// Server signing identity is loaded from (or generated at) `.arc/server_identity.json`.
 /// All `Change` objects carry an Ed25519 signature verified on ingress, so
@@ -392,4 +393,47 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use arc_store_types::author::{Author, PublicKeyBytes};
+
+    use super::*;
+
+    #[test]
+    fn server_identity_serde_roundtrip() {
+        let identity = ServerIdentity {
+            canonical_id: "arc-server-test".to_string(),
+            secret_key_bytes: [42u8; 32],
+        };
+        let json = serde_json::to_string(&identity).expect("serialize");
+        let decoded: ServerIdentity = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.canonical_id, "arc-server-test");
+        assert_eq!(decoded.secret_key_bytes, [42u8; 32]);
+    }
+
+    #[test]
+    fn is_transient_author_true_for_transient() {
+        let author = Author::Transient { session_id: "test-session".to_string(), key: [1u8; 32] };
+        assert!(is_transient_author(&author));
+    }
+
+    #[test]
+    fn is_transient_author_false_for_human() {
+        let key: PublicKeyBytes = [99u8; 32];
+        let author = Author::Human {
+            name: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            key,
+        };
+        assert!(!is_transient_author(&author));
+    }
+
+    #[test]
+    fn is_transient_author_false_for_server() {
+        let key: PublicKeyBytes = [88u8; 32];
+        let author = Author::Server { canonical_id: "srv".to_string(), key };
+        assert!(!is_transient_author(&author));
+    }
 }

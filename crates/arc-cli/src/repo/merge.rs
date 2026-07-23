@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-use std::fs;
+use std::{collections::HashSet, fs};
 
 use arc_algebra_types::{Atom, Blake3Hash, NodePath};
 use arc_change::Change;

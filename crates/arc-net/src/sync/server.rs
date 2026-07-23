@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use arc_change::Change;
@@ -9,17 +7,20 @@ use arc_store_types::newtypes::ChangeId;
 use arc_store_view::View;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
-use tokio::time::timeout;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Semaphore,
+    time::timeout,
+};
 use tokio_util::codec::Framed;
 use tracing::instrument;
 
-use super::codec::{ArcSyncCodec, MessageType, SyncFrame};
-use super::protocol::{
-    CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
-    negotiate_capabilities,
+use super::{
+    codec::{ArcSyncCodec, MessageType, SyncFrame},
+    protocol::{
+        CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
+        negotiate_capabilities,
+    },
 };
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 256;
@@ -339,4 +340,48 @@ fn is_valid_view_name(name: &str) -> bool {
     }
 
     name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | '/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_view_names_accepted() {
+        assert!(is_valid_view_name("main"));
+        assert!(is_valid_view_name("feature/foo"));
+        assert!(is_valid_view_name("a-b_c.d"));
+        assert!(is_valid_view_name("release/1.0"));
+    }
+
+    #[test]
+    fn empty_view_name_rejected() {
+        assert!(!is_valid_view_name(""));
+    }
+
+    #[test]
+    fn absolute_path_rejected() {
+        assert!(!is_valid_view_name("/etc/passwd"));
+        assert!(!is_valid_view_name("\\\\server\\share"));
+    }
+
+    #[test]
+    fn dotdot_traversal_rejected() {
+        assert!(!is_valid_view_name("../secret"));
+        assert!(!is_valid_view_name("foo/../../bar"));
+        assert!(!is_valid_view_name(".."));
+    }
+
+    #[test]
+    fn empty_segment_rejected() {
+        assert!(!is_valid_view_name("foo//bar"));
+        assert!(!is_valid_view_name("foo/."));
+    }
+
+    #[test]
+    fn invalid_chars_rejected() {
+        assert!(!is_valid_view_name("has space"));
+        assert!(!is_valid_view_name("has@at"));
+        assert!(!is_valid_view_name("日本語"));
+    }
 }

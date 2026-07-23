@@ -1,15 +1,19 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use arc_algebra_types::Blake3Hash;
 use arc_store_cas::cas::ObjectStore;
 use arc_swap::ArcSwap;
 use thiserror::Error;
 
-use crate::ops::{OperationStage, SloTimer};
-use crate::store::StoreError;
+use crate::{
+    ops::{OperationStage, SloTimer},
+    store::StoreError,
+};
 
 /// Public result type for repository facade operations.
 pub type ArcResult<T> = Result<T, ArcError>;
@@ -443,5 +447,107 @@ mod tests {
         .expect("policy enforce should fail without native feature");
 
         assert!(matches!(err, ArcError::InvalidOpenOptions { .. }));
+    }
+
+    #[test]
+    fn set_frontier_roundtrip() {
+        let dir = tempdir().expect("tempdir must be created");
+        let shared = SharedRepository::open(dir.path()).expect("shared open must succeed");
+
+        let hashes: Vec<Blake3Hash> = vec![[1u8; 32], [2u8; 32], [0xff; 32]];
+        shared.set_frontier(hashes.clone());
+
+        let got = shared.frontier();
+        assert_eq!(*got, hashes);
+    }
+
+    #[test]
+    fn frontier_default_is_empty() {
+        let dir = tempdir().expect("tempdir must be created");
+        let shared = SharedRepository::open(dir.path()).expect("shared open must succeed");
+
+        let got = shared.frontier();
+        assert!(got.is_empty());
+        assert_eq!(got.len(), 0);
+    }
+
+    #[test]
+    fn repository_shared_accessor_root_matches() {
+        let dir = tempdir().expect("tempdir must be created");
+        let repo = Repository::open(dir.path()).expect("repository open must succeed");
+
+        assert_eq!(repo.shared().root(), dir.path());
+    }
+
+    #[test]
+    fn repository_open_convenience() {
+        let dir = tempdir().expect("tempdir must be created");
+        let repo = Repository::open(dir.path()).expect("convenience open must succeed");
+
+        assert_eq!(repo.shared().root(), dir.path());
+        assert_eq!(repo.local_cache_len(), 0);
+    }
+
+    #[test]
+    fn arc_error_display_variants() {
+        let io_err = ArcError::Io(std::io::Error::other("boom"));
+        assert_eq!(format!("{}", io_err), "io error: boom");
+
+        let store_err = ArcError::Store(StoreError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "gone",
+        )));
+        assert_eq!(format!("{}", store_err), "store error: I/O error: gone");
+
+        let cas_err = ArcError::Cas(arc_store_cas::cas::CasError::ChecksumMismatch);
+        assert_eq!(
+            format!("{}", cas_err),
+            "cas error: checksum mismatch while reading content-addressed object"
+        );
+
+        let invalid = ArcError::InvalidOpenOptions { reason: "max_entries must be > 0".into() };
+        assert_eq!(format!("{}", invalid), "invalid open options: max_entries must be > 0");
+
+        let denied = ArcError::PolicyDenied { path: "secret.rs".into() };
+        assert_eq!(format!("{}", denied), "policy denied write for path: secret.rs");
+    }
+
+    #[test]
+    fn open_options_default_values() {
+        let opts = OpenOptions::default();
+        assert_eq!(opts.configured_trust_mode(), TrustMode::Balanced);
+        assert_eq!(opts.configured_cache_mode(), CacheMode::Entries { max_entries: 256 });
+        assert_eq!(opts.configured_policy_mode(), PolicyMode::Bypass);
+    }
+
+    #[test]
+    fn cache_disabled_does_not_store_locally() {
+        let dir = tempdir().expect("tempdir must be created");
+        let repo = Repository::open_with_options(
+            dir.path(),
+            OpenOptions::new().cache_mode(CacheMode::Disabled),
+        )
+        .expect("open with disabled cache must succeed");
+
+        let hash = repo.write_blob(b"no-cache").expect("blob write must succeed");
+        let _ = repo.read_blob(&hash).expect("blob read must succeed");
+
+        assert_eq!(repo.local_cache_len(), 0);
+    }
+
+    #[test]
+    fn cache_entries_evicts_when_full() {
+        let dir = tempdir().expect("tempdir must be created");
+        let repo = Repository::open_with_options(
+            dir.path(),
+            OpenOptions::new().cache_mode(CacheMode::Entries { max_entries: 1 }),
+        )
+        .expect("open with max_entries=1 must succeed");
+
+        let _h1 = repo.write_blob(b"first").expect("first blob write must succeed");
+        assert_eq!(repo.local_cache_len(), 1);
+
+        let _h2 = repo.write_blob(b"second").expect("second blob write must succeed");
+        assert_eq!(repo.local_cache_len(), 1);
     }
 }

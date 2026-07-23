@@ -20,13 +20,12 @@
 
 #![warn(missing_docs)]
 
+#[cfg(all(feature = "ai-resolver", not(target_arch = "wasm32")))]
+pub use arc_ai as ai;
 /// Re-export of foundational pure algebra types crate.
 pub use arc_algebra_types as algebra_types;
 /// Re-export of foundational pure store types crate.
 pub use arc_store_types as store_types;
-
-#[cfg(all(feature = "ai-resolver", not(target_arch = "wasm32")))]
-pub use arc_ai as ai;
 /// Core algebraic types: atoms, hashes, commutativity, and change application.
 pub mod algebra;
 /// DAG node compatibility surface (including ghost-node metadata re-exports).

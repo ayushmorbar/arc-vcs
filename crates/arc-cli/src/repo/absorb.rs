@@ -79,7 +79,8 @@ impl Repository {
                 &_hex(&head)[..12]
             ))
             .with_hint_command(
-                "Absorb currently requires the target to be HEAD. Try restacking this commit to the top of your stack first.",
+                "Absorb currently requires the target to be HEAD. Try restacking this commit to \
+                 the top of your stack first.",
                 "arc restack",
             );
         }
@@ -108,7 +109,8 @@ impl Repository {
 
             if change.deps.len() > 1 {
                 anyhow::bail!(
-                    "absorb(ast) scaffold currently supports linear history only; encountered merge change {}",
+                    "absorb(ast) scaffold currently supports linear history only; encountered \
+                     merge change {}",
                     &_hex(&cursor)[..12]
                 );
             }

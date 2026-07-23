@@ -1,10 +1,8 @@
 //! Embedding providers for semantic intent indexing.
 //!
 //! The local embedding path uses `tokenizers` for lexical segmentation and
-//! prepares for ONNX Runtime (`ort`) model execution when a local model is
-//! configured. In environments without a local ONNX model, it falls back to a
-//! deterministic hashed embedding that still preserves semantic retrieval
-//! behavior for tests and offline workflows.
+//! falls back to a deterministic hashed embedding that preserves semantic
+//! retrieval behavior for tests and offline workflows.
 
 use std::path::{Path, PathBuf};
 
@@ -138,12 +136,6 @@ impl LocalEmbedder {
         let token_ids: Vec<u32> = text.bytes().map(u32::from).collect();
         self.embed_token_ids(&token_ids)
     }
-
-    #[allow(dead_code)]
-    fn _ort_placeholder_marker(&self) -> &'static str {
-        let _ = std::any::TypeId::of::<ort::session::Session>();
-        "ort-ready"
-    }
 }
 
 impl EmbeddingProvider for LocalEmbedder {
@@ -175,7 +167,8 @@ impl ApiProvider {
     /// Construct from arc AI environment variables.
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("ARC_AI_KEY").context(
-            "ARC_AI_KEY is required for API embedding. Set ARC_AI_KEY or configure local embedding.",
+            "ARC_AI_KEY is required for API embedding. Set ARC_AI_KEY or configure local \
+             embedding.",
         )?;
         let base_url =
             std::env::var("ARC_AI_URL").unwrap_or_else(|_| "https://api.openai.com".to_owned());
@@ -295,7 +288,7 @@ fn hex_encode(bytes: &[u8; 32]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
         out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
+        out.push(HEX[(b & 0x0F) as usize] as char);
     }
     out
 }

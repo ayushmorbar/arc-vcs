@@ -1,12 +1,9 @@
-use std::collections::HashSet;
-use std::hash::Hash;
-
-use serde::Serialize;
+use std::{collections::HashSet, hash::Hash};
 
 use arc_algebra_types::{Atom, Blake3Hash};
-use arc_store_types::Author;
-
 pub use arc_content_hash_derive::ContentHash;
+use arc_store_types::Author;
+use serde::Serialize;
 
 /// Stable hasher type used by `ContentHash` implementors.
 pub type Hasher = blake3::Hasher;

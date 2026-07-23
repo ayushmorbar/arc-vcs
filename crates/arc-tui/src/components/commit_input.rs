@@ -1,7 +1,9 @@
 use crossterm::event::KeyEvent;
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::{
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+};
 use ratatui_textarea::TextArea;
 
 pub struct CommitInput {

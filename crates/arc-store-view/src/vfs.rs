@@ -4,11 +4,9 @@
 //! (Linux) and ProjFS (Windows). Implementations can project CAS-addressed
 //! content into host filesystem views while keeping core semantics stable.
 
-use std::io::Read;
-use std::path::Path;
+use std::{io::Read, path::Path};
 
 use anyhow::Result;
-
 use arc_algebra_types::SpacetimeCoordinate;
 
 /// Stable scalar object id type for VFS projections.

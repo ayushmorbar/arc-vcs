@@ -6,21 +6,18 @@
 //!
 //! # Protocol summary (Phase 39)
 //!
-//! * **Blob upload** — Before the sync POST, the caller streams each CAS blob
-//!   to `PUT {remote}/blobs/{hash}`.  The server verifies the BLAKE3 hash,
-//!   writes to a temp file, and atomically renames it into `.arc/blobs/`.
-//!   This decouples the data plane (blobs) from the control plane (DAG
-//!   metadata), preventing OOM on large binary-asset pushes.
+//! * **Blob upload** — Before the sync POST, the caller streams each CAS blob to `PUT
+//!   {remote}/blobs/{hash}`.  The server verifies the BLAKE3 hash, writes to a temp file, and
+//!   atomically renames it into `.arc/blobs/`. This decouples the data plane (blobs) from the
+//!   control plane (DAG metadata), preventing OOM on large binary-asset pushes.
 //!
-//! * **Push** — The caller then POSTs a [`DeltaPayload`] (Changes + view
-//!   heads, **no** inline blobs) to `POST {remote}/sync/{view_name}`.
-//!   The server calls [`verify_payload`] *before* any CAS write (zero-trust
-//!   ingress), runs Identity Collapsing if needed, advances its view, and
-//!   returns a [`SyncResponse`] containing the canonical view heads and a
-//!   `rewritten_map` of any collapsed Changes.
+//! * **Push** — The caller then POSTs a [`DeltaPayload`] (Changes + view heads, **no** inline
+//!   blobs) to `POST {remote}/sync/{view_name}`. The server calls [`verify_payload`] *before* any
+//!   CAS write (zero-trust ingress), runs Identity Collapsing if needed, advances its view, and
+//!   returns a [`SyncResponse`] containing the canonical view heads and a `rewritten_map` of any
+//!   collapsed Changes.
 //!
-//! * **Fetch blob** — `GET {remote}/blobs/{hex}` returns raw bytes for a
-//!   single CAS blob.
+//! * **Fetch blob** — `GET {remote}/blobs/{hex}` returns raw bytes for a single CAS blob.
 //!
 //! # Zero-trust ingress
 //!
@@ -43,6 +40,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, anyhow};
+use arc_algebra_types::Blake3Hash;
+use arc_change::Change;
 use arc_keyring::ArcIdentity;
 use arc_store_cas::cas::CasStorage;
 use arc_store_types::Signature as ArcSignature;
@@ -51,9 +50,6 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-use arc_algebra_types::Blake3Hash;
-use arc_change::Change;
 
 const SIGNING_DOMAIN: &[u8] = b"arc-network:signed-sync:v1:";
 
@@ -260,8 +256,7 @@ impl NetworkClient {
     /// 2. Run Dual-Provenance Identity Collapsing for transient-author Changes.
     /// 3. Write all changes to its CAS (idempotent).
     /// 4. Advance its view: `new_heads = remote_heads ∪ payload.view_heads`.
-    /// 5. Return a [`SyncResponse`] with canonical view heads and any
-    ///    `rewritten_map` entries.
+    /// 5. Return a [`SyncResponse`] with canonical view heads and any `rewritten_map` entries.
     pub async fn push_payload(
         &self,
         remote_url: &str,
@@ -447,12 +442,13 @@ mod tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
 
-    use super::*;
     use arc_algebra_types::Blake3Hash as CasHash;
     use arc_change::Change;
     use arc_store_cas::cas::{CasBytes, CasError};
     use arc_store_types::author::test_keypair;
     use rand_core::OsRng;
+
+    use super::*;
 
     fn make_change(intent: &str) -> Change {
         let (author, key) = test_keypair();
@@ -592,5 +588,82 @@ mod tests {
         let result = process_incoming_signed_delta(&signed, &cas, Utc::now(), &trusted);
         assert!(matches!(result, Err(NetworkError::Unauthorized)));
         assert_eq!(cas.writes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn compute_missing_changes_returns_local_only() {
+        let local_head = [1u8; 32];
+        let remote_head = [2u8; 32];
+        let dep = [3u8; 32];
+
+        let change_head = {
+            let (author, key) = test_keypair();
+            let mut c = Change::new(HashSet::from([dep]), vec![], "head", author, &key);
+            c.id = local_head;
+            c
+        };
+        let change_dep = {
+            let (author, key) = test_keypair();
+            let mut c = Change::new(HashSet::new(), vec![], "dep", author, &key);
+            c.id = dep;
+            c
+        };
+
+        let mut local_changes = HashMap::new();
+        local_changes.insert(local_head, change_head.clone());
+        local_changes.insert(dep, change_dep.clone());
+
+        let local_frontier = HashSet::from([local_head]);
+        let remote_frontier = HashSet::from([remote_head]);
+
+        let missing = compute_missing_changes(&local_frontier, &remote_frontier, &local_changes);
+        let ids: Vec<[u8; 32]> = missing.iter().map(|c| c.id).collect();
+        assert!(ids.contains(&local_head));
+        assert!(ids.contains(&dep));
+    }
+
+    #[test]
+    fn compute_missing_changes_skips_shared_heads() {
+        let shared = [5u8; 32];
+        let local_frontier = HashSet::from([shared]);
+        let remote_frontier = HashSet::from([shared]);
+
+        let missing = compute_missing_changes(&local_frontier, &remote_frontier, &HashMap::new());
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn signing_bytes_includes_domain_prefix() {
+        let payload = b"test-payload";
+        let ts = Utc::now();
+        let bytes = signing_bytes(payload, &ts);
+        assert!(bytes.starts_with(SIGNING_DOMAIN));
+        assert!(bytes.len() > SIGNING_DOMAIN.len() + payload.len());
+    }
+
+    #[test]
+    fn signing_bytes_deterministic_for_same_input() {
+        let payload = b"deterministic";
+        let ts = Utc::now();
+        let a = signing_bytes(payload, &ts);
+        let b = signing_bytes(payload, &ts);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn signing_bytes_varies_with_payload() {
+        let ts = Utc::now();
+        let a = signing_bytes(b"one", &ts);
+        let b = signing_bytes(b"two", &ts);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn signed_request_roundtrip_with_valid_key() {
+        let key = SigningKey::generate(&mut OsRng);
+        let payload = b"hello".to_vec();
+        let ts = Utc::now();
+        let signed = SignedRequest::sign(payload, ts, &key);
+        assert!(signed.verify_incoming(ts).is_ok());
     }
 }

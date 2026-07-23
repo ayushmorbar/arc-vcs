@@ -1,17 +1,20 @@
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    time::Duration,
+};
 
-use indicatif::ProgressBar;
-
-use crate::repo::{Repository, prefix_atom_path};
-use crate::store_compat::ObjectStoreChangeExt;
 use arc_change::Change;
 use arc_git as git_bridge;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
 use arc_store_types::author::Author;
 use arc_store_view::View;
+use indicatif::ProgressBar;
+
+use crate::{
+    repo::{Repository, prefix_atom_path},
+    store_compat::ObjectStoreChangeExt,
+};
 
 /// Import a Git repository's history into an `arc` repository.
 ///
@@ -131,9 +134,11 @@ pub fn import_repo(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use arc_lang::ast::LanguagePlugin;
     use std::process::Command;
+
+    use arc_lang::ast::LanguagePlugin;
+
+    use super::*;
 
     /// Run a git command in `dir`, panicking on failure.
     fn git(args: &[&str], dir: &Path) {

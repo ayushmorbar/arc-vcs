@@ -1,7 +1,6 @@
 //! Compact per-node traversal metadata using bitflags.
 
-use std::collections::HashMap;
-use std::hash::Hash;
+use std::{collections::HashMap, hash::Hash};
 
 use bitflags::bitflags;
 

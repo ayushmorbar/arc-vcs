@@ -1,15 +1,16 @@
-use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use crate::repo::Repository;
-use crate::store_compat::ObjectStoreChangeExt;
-use arc_algebra_types::Atom;
-use arc_algebra_types::Blake3Hash;
+use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
 use arc_keyring::{ArcIdentity, IdentityManager, KeyringSessionFacade};
 use arc_network::{DeltaPayload, NetworkClient, SyncResponse};
 use arc_store_view::View;
+
+use crate::{repo::Repository, store_compat::ObjectStoreChangeExt};
 
 /// Resolve `name_or_path` to a concrete URL or filesystem path.
 ///
@@ -269,12 +270,14 @@ pub fn pull(local: &mut Repository, remote_path: &str, view_name: &str) -> anyho
             Err(error) => {
                 if allow_unsigned_sync_fallback() {
                     eprintln!(
-                        "warning: signed pull unavailable ({error}); falling back to compatibility fetch"
+                        "warning: signed pull unavailable ({error}); falling back to \
+                         compatibility fetch"
                     );
                     fetch_http(local, &resolved, view_name)?
                 } else {
                     return Err(anyhow::anyhow!(
-                        "signed pull failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                        "signed pull failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to \
+                         permit compatibility fallback"
                     ));
                 }
             }
@@ -482,12 +485,14 @@ fn push_http(local: &mut Repository, remote_url: &str, view_name: &str) -> anyho
         Err(error) => {
             if allow_unsigned_sync_fallback() {
                 eprintln!(
-                    "warning: signed push unavailable ({error}); falling back to compatibility transport"
+                    "warning: signed push unavailable ({error}); falling back to compatibility \
+                     transport"
                 );
                 post_payload_with_retry(&client, remote_url, view_name, &payload, local, &pb)?
             } else {
                 return Err(anyhow::anyhow!(
-                    "signed push failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to permit compatibility fallback"
+                    "signed push failed: {error}. Set ARC_ALLOW_UNSIGNED_SYNC_FALLBACK=1 to \
+                     permit compatibility fallback"
                 ));
             }
         }
@@ -689,8 +694,8 @@ fn validate_blob_sources_parallel(
 /// **Progress reporting** — uses a `MultiProgress` layout:
 /// - One persistent master bar showing total bytes / bytes-per-second.
 /// - Per-blob child bars (inserted above the master) for blobs that exceed
-///   [`HEAVY_BLOB_THRESHOLD`].  Each child bar clears itself on completion,
-///   keeping the terminal clean during bulk small-blob uploads.
+///   [`HEAVY_BLOB_THRESHOLD`].  Each child bar clears itself on completion, keeping the terminal
+///   clean during bulk small-blob uploads.
 fn upload_blobs(
     client: &reqwest::blocking::Client,
     remote_url: &str,
@@ -793,8 +798,8 @@ fn post_payload_with_retry(
                 // Hard-fail: the missing-blob list did not shrink after one
                 // re-upload cycle, indicating a persistent hash mismatch.
                 return Err(anyhow::anyhow!(
-                    "server persistently reports missing blobs after re-upload \
-                     (hash algorithm mismatch?) — aborting to prevent network flood"
+                    "server persistently reports missing blobs after re-upload (hash algorithm \
+                     mismatch?) — aborting to prevent network flood"
                 ));
             }
             already_retried = true;
@@ -963,5 +968,221 @@ mod tests {
         slot.capture(anyhow::anyhow!("second"));
         let err = slot.take().expect("must keep first error");
         assert!(err.to_string().contains("first"));
+    }
+
+    // --- hex_nibble tests ---
+
+    #[test]
+    fn hex_nibble_digits() {
+        assert_eq!(hex_nibble(b'0').unwrap(), 0);
+        assert_eq!(hex_nibble(b'5').unwrap(), 5);
+        assert_eq!(hex_nibble(b'9').unwrap(), 9);
+    }
+
+    #[test]
+    fn hex_nibble_lowercase() {
+        assert_eq!(hex_nibble(b'a').unwrap(), 10);
+        assert_eq!(hex_nibble(b'f').unwrap(), 15);
+        assert_eq!(hex_nibble(b'c').unwrap(), 12);
+    }
+
+    #[test]
+    fn hex_nibble_uppercase() {
+        assert_eq!(hex_nibble(b'A').unwrap(), 10);
+        assert_eq!(hex_nibble(b'F').unwrap(), 15);
+        assert_eq!(hex_nibble(b'C').unwrap(), 12);
+    }
+
+    #[test]
+    fn hex_nibble_invalid() {
+        assert!(hex_nibble(b'g').is_err());
+        assert!(hex_nibble(b'G').is_err());
+        assert!(hex_nibble(b' ').is_err());
+        assert!(hex_nibble(b'x').is_err());
+    }
+
+    // --- hex_to_blake3 tests ---
+
+    #[test]
+    fn hex_to_blake3_valid() {
+        let hex = "a".repeat(64);
+        let hash = hex_to_blake3(&hex).unwrap();
+        assert_eq!(hash, [0xaa; 32]);
+    }
+
+    #[test]
+    fn hex_to_blake3_uppercase_accepted() {
+        let hex = "A".repeat(64);
+        let result = hex_to_blake3(&hex);
+        assert!(result.is_ok(), "uppercase hex should be accepted");
+        assert_eq!(result.unwrap(), [0xAA; 32]);
+    }
+
+    #[test]
+    fn hex_to_blake3_wrong_length() {
+        assert!(hex_to_blake3("abc").is_err());
+        assert!(hex_to_blake3(&"a".repeat(63)).is_err());
+        assert!(hex_to_blake3(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn hex_to_blake3_invalid_chars() {
+        // Build a 64-char hex string with an invalid char at position 0
+        let mut hex = "0".repeat(64);
+        // SAFETY: hex is a valid UTF-8 string; we're only mutating bytes to invalid chars for testing
+        let bytes = unsafe { hex.as_bytes_mut() };
+        bytes[0] = b'g';
+        assert!(hex_to_blake3(&hex).is_err());
+    }
+
+    // --- allow_unsigned_sync_fallback tests ---
+
+    #[test]
+    fn allow_unsigned_sync_fallback_env_values() {
+        // Clean state: env unset → false
+        // SAFETY: single-threaded test; env manipulation is safe here
+        unsafe { std::env::remove_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK") };
+        assert!(!allow_unsigned_sync_fallback());
+
+        // Truthy values
+        for val in ["1", "true", "TRUE", "yes", "YES"] {
+            // SAFETY: single-threaded test; env manipulation is safe here
+            unsafe { std::env::set_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK", val) };
+            assert!(allow_unsigned_sync_fallback(), "{val} should enable fallback");
+        }
+
+        // Falsy values
+        for val in ["0", "false", "no", "anything"] {
+            // SAFETY: single-threaded test; env manipulation is safe here
+            unsafe { std::env::set_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK", val) };
+            assert!(!allow_unsigned_sync_fallback(), "{val} should disable fallback");
+        }
+
+        // Clean up
+        // SAFETY: single-threaded test; restoring env to clean state
+        unsafe { std::env::remove_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK") };
+    }
+
+    // --- HEAVY_BLOB_THRESHOLD constant ---
+
+    #[test]
+    fn heavy_blob_threshold_is_5_mib() {
+        assert_eq!(HEAVY_BLOB_THRESHOLD, 5 * 1024 * 1024);
+    }
+
+    // --- FirstErrorSlot additional coverage ---
+
+    #[test]
+    fn first_error_slot_is_set_false_by_default() {
+        let slot = FirstErrorSlot::default();
+        assert!(!slot.is_set());
+    }
+
+    #[test]
+    fn first_error_slot_is_set_after_capture() {
+        let slot = FirstErrorSlot::default();
+        slot.capture(anyhow::anyhow!("err"));
+        assert!(slot.is_set());
+    }
+
+    #[test]
+    fn first_error_slot_take_returns_none_when_empty() {
+        let slot = FirstErrorSlot::default();
+        assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn first_error_slot_take_clears_slot() {
+        let slot = FirstErrorSlot::default();
+        slot.capture(anyhow::anyhow!("err"));
+        slot.take();
+        assert!(!slot.is_set());
+        assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn first_error_slot_clone_shares_state() {
+        let slot = FirstErrorSlot::default();
+        let slot2 = slot.clone();
+        slot.capture(anyhow::anyhow!("shared"));
+        assert!(slot2.is_set());
+        let err = slot2.take().unwrap();
+        assert!(err.to_string().contains("shared"));
+        assert!(!slot.is_set());
+    }
+
+    // --- resolve_remote tests ---
+
+    #[test]
+    fn resolve_remote_http_passthrough() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(
+            resolve_remote(&repo, "http://example.com/repo").unwrap(),
+            "http://example.com/repo"
+        );
+    }
+
+    #[test]
+    fn resolve_remote_https_passthrough() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(
+            resolve_remote(&repo, "https://example.com/repo").unwrap(),
+            "https://example.com/repo"
+        );
+    }
+
+    #[test]
+    fn resolve_remote_relative_dot() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(resolve_remote(&repo, "./sibling").unwrap(), "./sibling");
+    }
+
+    #[test]
+    fn resolve_remote_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(resolve_remote(&repo, "/tmp/other-repo").unwrap(), "/tmp/other-repo");
+    }
+
+    #[test]
+    fn resolve_remote_backslash() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(
+            resolve_remote(&repo, "C:\\Users\\test\\repo").unwrap(),
+            "C:\\Users\\test\\repo"
+        );
+    }
+
+    #[test]
+    fn resolve_remote_forward_slash() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        assert_eq!(resolve_remote(&repo, "some/relative/path").unwrap(), "some/relative/path");
+    }
+
+    #[test]
+    fn resolve_remote_named_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        // Write config.json directly with a remote alias
+        let config_path = dir.path().join(".arc").join("config.json");
+        let config_json = serde_json::json!({
+            "remotes": { "origin": "/tmp/origin" }
+        });
+        std::fs::write(&config_path, serde_json::to_string_pretty(&config_json).unwrap()).unwrap();
+        assert_eq!(resolve_remote(&repo, "origin").unwrap(), "/tmp/origin");
+    }
+
+    #[test]
+    fn resolve_remote_named_alias_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        let result = resolve_remote(&repo, "nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("no remote named"));
     }
 }

@@ -1,15 +1,14 @@
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::Result as AnyResult;
 use serde::{Deserialize, Serialize};
-use tower_lsp::async_trait;
-use tower_lsp::jsonrpc;
-use tower_lsp::lsp_types::{
-    ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, InitializeResult,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+use tower_lsp::{
+    Client, LanguageServer, async_trait, jsonrpc,
+    lsp_types::{
+        ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, InitializeResult,
+        ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    },
 };
-use tower_lsp::{Client, LanguageServer};
 
 /// LSP command exposed by `arc-lsp` for semantic-aware gutters and timeline UIs.
 pub const COMMAND_GET_SEMANTIC_DIFF: &str = "arc/getSemanticDiff";

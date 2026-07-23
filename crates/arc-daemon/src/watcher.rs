@@ -1,14 +1,16 @@
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context as _;
-use arc_core::store::oplog::{Causality, OpAction, OpRecord, auto_intent_summary};
-use arc_core::store::redb_metadata::MetadataStore;
+use arc_core::store::{
+    oplog::{Causality, OpAction, OpRecord, auto_intent_summary},
+    redb_metadata::MetadataStore,
+};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::{sync::mpsc, time::timeout};
 use tree_sitter::{Node, Parser};
 
 const BINARY_EXT_ALLOWLIST: &[&str] = &[
@@ -75,7 +77,8 @@ impl AutoSnapDaemon {
                             transient.replace(pending_paths.clone());
                             tracing::info!(
                                 transient_count = transient.paths.len(),
-                                "[arc-watch] Semantic Gate blocked snap; buffered transient changes"
+                                "[arc-watch] Semantic Gate blocked snap; buffered transient \
+                                 changes"
                             );
                             pending_paths.clear();
                             break;
@@ -273,9 +276,9 @@ fn snapshot_oid_for_paths(paths: &BTreeSet<PathBuf>) -> [u8; 20] {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeSet, io::Write, path::PathBuf};
+
     use super::{evaluate_semantic_gate, has_error_nodes};
-    use std::collections::BTreeSet;
-    use std::io::Write;
 
     #[test]
     fn semantic_gate_detects_parse_errors() {
@@ -312,5 +315,41 @@ mod tests {
         parser.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("language should set");
         let tree = parser.parse("fn broken(", None).expect("parse should return a tree");
         assert!(has_error_nodes(tree.root_node()));
+    }
+
+    #[test]
+    fn transient_buffer_replace_swaps_entire_set() {
+        let mut buf = super::TransientBuffer::default();
+        let mut first = BTreeSet::new();
+        first.insert(PathBuf::from("a.rs"));
+        buf.replace(first);
+
+        let mut second = BTreeSet::new();
+        second.insert(PathBuf::from("b.rs"));
+        second.insert(PathBuf::from("c.rs"));
+        buf.replace(second);
+
+        assert_eq!(buf.paths.len(), 2);
+        assert!(buf.paths.contains(&PathBuf::from("b.rs")));
+        assert!(buf.paths.contains(&PathBuf::from("c.rs")));
+        assert!(!buf.paths.contains(&PathBuf::from("a.rs")));
+    }
+
+    #[test]
+    fn transient_buffer_clear_empties_paths() {
+        let mut buf = super::TransientBuffer::default();
+        let mut paths = BTreeSet::new();
+        paths.insert(PathBuf::from("x.rs"));
+        buf.replace(paths);
+        assert!(!buf.paths.is_empty());
+
+        buf.clear();
+        assert!(buf.paths.is_empty());
+    }
+
+    #[test]
+    fn transient_buffer_default_is_empty() {
+        let buf = super::TransientBuffer::default();
+        assert!(buf.paths.is_empty());
     }
 }

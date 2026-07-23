@@ -101,7 +101,7 @@ impl SloTimer {
 
 #[cfg(test)]
 mod tests {
-    use super::OperationStage;
+    use super::*;
 
     #[test]
     fn stage_tokens_are_stable_and_lowercase() {
@@ -117,5 +117,47 @@ mod tests {
             assert_eq!(stage.as_str(), expected);
             assert_eq!(stage.to_string(), expected);
         }
+    }
+
+    #[test]
+    fn slo_timer_finish_returns_duration() {
+        let timer = SloTimer::new("test", Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(10));
+        let elapsed = timer.finish();
+        assert!(elapsed.as_millis() >= 10, "elapsed must be at least 10ms");
+    }
+
+    #[test]
+    fn slo_timer_from_env_uses_default() {
+        let timer = SloTimer::from_env("env-test");
+        assert_eq!(timer.threshold, Duration::from_millis(DEFAULT_SYNC_SLO_MS));
+    }
+
+    #[test]
+    fn slo_timer_stage_runs_closure() {
+        let timer = SloTimer::new("stage-test", Duration::from_secs(10));
+        let result = timer.stage(OperationStage::Transfer, || 42);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn slo_timer_all_stages() {
+        let stages = [
+            OperationStage::Discover,
+            OperationStage::Negotiate,
+            OperationStage::Transfer,
+            OperationStage::Materialize,
+            OperationStage::Finalize,
+        ];
+        for stage in stages {
+            let timer = SloTimer::new("all-stages", Duration::from_secs(10));
+            let result = timer.stage(stage, || stage.as_str());
+            assert!(!result.is_empty());
+        }
+    }
+
+    #[test]
+    fn default_slo_ms_constant() {
+        assert_eq!(DEFAULT_SYNC_SLO_MS, 500);
     }
 }

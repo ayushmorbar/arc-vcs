@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 
-use ed25519_dalek::Signer;
-use serde::{Deserialize, Serialize};
-
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_store_types::{Author, PublicKeyBytes, Signature};
+use ed25519_dalek::Signer;
+use serde::{Deserialize, Serialize};
 
 /// High-level author classification for ghost-node governance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,11 +50,11 @@ impl Eq for AuthorType {}
 /// # Verification (two-layer)
 ///
 /// [`Change::verify_signature`] performs two independent checks:
-/// 1. Re-hash the fields → assert the recomputed id equals `self.id`
-///    (detects any field tampering that left the signature byte-for-byte).
-/// 2. Verify the signature against `self.id` using the author's public key
-///    (detects `id`-substitution attacks where an attacker replaces the id
-///    bytes but cannot re-sign cleanly).
+/// 1. Re-hash the fields → assert the recomputed id equals `self.id` (detects any field tampering
+///    that left the signature byte-for-byte).
+/// 2. Verify the signature against `self.id` using the author's public key (detects
+///    `id`-substitution attacks where an attacker replaces the id bytes but cannot re-sign
+///    cleanly).
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
@@ -261,15 +260,15 @@ impl Change {
     /// Deterministic id derivation: `blake3(bincode(sorted_deps, atoms, intent, author))`.
     ///
     /// **Crypto invariants**:
-    /// - `intent` is included so an attacker cannot rewrite the commit message
-    ///   without changing the CAS address.
-    /// - `author` is included so the identity is content-addressed alongside
-    ///   the payload; substituting a different author changes the id.
-    /// - `deps` are sorted before hashing, so `HashSet` insertion order can
-    ///   never change the resulting id across machines or runs.
-    /// - `collapsed_from` and `signature` are intentionally excluded so
-    ///   provenance metadata never affects the content-addressed identity.
-    pub(crate) fn compute_id(
+    /// - `intent` is included so an attacker cannot rewrite the commit message without changing the
+    ///   CAS address.
+    /// - `author` is included so the identity is content-addressed alongside the payload;
+    ///   substituting a different author changes the id.
+    /// - `deps` are sorted before hashing, so `HashSet` insertion order can never change the
+    ///   resulting id across machines or runs.
+    /// - `collapsed_from` and `signature` are intentionally excluded so provenance metadata never
+    ///   affects the content-addressed identity.
+    pub fn compute_id(
         deps: &HashSet<Blake3Hash>,
         atoms: &[Atom],
         intent: &str,
@@ -327,15 +326,35 @@ impl Change {
         use ed25519_dalek::Verifier;
         verifying_key.verify(&self.id, &sig).is_ok()
     }
+
+    /// Return an erased tombstone of this change.
+    ///
+    /// The tombstone preserves the original `id` (so graph references remain
+    /// valid) but clears `deps`, `atoms`, and `intent` so the payload is
+    /// empty.  Signature and authorship metadata are kept unchanged.
+    pub fn erased(&self) -> Self {
+        Self {
+            id: self.id,
+            deps: HashSet::new(),
+            atoms: Vec::new(),
+            intent: String::new(),
+            author: self.author.clone(),
+            signature: self.signature.clone(),
+            collapsed_from: self.collapsed_from,
+            author_type: self.author_type.clone(),
+            is_ghost: self.is_ghost,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
-    use super::*;
     use arc_algebra_types::Atom;
     use arc_store_types::author::test_keypair;
+
+    use super::*;
 
     #[test]
     fn test_cryptographic_provenance() {
@@ -364,7 +383,7 @@ mod tests {
         // --- Layer-1 tampering: replace an atom's content without re-signing ---
         let mut tampered_atom = change.clone();
         tampered_atom.atoms[0] =
-            Atom::Insert { at: vec!["fn_main".into()], content_hash: [0xde; 32] };
+            Atom::Insert { at: vec!["fn_main".into()], content_hash: [0xDE; 32] };
         assert!(
             !tampered_atom.verify_signature(),
             "tampered atom content must fail layer-1 content re-hash check"
@@ -490,7 +509,7 @@ mod tests {
 
         // Create a clone that has a `collapsed_from` pointer set.
         let mut with_link = base.clone();
-        with_link.collapsed_from = Some([0xab; 32]);
+        with_link.collapsed_from = Some([0xAB; 32]);
 
         // The id must be identical — collapsed_from is provenance metadata.
         assert_eq!(
@@ -502,7 +521,8 @@ mod tests {
         assert!(base.verify_signature(), "base Change must verify");
         assert!(
             with_link.verify_signature(),
-            "Change with collapsed_from set must still verify (provenance field is outside the hash)"
+            "Change with collapsed_from set must still verify (provenance field is outside the \
+             hash)"
         );
     }
 
@@ -627,5 +647,106 @@ mod tests {
         let id_ba = Change::compute_id(&deps, &atoms_ba, "merge", &author);
 
         assert_eq!(id_ab, id_ba, "Change::compute_id must canonicalize conflict side ordering");
+    }
+
+    #[test]
+    fn test_erased_creates_tombstone_preserving_id_and_author() {
+        let (author, signing_key) = test_keypair();
+        let mut deps = HashSet::new();
+        deps.insert([10u8; 32]);
+        let atoms = vec![Atom::Insert { at: vec!["src/main.rs".into()], content_hash: [5u8; 32] }];
+
+        let original =
+            Change::new(deps.clone(), atoms, "implement feature", author.clone(), &signing_key);
+        let erased = original.erased();
+
+        assert_eq!(erased.id, original.id, "erased must preserve the original id");
+        assert!(erased.deps.is_empty(), "erased must clear deps");
+        assert!(erased.atoms.is_empty(), "erased must clear atoms");
+        assert!(erased.intent.is_empty(), "erased must clear intent");
+        assert_eq!(erased.author, original.author, "erased must preserve author");
+        assert_eq!(erased.signature, original.signature, "erased must preserve signature");
+        assert_eq!(
+            erased.collapsed_from, original.collapsed_from,
+            "erased must preserve collapsed_from"
+        );
+        assert!(
+            !erased.verify_signature(),
+            "erased tombstone fails layer-1 re-hash (content changed)"
+        );
+    }
+
+    #[test]
+    fn test_new_canonical_from_seed_matches_new_canonical() {
+        let (author, signing_key) = test_keypair();
+        let deps = HashSet::new();
+        let atoms = vec![Atom::Insert { at: vec!["lib".into()], content_hash: [99u8; 32] }];
+        let original_id = [42u8; 32];
+        let seed = signing_key.to_bytes();
+
+        let from_seed = Change::new_canonical_from_seed(
+            deps.clone(),
+            atoms.clone(),
+            "canonical intent",
+            author.clone(),
+            &seed,
+            original_id,
+        );
+
+        let from_key = Change::new_canonical(
+            deps,
+            atoms,
+            "canonical intent",
+            author,
+            &signing_key,
+            original_id,
+        );
+
+        assert_eq!(from_seed.id, from_key.id, "new_canonical_from_seed must produce the same id");
+        assert_eq!(
+            from_seed.signature, from_key.signature,
+            "new_canonical_from_seed must produce the same signature"
+        );
+        assert_eq!(from_seed.collapsed_from, Some(original_id));
+        assert!(from_seed.verify_signature());
+    }
+
+    #[test]
+    fn test_author_type_equality() {
+        assert_eq!(AuthorType::Human, AuthorType::Human);
+        assert_ne!(AuthorType::Human, AuthorType::AI { confidence: 0.9, human_sponsor: None });
+
+        let ai_a = AuthorType::AI { confidence: 0.5, human_sponsor: Some([1u8; 32]) };
+        let ai_b = AuthorType::AI { confidence: 0.5, human_sponsor: Some([1u8; 32]) };
+        assert_eq!(ai_a, ai_b);
+
+        let ai_c = AuthorType::AI { confidence: 0.5, human_sponsor: Some([2u8; 32]) };
+        assert_ne!(ai_a, ai_c);
+
+        let ai_d = AuthorType::AI { confidence: 0.6, human_sponsor: Some([1u8; 32]) };
+        assert_ne!(ai_a, ai_d);
+    }
+
+    #[test]
+    fn test_erased_preserves_ghost_and_author_type() {
+        let (author, signing_key) = test_keypair();
+        let atoms = vec![Atom::Delete { at: vec!["x".into()], prior_hash: [1u8; 32] }];
+        let original = Change::new_with_metadata(
+            HashSet::new(),
+            atoms,
+            "delete node",
+            author,
+            AuthorType::AI { confidence: 0.8, human_sponsor: None },
+            true,
+            &signing_key,
+        );
+        let erased = original.erased();
+
+        assert!(erased.is_ghost, "erased must preserve is_ghost");
+        assert_eq!(
+            erased.author_type,
+            AuthorType::AI { confidence: 0.8, human_sponsor: None },
+            "erased must preserve author_type"
+        );
     }
 }

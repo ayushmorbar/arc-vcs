@@ -11,8 +11,7 @@
 //! Both guards are RAII resources:
 //!
 //! - If a guard is dropped before commit/release, its lock file is removed.
-//! - If a process exits unexpectedly, stale lock cleanup on next acquire
-//!   allows bounded recovery.
+//! - If a process exits unexpectedly, stale lock cleanup on next acquire allows bounded recovery.
 //!
 //! # Crash-consistency guarantees
 //!
@@ -24,12 +23,14 @@
 //!
 //! This prevents partial-state publication for mutable pointer files.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{ErrorKind, Read, Write},
+    path::{Path, PathBuf},
+    process::Command,
+    thread,
+    time::{Duration, SystemTime},
+};
 
 use tracing::{debug, instrument, warn};
 
@@ -97,7 +98,10 @@ impl LockMarker {
                     let registry_id = register_temp(path.to_path_buf());
                     return Ok(Self { path: path.to_path_buf(), registry_id, released: false });
                 }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                Err(err)
+                    if err.kind() == ErrorKind::AlreadyExists
+                        || err.kind() == ErrorKind::PermissionDenied =>
+                {
                     if can_reap_marker(path)? {
                         let _ = fs::remove_file(path);
                         continue;
@@ -205,7 +209,10 @@ impl LockFile {
                         committed: false,
                     });
                 }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                Err(err)
+                    if err.kind() == ErrorKind::AlreadyExists
+                        || err.kind() == ErrorKind::PermissionDenied =>
+                {
                     if can_reap_lock(&lock_path, &owner_path)? {
                         let _ = fs::remove_file(&lock_path);
                         let _ = fs::remove_file(&owner_path);
@@ -309,7 +316,11 @@ fn write_owner_file(path: &Path) -> std::io::Result<()> {
 fn can_reap_marker(marker_path: &Path) -> std::io::Result<bool> {
     let meta = match fs::metadata(marker_path) {
         Ok(meta) => meta,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(err)
+            if err.kind() == ErrorKind::NotFound || err.kind() == ErrorKind::PermissionDenied =>
+        {
+            return Ok(false);
+        }
         Err(err) => return Err(err),
     };
     let modified = match meta.modified() {
@@ -331,7 +342,11 @@ fn can_reap_marker(marker_path: &Path) -> std::io::Result<bool> {
 fn can_reap_lock(lock_path: &Path, owner_path: &Path) -> std::io::Result<bool> {
     let lock_meta = match fs::metadata(lock_path) {
         Ok(meta) => meta,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(err)
+            if err.kind() == ErrorKind::NotFound || err.kind() == ErrorKind::PermissionDenied =>
+        {
+            return Ok(false);
+        }
         Err(err) => return Err(err),
     };
 
@@ -587,5 +602,61 @@ mod tests {
 
         let err = super::create_dir_all_retry(&file_parent).expect_err("file parent must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn lock_marker_immediately_fails_on_contention() {
+        use super::LockFailMode;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let lock_path = dir.path().join("contended.marker");
+
+        let _first = LockMarker::acquire(&lock_path).expect("first acquire must succeed");
+        let result = LockMarker::acquire_with(&lock_path, LockFailMode::Immediately);
+        match result {
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::TimedOut),
+            Ok(_) => panic!("second acquire must fail immediately"),
+        }
+    }
+
+    #[test]
+    fn lock_file_write_all_errors_when_file_handle_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("data.txt");
+
+        // Build paths matching the private helpers' conventions.
+        let lock_path = target.with_file_name("data.txt.lock");
+        let owner_path = lock_path.with_file_name("data.txt.lock.owner");
+
+        let mut lock = LockFile {
+            target_path: target,
+            lock_path,
+            owner_path,
+            registry_id: None,
+            file: None,
+            committed: false,
+        };
+
+        let err = lock
+            .write_all(b"should fail")
+            .expect_err("write_all must fail when file handle is None");
+        assert_eq!(
+            err.to_string(),
+            "lock file is not open for writing",
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn lock_fail_mode_default_is_after_duration_with_backoff() {
+        use std::time::Duration;
+
+        use super::LockFailMode;
+        let mode = LockFailMode::default();
+        match mode {
+            LockFailMode::AfterDurationWithBackoff(dur) => {
+                assert!(dur > Duration::ZERO, "default timeout must be positive");
+            }
+            other => panic!("expected AfterDurationWithBackoff, got {other:?}"),
+        }
     }
 }

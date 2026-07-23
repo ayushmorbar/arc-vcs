@@ -94,9 +94,8 @@ pub fn synthesize_tree(mut entries: Vec<GitTreeEntry>) -> (Vec<u8>, GitOid) {
 mod tests {
     use std::str::FromStr;
 
-    use crate::hash::GitOid;
-
     use super::{GitTreeEntry, synthesize_tree};
+    use crate::hash::GitOid;
 
     fn oid(fill: u8) -> GitOid {
         GitOid::from_bytes([fill; 20])
@@ -127,5 +126,100 @@ mod tests {
 
         let (_payload, tree_oid) = synthesize_tree(vec![entry]);
         assert_eq!(tree_oid.to_string(), "bc225ea23f53f06c0c5bd3ba2be85c2120d68417");
+    }
+
+    #[test]
+    fn empty_tree_hash() {
+        let (payload, oid) = synthesize_tree(vec![]);
+        assert!(payload.is_empty());
+        assert_eq!(oid.to_string().len(), 40);
+    }
+
+    #[test]
+    fn single_file_tree() {
+        let entries =
+            vec![GitTreeEntry { mode: 0o100644, name: "a.txt".to_string(), oid: oid(0xAA) }];
+        let (payload, oid) = synthesize_tree(entries);
+        let payload_str = String::from_utf8_lossy(&payload);
+        assert!(payload_str.contains("100644"));
+        assert!(payload_str.contains("a.txt"));
+        assert_eq!(oid.to_string().len(), 40);
+    }
+
+    #[test]
+    fn multiple_entries_sorted() {
+        let entries = vec![
+            GitTreeEntry { mode: 0o100644, name: "b.txt".to_string(), oid: oid(1) },
+            GitTreeEntry { mode: 0o100644, name: "a.txt".to_string(), oid: oid(2) },
+            GitTreeEntry { mode: 0o100644, name: "c.txt".to_string(), oid: oid(3) },
+        ];
+        let (payload, _) = synthesize_tree(entries);
+        let payload_str = String::from_utf8_lossy(&payload);
+        let a_pos = payload_str.find("a.txt").unwrap();
+        let b_pos = payload_str.find("b.txt").unwrap();
+        let c_pos = payload_str.find("c.txt").unwrap();
+        assert!(a_pos < b_pos);
+        assert!(b_pos < c_pos);
+    }
+
+    #[test]
+    fn directory_entry_mode() {
+        let entry = GitTreeEntry { mode: 0o040000, name: "subdir".to_string(), oid: oid(0x42) };
+        assert!(entry.is_dir());
+    }
+
+    #[test]
+    fn file_entry_is_not_dir() {
+        let entry = GitTreeEntry { mode: 0o100644, name: "file.rs".to_string(), oid: oid(0x42) };
+        assert!(!entry.is_dir());
+    }
+
+    #[test]
+    fn tree_sort_different_names() {
+        let a = GitTreeEntry { mode: 0o100644, name: "alpha".to_string(), oid: oid(1) };
+        let b = GitTreeEntry { mode: 0o100644, name: "beta".to_string(), oid: oid(2) };
+        assert!(a < b);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn tree_sort_same_name_different_mode() {
+        let file = GitTreeEntry { mode: 0o100644, name: "x".to_string(), oid: oid(1) };
+        let dir = GitTreeEntry { mode: 0o040000, name: "x".to_string(), oid: oid(1) };
+        let mut entries = [file, dir];
+        entries.sort();
+        assert_eq!(entries[0].name, "x");
+        assert_eq!(entries[1].name, "x");
+        // dir sorts AFTER file because sort key "x/" > "x"
+        assert_eq!(entries[0].mode, 0o100644);
+        assert_eq!(entries[1].mode, 0o040000);
+    }
+
+    #[test]
+    fn tree_sort_same_name_same_mode_different_oid() {
+        let e1 = GitTreeEntry { mode: 0o100644, name: "x".to_string(), oid: oid(0x01) };
+        let e2 = GitTreeEntry { mode: 0o100644, name: "x".to_string(), oid: oid(0x02) };
+        assert!(e1 < e2);
+    }
+
+    #[test]
+    fn synthesize_tree_deterministic() {
+        let entries = vec![
+            GitTreeEntry { mode: 0o100644, name: "a".to_string(), oid: oid(1) },
+            GitTreeEntry { mode: 0o100644, name: "b".to_string(), oid: oid(2) },
+        ];
+        let (_, oid1) = synthesize_tree(entries.clone());
+        let (_, oid2) = synthesize_tree(entries);
+        assert_eq!(oid1, oid2);
+    }
+
+    #[test]
+    fn tree_with_directory_entry() {
+        let entries = vec![
+            GitTreeEntry { mode: 0o040000, name: "src".to_string(), oid: oid(0x10) },
+            GitTreeEntry { mode: 0o100644, name: "README.md".to_string(), oid: oid(0x20) },
+        ];
+        let (_, oid) = synthesize_tree(entries);
+        assert_eq!(oid.to_string().len(), 40);
     }
 }

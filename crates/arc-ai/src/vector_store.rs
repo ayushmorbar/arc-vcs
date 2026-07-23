@@ -97,8 +97,9 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[test]
     fn test_vector_store_upsert_and_search() {

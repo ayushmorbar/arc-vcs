@@ -38,3 +38,8 @@ hex = "0.4.3"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+serde_json = "1.0.150"
+
+[[test]]
+name = "protocol"
+required-features = ["rpc-server"]

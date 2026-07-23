@@ -8,26 +8,24 @@
 //! [`group_and_render`] re-projects atoms back into text and applies three
 //! techniques from recent diff-UX research:
 //!
-//! 1. **RefactoringMiner intent annotation** — [`Atom::Move`] and
-//!    [`Atom::SemanticsPreserving`] atoms are printed as labelled `≈ [Move]`
-//!    / `≈ [Refactor]` lines *before* the textual diff so reviewers grasp
-//!    intent first, rather than deciphering raw line noise.
+//! 1. **RefactoringMiner intent annotation** — [`Atom::Move`] and [`Atom::SemanticsPreserving`]
+//!    atoms are printed as labelled `≈ [Move]` / `≈ [Refactor]` lines *before* the textual diff so
+//!    reviewers grasp intent first, rather than deciphering raw line noise.
 //!
-//! 2. **Sesame syntactic alignment** — before running the line differ, rigid
-//!    newlines are injected at structural boundaries (`{`, `}`, `;`) so the
-//!    algorithm cannot misalign braces across logical code blocks.
+//! 2. **Sesame syntactic alignment** — before running the line differ, rigid newlines are injected
+//!    at structural boundaries (`{`, `}`, `;`) so the algorithm cannot misalign braces across
+//!    logical code blocks.
 //!
 //!    > **Note:** this heuristic operates on raw text and will also break
 //!    > occurrences inside string literals (e.g. `let s = " {";`).  A future
 //!    > enhancement will leverage tree-sitter byte-range information to
 //!    > restrict substitution to non-literal regions.
 //!
-//! 3. **BDiff-inspired inline sub-expression highlighting** — the `similar`
-//!    crate's `iter_inline_changes` identifies the exact changed sub-tokens
-//!    within each line; those tokens are highlighted with a colour-reversed
-//!    background while the surrounding unchanged text on the same line is
-//!    displayed in a plain foreground colour.  This replicates the Kuhn–
-//!    Munkres optimal-matching insight without a full graph solver.
+//! 3. **BDiff-inspired inline sub-expression highlighting** — the `similar` crate's
+//!    `iter_inline_changes` identifies the exact changed sub-tokens within each line; those tokens
+//!    are highlighted with a colour-reversed background while the surrounding unchanged text on the
+//!    same line is displayed in a plain foreground colour.  This replicates the Kuhn– Munkres
+//!    optimal-matching insight without a full graph solver.
 //!
 //! ## `arc diff --semantic` — Structural AST Diff (Macro view)
 //!
@@ -39,8 +37,10 @@
 //! **Recommended workflow:** use `--semantic` first to grasp architectural
 //! intent, then run plain `arc diff` to verify exact syntax and formatting.
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
 use anyhow::Result;
 use arc_algebra_types::Atom;
@@ -111,12 +111,11 @@ pub fn group_and_render(
 /// # Pipeline
 ///
 /// 1. **Header** — `diff --arc a/{path} b/{path}` (bold)
-/// 2. **Intent annotation** — Move / SemanticsPreserving atoms are named
-///    before the text hunks.
-/// 3. **Boilerplate collapse** — if every changed line is a `use`/`import`/
-///    `#include` directive, emit a single summary line instead of a full diff.
-/// 4. **Mega-file guard** — files whose combined old+new size exceeds 1 MB
-///    skip the inline LCS calculation to avoid a CPU lock.
+/// 2. **Intent annotation** — Move / SemanticsPreserving atoms are named before the text hunks.
+/// 3. **Boilerplate collapse** — if every changed line is a `use`/`import`/ `#include` directive,
+///    emit a single summary line instead of a full diff.
+/// 4. **Mega-file guard** — files whose combined old+new size exceeds 1 MB skip the inline LCS
+///    calculation to avoid a CPU lock.
 /// 5. **Sesame alignment** — inject structural newlines before running `TextDiff`.
 /// 6. **Inline sub-expression highlighting** via `similar::iter_inline_changes`.
 /// 7. **Summary footer** — `∑ +N -N ~N refactorings`.
@@ -571,5 +570,333 @@ mod tests {
     fn test_group_and_render_semantic_empty() {
         // Should not panic or error on an empty atom slice.
         group_and_render_semantic(&[]).expect("empty atoms must not error");
+    }
+
+    #[test]
+    fn test_format_atom_brief_directory() {
+        let atom = Atom::Directory { path: vec!["src".into(), "lib".into()] };
+        let brief = format_atom_brief(&atom);
+        assert!(brief.contains("dir"));
+        assert!(brief.contains("src/lib"));
+    }
+
+    #[test]
+    fn test_format_atom_brief_blob() {
+        let atom = Atom::Blob {
+            path: "hash.bin".into(),
+            hash: blake3::Hash::from_bytes([2u8; 32]),
+            size: 1024,
+        };
+        let brief = format_atom_brief(&atom);
+        assert!(brief.contains("blob"));
+        assert!(brief.contains("hash.bin"));
+    }
+
+    #[test]
+    fn test_format_atom_brief_mount() {
+        let coord = arc_algebra_types::SpacetimeCoordinate {
+            namespace: "ns".into(),
+            repo: "repo".into(),
+            hash: blake3::Hash::from_bytes([1u8; 32]),
+        };
+        let atom = Atom::Mount { path: vec!["src".into(), "lib".into()], coordinate: coord };
+        let brief = format_atom_brief(&atom);
+        assert!(brief.contains("mount"));
+        assert!(brief.contains("src/lib"));
+    }
+
+    #[test]
+    fn test_format_atom_brief_fallback_for_file_atom() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            content_hash: *blake3::hash(b"test").as_bytes(),
+        };
+        let brief = format_atom_brief(&atom);
+        assert!(!brief.is_empty());
+    }
+
+    #[test]
+    fn test_render_diff_insert_only() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            content_hash: *blake3::hash(b"new").as_bytes(),
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "", "fn main() {}", "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_diff_delete_only() {
+        let atom = Atom::Delete {
+            at: vec!["file".into(), "lib.rs".into(), "fn_old".into()],
+            prior_hash: *blake3::hash(b"old").as_bytes(),
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "fn old() {}", "", "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_diff_move() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            to: vec!["file".into(), "lib.rs".into(), "fn_entry".into()],
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "fn main() {}", "fn entry() {}", "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_diff_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            description: "rename parameter".into(),
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "fn main(x: i32) {}", "fn main(y: i32) {}", "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_diff_boilerplate_collapse() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "use_std".into()],
+            content_hash: *blake3::hash(b"use").as_bytes(),
+        };
+        let atoms = vec![&atom];
+        let old = "use std::fs;\nuse std::io;\n";
+        let new = "use std::fs;\nuse std::path::Path;\n";
+        let result = render_diff(&atoms, old, new, "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_insert() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "fn_new".into()],
+            content_hash: *blake3::hash(b"new").as_bytes(),
+        };
+        group_and_render_semantic(&[atom]).expect("insert atom must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_delete() {
+        let atom = Atom::Delete {
+            at: vec!["file".into(), "lib.rs".into(), "fn_old".into()],
+            prior_hash: *blake3::hash(b"old").as_bytes(),
+        };
+        group_and_render_semantic(&[atom]).expect("delete atom must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_move_intra_file() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "lib.rs".into(), "fn_a".into()],
+            to: vec!["file".into(), "lib.rs".into(), "fn_b".into()],
+        };
+        group_and_render_semantic(&[atom]).expect("intra-file move must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_move_cross_file() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "a.rs".into(), "fn_x".into()],
+            to: vec!["file".into(), "b.rs".into(), "fn_y".into()],
+        };
+        group_and_render_semantic(&[atom]).expect("cross-file move must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            description: "refactor signature".into(),
+        };
+        group_and_render_semantic(&[atom]).expect("semantics-preserving atom must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_structural_atom() {
+        let atom = Atom::Directory { path: vec!["src".into()] };
+        group_and_render_semantic(&[atom]).expect("directory atom must not error");
+    }
+
+    #[test]
+    fn test_group_and_render_semantic_mixed() {
+        let atoms = vec![
+            Atom::Insert {
+                at: vec!["file".into(), "a.rs".into(), "fn_new".into()],
+                content_hash: *blake3::hash(b"new").as_bytes(),
+            },
+            Atom::Delete {
+                at: vec!["file".into(), "a.rs".into(), "fn_old".into()],
+                prior_hash: *blake3::hash(b"old").as_bytes(),
+            },
+            Atom::Move {
+                from: vec!["file".into(), "a.rs".into(), "fn_a".into()],
+                to: vec!["file".into(), "b.rs".into(), "fn_b".into()],
+            },
+        ];
+        group_and_render_semantic(&atoms).expect("mixed atoms must not error");
+    }
+
+    #[test]
+    fn test_infer_node_kind_func_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "func_helper".into()]),
+            "function"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_impl_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "impl_Display".into()]),
+            "impl block"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_mod_prefix() {
+        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "mod_core".into()]), "module");
+    }
+
+    #[test]
+    fn test_infer_node_kind_use_prefix() {
+        assert_eq!(infer_node_kind(&["file".into(), "lib.rs".into(), "use_std".into()]), "import");
+    }
+
+    #[test]
+    fn test_infer_node_kind_import_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "import_os".into()]),
+            "import"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_method_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "method_new".into()]),
+            "method"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_let_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "let_count".into()]),
+            "variable"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_var_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "var_count".into()]),
+            "variable"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_type_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "type_Result".into()]),
+            "type alias"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_static_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "static_COUNT".into()]),
+            "static"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_macro_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.rs".into(), "macro_rules".into()]),
+            "macro"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_class_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.py".into(), "class_User".into()]),
+            "class"
+        );
+    }
+
+    #[test]
+    fn test_infer_node_kind_interface_prefix() {
+        assert_eq!(
+            infer_node_kind(&["file".into(), "lib.ts".into(), "interface_Config".into()]),
+            "interface"
+        );
+    }
+
+    #[test]
+    fn test_sesame_align_empty() {
+        let aligned = sesame_align("");
+        assert!(aligned.is_empty());
+    }
+
+    #[test]
+    fn test_sesame_align_no_special_chars() {
+        let src = "let x = 42;";
+        let aligned = sesame_align(src);
+        assert!(aligned.contains("let x = 42;"));
+    }
+
+    #[test]
+    fn test_sesame_align_semicolons() {
+        let src = "let a = 1; let b = 2;";
+        let aligned = sesame_align(src);
+        let lines: Vec<&str> = aligned.lines().collect();
+        assert!(lines.len() >= 2, "semicolons should inject newlines");
+    }
+
+    #[test]
+    fn test_is_import_line_import_keyword() {
+        assert!(is_import_line("import os"));
+        assert!(!is_import_line("importing data"));
+    }
+
+    #[test]
+    fn test_is_import_line_include_keyword() {
+        assert!(is_import_line("#include <stdio.h>"));
+        assert!(!is_import_line("#included stuff"));
+    }
+
+    #[test]
+    fn test_is_import_line_extern_crate() {
+        assert!(is_import_line("extern crate foo"));
+    }
+
+    #[test]
+    fn test_render_diff_empty_texts() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            content_hash: *blake3::hash(b"new").as_bytes(),
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "", "", "lib.rs");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_diff_same_texts() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "lib.rs".into(), "fn_main".into()],
+            content_hash: *blake3::hash(b"same").as_bytes(),
+        };
+        let atoms = vec![&atom];
+        let result = render_diff(&atoms, "fn main() {}", "fn main() {}", "lib.rs");
+        assert!(result.is_ok());
     }
 }

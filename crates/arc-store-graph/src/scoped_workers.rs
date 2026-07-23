@@ -2,8 +2,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use std::sync::Arc;
-    use std::sync::mpsc;
+    use std::sync::{Arc, mpsc};
 
     /// Process all `items` in scoped worker threads and return results in input order.
     pub fn run_scoped_map<T, R, F>(items: Vec<T>, threads: usize, worker: F) -> Vec<R>

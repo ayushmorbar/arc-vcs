@@ -1,5 +1,7 @@
-use ratatui::style::{Modifier, Style};
-use ratatui::widgets::Paragraph;
+use ratatui::{
+    style::{Modifier, Style},
+    widgets::Paragraph,
+};
 
 use crate::model::AppState;
 

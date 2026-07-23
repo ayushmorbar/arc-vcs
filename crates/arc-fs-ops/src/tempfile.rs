@@ -7,21 +7,24 @@
 //!
 //! # Design (from gix-tempfile, Phase 2A harvest)
 //!
-//! * The registry is a `LazyLock<DashMap<usize, TempEntry>>`.  Each entry
-//!   stores the path and the owning process's PID (fork safety).
-//! * [`cleanup_signal_safe`] iterates the map and calls `std::fs::remove_file`
-//!   on every entry whose `owning_pid` matches the current process.
-//! * DashMap uses sharded `parking_lot::RwLock`s internally.  This cleanup
-//!   function must therefore run in a normal thread context, not directly
-//!   inside a raw signal handler.  For
-//!   arc's usage pattern (single CLI process, fs-level lock protecting writes)
-//!   the window for a deadlock is negligible.
-//! * `owning_pid` prevents a forked child process from accidentally deleting
-//!   the parent's temp files (equivalent to gix's `owning_process_id` guard).
+//! * The registry is a `LazyLock<DashMap<usize, TempEntry>>`.  Each entry stores the path and the
+//!   owning process's PID (fork safety).
+//! * [`cleanup_signal_safe`] iterates the map and calls `std::fs::remove_file` on every entry whose
+//!   `owning_pid` matches the current process.
+//! * DashMap uses sharded `parking_lot::RwLock`s internally.  This cleanup function must therefore
+//!   run in a normal thread context, not directly inside a raw signal handler.  For arc's usage
+//!   pattern (single CLI process, fs-level lock protecting writes) the window for a deadlock is
+//!   negligible.
+//! * `owning_pid` prevents a forked child process from accidentally deleting the parent's temp
+//!   files (equivalent to gix's `owning_process_id` guard).
 
-use std::path::PathBuf;
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    path::PathBuf,
+    sync::{
+        LazyLock,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use dashmap::DashMap;
 
@@ -146,7 +149,13 @@ mod tests {
         std::fs::write(&path, b"").unwrap();
 
         let _id = register(path.clone());
-        std::fs::remove_file(&path).unwrap();
+        // On Windows the file may be briefly locked by the OS; retry removal.
+        for _ in 0..5 {
+            if std::fs::remove_file(&path).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
 
         cleanup_signal_safe();
         assert!(!path.exists());

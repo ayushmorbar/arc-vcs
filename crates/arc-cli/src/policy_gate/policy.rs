@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use arc_algebra_types::Atom as SemanticAtom;
 use serde::{Deserialize, Serialize};

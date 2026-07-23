@@ -1,57 +1,66 @@
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::process::Command;
-use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    fs,
+    path::{Component, Path, PathBuf},
+    process::Command,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context as _;
-use arc_net::ai::AiProvider;
-use arc_swap::ArcSwap;
-use serde::{Deserialize, Serialize};
-
-use crate::policy_gate::PolicyError;
-use crate::policy_gate::{
-    AiResolver as PolicyAiResolver, MockAiResolver, default_evaluator, verify_lens,
+use arc_ai::{
+    AiResolver,
+    embedding::{EmbeddingProvider, HybridProvider},
+    vector_store::VectorStore,
 };
-use arc_ai::AiResolver;
-use arc_ai::embedding::{EmbeddingProvider, HybridProvider};
-use arc_ai::vector_store::VectorStore;
-use arc_algebra::apply::{BlameState, MaterializedState};
-use arc_algebra::commute::commutes;
-use arc_algebra::sparse::SparseMatcher;
+use arc_algebra::{
+    apply::{BlameState, MaterializedState},
+    commute::commutes,
+    sparse::SparseMatcher,
+};
 use arc_algebra_types::{Atom, Blake3Hash, NodePath, SpacetimeCoordinate};
 use arc_change::Change;
 use arc_diagnostics::ResultExt;
 use arc_engine::mutator;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::rust_plugin::RustPlugin;
+use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_net::ai::AiProvider;
 use arc_store_cas::ObjectStore;
-use arc_store_graph::ChangeGraph;
-use arc_store_graph::bisect::{
-    BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
-    load_state as load_bisect_state, save_state as save_bisect_state,
+use arc_store_graph::{
+    ChangeGraph,
+    bisect::{
+        BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
+        load_state as load_bisect_state, save_state as save_bisect_state,
+    },
 };
 use arc_store_policy::ArcIgnoreMatcher;
-use arc_store_types::author::{Author, PublicKeyBytes, load_identity};
-use arc_store_types::newtypes::{ChangeId, MutationId};
-use arc_store_types::refs::{
-    read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
-    read_tag_heads, read_tag_map,
+use arc_store_types::{
+    author::{Author, PublicKeyBytes, load_identity},
+    newtypes::{ChangeId, MutationId},
+    refs::{
+        read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
+        read_tag_heads, read_tag_map,
+    },
+    tag::Tag,
 };
-use arc_store_types::tag::Tag;
-use arc_store_view::View;
-use arc_store_view::checkpoint;
-use arc_store_view::oplog::{OpLog, Operation, OperationAgent, RewriteTransaction};
+use arc_store_view::{
+    View, checkpoint,
+    oplog::{OpLog, Operation, OperationAgent, RewriteTransaction},
+};
+use arc_swap::ArcSwap;
 use arc_transaction::{CHECKPOINT_VERSION, PendingRewrite};
 use gix_features::parallel;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use serde::{Deserialize, Serialize};
 
-use crate::store_compat::{ObjectStoreChangeExt, apply_change};
-
-use crate::ai_pending::{
-    PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
-    save_pending_ai,
+use crate::{
+    ai_pending::{
+        PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
+        save_pending_ai,
+    },
+    policy_gate::{
+        AiResolver as PolicyAiResolver, MockAiResolver, PolicyError, default_evaluator, verify_lens,
+    },
+    store_compat::{ObjectStoreChangeExt, apply_change},
 };
 
 /// Workspace manifest persisted at `<workspace>/.arc-workspace`.
@@ -905,8 +914,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1046,8 +1055,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1174,8 +1183,8 @@ impl Repository {
         }
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval.\n\
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval.\nRun 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1350,8 +1359,8 @@ impl Repository {
 
         if has_pending_ai(&self.shared_root) {
             anyhow::bail!(
-                "An AI change is already pending approval. \
-                 Run 'arc ai approve' first, or delete '.arc/ai/pending.json' to discard it."
+                "An AI change is already pending approval. Run 'arc ai approve' first, or delete \
+                 '.arc/ai/pending.json' to discard it."
             );
         }
 
@@ -1554,7 +1563,8 @@ impl Repository {
 
         if signing_key.verifying_key().to_bytes() != human_key {
             anyhow::bail!(
-                "human sponsorship validation failed: signing key does not match active human identity"
+                "human sponsorship validation failed: signing key does not match active human \
+                 identity"
             );
         }
 
@@ -1610,7 +1620,8 @@ impl Repository {
             PendingKind::Generate => {
                 if expected_hash_prefix.is_some() {
                     anyhow::bail!(
-                        "hash pre-validation is not supported for generate approvals; rerun without <hash>"
+                        "hash pre-validation is not supported for generate approvals; rerun \
+                         without <hash>"
                     );
                 }
                 // Diff the working directory and snap with Author::AI.
@@ -1807,8 +1818,8 @@ impl Repository {
         self.merge_heads(&stash_view.heads).map_err(|e| {
             // Keep the stash alive so the user can resolve via `arc ai resolve`.
             anyhow::anyhow!(
-                "{e}\nConflict detected. Resolve via 'arc ai resolve'. \
-                 The stash '{stash_name}' has been kept."
+                "{e}\nConflict detected. Resolve via 'arc ai resolve'. The stash '{stash_name}' \
+                 has been kept."
             )
         })?;
 
@@ -2131,8 +2142,8 @@ impl Repository {
     /// The change must:
     /// - Exist in the CAS.
     /// - Have all of its dependencies already in the current view's ancestry.
-    /// - Commute with every change that is in the current view's ancestry but
-    ///   NOT in the cherry-pick source's ancestry (the "exclusive" set).
+    /// - Commute with every change that is in the current view's ancestry but NOT in the
+    ///   cherry-pick source's ancestry (the "exclusive" set).
     ///
     /// Because we reuse the original [`Change`] object (same hash, same atoms),
     /// no new CAS objects are written — the change is simply added to the
@@ -2262,10 +2273,9 @@ impl Repository {
                 .status()
                 .map_err(|e| {
                     anyhow::anyhow!(
-                        "Hook '{event}' failed to launch '{bin}': {e}. \
-                     Ensure the command is an executable in your PATH \
-                     (shell built-ins like 'echo' are not PATH executables \
-                     on Windows — use 'cmd /C echo ...' instead)."
+                        "Hook '{event}' failed to launch '{bin}': {e}. Ensure the command is an \
+                         executable in your PATH (shell built-ins like 'echo' are not PATH \
+                         executables on Windows — use 'cmd /C echo ...' instead)."
                     )
                 })?;
             if !status.success() {
@@ -2418,7 +2428,8 @@ impl Repository {
             let ancestors = self.graph.load().ancestors(&HashSet::from([*target]));
             if !ancestors.contains(&current) {
                 anyhow::bail!(
-                    "refusing non-fast-forward move of bookmark '{name}'; pass --allow-backwards to override"
+                    "refusing non-fast-forward move of bookmark '{name}'; pass --allow-backwards \
+                     to override"
                 );
             }
         }
@@ -2661,7 +2672,8 @@ impl Repository {
                         .map_err(|e| anyhow::anyhow!("missing blob for '{}': {e}", filepath))?;
                     // SAFETY: The CAS blob store is an append-only, content-addressed system.
                     // Files in .arc/blobs/ are named by their BLAKE3 hash and are strictly
-                    // immutable. No other process will ever truncate or modify this file while mapped.
+                    // immutable. No other process will ever truncate or modify this file while
+                    // mapped.
                     let mmap = unsafe { memmap2::Mmap::map(&blob_file) }
                         .map_err(|e| anyhow::anyhow!("mmap failed for '{}': {e}", filepath))?;
                     fs::write(&full, &mmap[..])
@@ -3134,7 +3146,8 @@ impl Repository {
             stack.push(op);
             self.save_redo_stack(&stack)?;
             anyhow::bail!(
-                "redo for rewrite operations is not yet supported safely; rerun the original command"
+                "redo for rewrite operations is not yet supported safely; rerun the original \
+                 command"
             );
         }
 
@@ -3423,10 +3436,9 @@ impl Repository {
     /// Update the sparse cone and rematerialize the working directory.
     ///
     /// * When `patterns` is empty the sparse filter is removed (full checkout).
-    /// * Otherwise, `.arc/sparse.json` is written and the working directory is
-    ///   projected so that only files under the given path prefixes exist on disk.
-    ///   Files that fall *outside* the new cone are physically removed so IDEs
-    ///   do not encounter stale, unmanaged files.
+    /// * Otherwise, `.arc/sparse.json` is written and the working directory is projected so that
+    ///   only files under the given path prefixes exist on disk. Files that fall *outside* the new
+    ///   cone are physically removed so IDEs do not encounter stale, unmanaged files.
     pub fn apply_sparse(&mut self, patterns: &[String]) -> anyhow::Result<()> {
         self.acquire_lock()?;
         let sparse_path = self.work_root.join(".arc").join("sparse.json");
@@ -3823,27 +3835,25 @@ impl Repository {
     ///
     /// # Algorithm
     ///
-    /// 1. Compute the `causally_stable` set across all views (intersection of
-    ///    per-view ancestry, identical to the computation in `gc()`).
+    /// 1. Compute the `causally_stable` set across all views (intersection of per-view ancestry,
+    ///    identical to the computation in `gc()`).
     /// 2. Bail if the stable set is trivially empty.
-    /// 3. Find the **stable tips** — stable changes that no other stable change
-    ///    depends on.  These are the most-recent stable points, forming the
-    ///    exact boundary between "safe to truncate" and "still live".
-    /// 4. Materialise the state at those stable tips — this snapshot becomes
-    ///    the content of the Genesis Change.
+    /// 3. Find the **stable tips** — stable changes that no other stable change depends on.  These
+    ///    are the most-recent stable points, forming the exact boundary between "safe to truncate"
+    ///    and "still live".
+    /// 4. Materialise the state at those stable tips — this snapshot becomes the content of the
+    ///    Genesis Change.
     /// 5. Convert every `MaterializedState` entry into an `Atom`:
     ///    - `["dir", ...]` path  → `Atom::Directory`
     ///    - content starting with `b"ARC_BLOB_REF:"` → `Atom::Blob`
     ///    - everything else → `Atom::Insert`
     /// 6. Create the Genesis `Change` with **empty deps** and write it to CAS.
-    /// 7. Persist the Epoch Map: every compacted ID → genesis ID.  The map is
-    ///    merged with any existing `.arc/epochs` so multiple compact rounds
-    ///    compose correctly.
-    /// 8. Update any `View` whose current head is in `causally_stable` to
-    ///    point at the Genesis Change instead.
-    /// 9. Physically delete the `.arc/store/` CAS objects for every compacted
-    ///    change (blob files in `.arc/blobs/` are **kept** because the Genesis
-    ///    `Atom::Blob` atoms still reference them).
+    /// 7. Persist the Epoch Map: every compacted ID → genesis ID.  The map is merged with any
+    ///    existing `.arc/epochs` so multiple compact rounds compose correctly.
+    /// 8. Update any `View` whose current head is in `causally_stable` to point at the Genesis
+    ///    Change instead.
+    /// 9. Physically delete the `.arc/store/` CAS objects for every compacted change (blob files in
+    ///    `.arc/blobs/` are **kept** because the Genesis `Atom::Blob` atoms still reference them).
     ///
     /// # Cryptographic Integrity
     ///
@@ -3887,8 +3897,8 @@ impl Repository {
 
         if causally_stable.is_empty() {
             anyhow::bail!(
-                "No stable history to compact — repository has no causally-stable changes. \
-                           Ensure every view has observed the same base history before compacting."
+                "No stable history to compact — repository has no causally-stable changes. Ensure \
+                 every view has observed the same base history before compacting."
             );
         }
 
@@ -4045,8 +4055,8 @@ impl Repository {
     ///
     /// Returns an error if:
     /// * The current view has more than one head (merge commit — ambiguous).
-    /// * The working directory contains no changes relative to the grandparent
-    ///   **and** no new message was supplied.
+    /// * The working directory contains no changes relative to the grandparent **and** no new
+    ///   message was supplied.
     pub fn amend(&mut self, message: Option<&str>) -> anyhow::Result<Blake3Hash> {
         self.acquire_lock()?;
         let view_name = self.current_view_name()?;
@@ -4080,7 +4090,8 @@ impl Repository {
 
         if delta.is_empty() && message.is_none() {
             anyhow::bail!(
-                "nothing to amend — working directory matches the pre-amend state and no new message was supplied"
+                "nothing to amend — working directory matches the pre-amend state and no new \
+                 message was supplied"
             );
         }
 
@@ -4963,7 +4974,8 @@ fn conflict_projection_for_file(
     projections.sort_by_key(|(a, _)| *a);
     if projections.len() > 1 {
         anyhow::bail!(
-            "multiple conflict projections found for '{filepath}'; multi-conflict file rendering is not yet supported"
+            "multiple conflict projections found for '{filepath}'; multi-conflict file rendering \
+             is not yet supported"
         );
     }
 
@@ -5431,7 +5443,8 @@ fn validate_sparse_patterns(
         }
         if arcignore.matched_path_or_any_parents(normalized, true).is_ignore() {
             anyhow::bail!(
-                "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose a different sparse path",
+                "sparse pattern '{}' conflicts with .arcignore; remove the ignore rule or choose \
+                 a different sparse path",
                 pattern
             );
         }
@@ -7290,7 +7303,8 @@ mod tests {
         let atoms = repo.status().unwrap();
         assert!(
             atoms.is_empty(),
-            "status must return no false Delete atoms for files hidden by sparse cone; got: {atoms:?}"
+            "status must return no false Delete atoms for files hidden by sparse cone; got: \
+             {atoms:?}"
         );
     }
 
@@ -7469,10 +7483,10 @@ mod tests {
     /// `compact()` correctly:
     /// 1. Returns a new `genesis_id`.
     /// 2. Updates the view so its sole head is `genesis_id`.
-    /// 3. The in-memory graph after a fresh hydration has exactly one node
-    ///    (the Genesis Change) — all prior history is gone.
-    /// 4. The materialised state still contains a node whose content includes
-    ///    "fn c" — ie. the semantic snapshot is perfectly preserved.
+    /// 3. The in-memory graph after a fresh hydration has exactly one node (the Genesis Change) —
+    ///    all prior history is gone.
+    /// 4. The materialised state still contains a node whose content includes "fn c" — ie. the
+    ///    semantic snapshot is perfectly preserved.
     #[test]
     fn test_dag_compaction() {
         let dir = tempfile::tempdir().unwrap();
@@ -7611,5 +7625,860 @@ mod tests {
         });
 
         assert_eq!(selected, vec![keep]);
+    }
+
+    // ============================================================
+    // simple_pattern_match
+    // ============================================================
+
+    #[test]
+    fn simple_pattern_exact_match() {
+        assert!(simple_pattern_match("foo.rs", "foo.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_no_match() {
+        assert!(!simple_pattern_match("foo.rs", "bar.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_star_matches_prefix() {
+        assert!(simple_pattern_match("*.rs", "foo.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_star_no_match_without_extension() {
+        assert!(!simple_pattern_match("*.rs", "foo.txt"));
+    }
+
+    #[test]
+    fn simple_pattern_star_matches_anything() {
+        assert!(simple_pattern_match("*", "anything"));
+    }
+
+    #[test]
+    fn simple_pattern_question_mark_single_char() {
+        assert!(simple_pattern_match("?.rs", "a.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_question_mark_no_multi_char() {
+        assert!(!simple_pattern_match("?.rs", "ab.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_mixed_glob() {
+        assert!(simple_pattern_match("src/*.rs", "src/main.rs"));
+        assert!(!simple_pattern_match("src/*.rs", "lib/main.rs"));
+    }
+
+    #[test]
+    fn simple_pattern_empty_pattern_matches_empty_text() {
+        assert!(simple_pattern_match("", ""));
+    }
+
+    #[test]
+    fn simple_pattern_empty_pattern_does_not_match_text() {
+        assert!(!simple_pattern_match("", "foo"));
+    }
+
+    // ============================================================
+    // interpolate_tool_args
+    // ============================================================
+
+    #[test]
+    fn interpolate_no_vars() {
+        let args = vec!["--flag".to_string()];
+        let vars = HashMap::new();
+        assert_eq!(interpolate_tool_args(&args, &vars), vec!["--flag"]);
+    }
+
+    #[test]
+    fn interpolate_single_var() {
+        let args = vec!["$path".to_string()];
+        let mut vars = HashMap::new();
+        vars.insert("path", "/tmp/file.rs".to_string());
+        assert_eq!(interpolate_tool_args(&args, &vars), vec!["/tmp/file.rs"]);
+    }
+
+    #[test]
+    fn interpolate_multiple_vars() {
+        let args = vec!["$left $right $base".to_string()];
+        let mut vars = HashMap::new();
+        vars.insert("left", "a.txt".to_string());
+        vars.insert("right", "b.txt".to_string());
+        vars.insert("base", "c.txt".to_string());
+        assert_eq!(interpolate_tool_args(&args, &vars), vec!["a.txt b.txt c.txt"]);
+    }
+
+    #[test]
+    fn interpolate_missing_var_stays_literal() {
+        let args = vec!["$missing".to_string()];
+        let vars = HashMap::new();
+        assert_eq!(interpolate_tool_args(&args, &vars), vec!["$missing"]);
+    }
+
+    // ============================================================
+    // _unhex / hex_to_blake3
+    // ============================================================
+
+    #[test]
+    fn unhex_valid_lowercase() {
+        let hex = "a".repeat(64);
+        assert!(super::_unhex(&hex).is_some());
+    }
+
+    #[test]
+    fn unhex_valid_mixed_case() {
+        let hex = format!("{}{}", "a".repeat(32), "B".repeat(32));
+        assert!(super::_unhex(&hex).is_none());
+    }
+
+    #[test]
+    fn unhex_too_short() {
+        assert!(super::_unhex("abc123").is_none());
+    }
+
+    #[test]
+    fn unhex_too_long() {
+        assert!(super::_unhex(&"a".repeat(65)).is_none());
+    }
+
+    #[test]
+    fn unhex_invalid_chars() {
+        assert!(super::_unhex(&"g".repeat(64)).is_none());
+    }
+
+    #[test]
+    fn unhex_empty() {
+        assert!(super::_unhex("").is_none());
+    }
+
+    // ============================================================
+    // is_interactive_file_atom / atom_file_path / atom_label
+    // ============================================================
+
+    #[test]
+    fn interactive_file_atom_insert_with_file_prefix() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "main.rs".into(), "fn main".into()],
+            content_hash: [1u8; 32],
+        };
+        assert!(super::is_interactive_file_atom(&atom));
+    }
+
+    #[test]
+    fn interactive_file_atom_insert_short_path() {
+        let atom =
+            Atom::Insert { at: vec!["file".into(), "main.rs".into()], content_hash: [1u8; 32] };
+        assert!(!super::is_interactive_file_atom(&atom));
+    }
+
+    #[test]
+    fn interactive_file_atom_delete_with_file_prefix() {
+        let atom = Atom::Delete {
+            at: vec!["file".into(), "old.rs".into(), "fn old".into()],
+            prior_hash: [2u8; 32],
+        };
+        assert!(super::is_interactive_file_atom(&atom));
+    }
+
+    #[test]
+    fn interactive_file_atom_move_not_interactive() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "a.rs".into(), "fn a".into()],
+            to: vec!["file".into(), "b.rs".into(), "fn a".into()],
+        };
+        assert!(!super::is_interactive_file_atom(&atom));
+    }
+
+    #[test]
+    fn interactive_file_atom_directory_not_interactive() {
+        let atom = Atom::Directory { path: vec!["file".into(), "src".into()] };
+        assert!(!super::is_interactive_file_atom(&atom));
+    }
+
+    #[test]
+    fn atom_file_path_insert() {
+        let atom =
+            Atom::Insert { at: vec!["file".into(), "main.rs".into()], content_hash: [1u8; 32] };
+        assert_eq!(super::atom_file_path(&atom), Some("main.rs"));
+    }
+
+    #[test]
+    fn atom_file_path_delete() {
+        let atom = Atom::Delete { at: vec!["file".into(), "old.rs".into()], prior_hash: [2u8; 32] };
+        assert_eq!(super::atom_file_path(&atom), Some("old.rs"));
+    }
+
+    #[test]
+    fn atom_file_path_move() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "a.rs".into()],
+            to: vec!["file".into(), "b.rs".into()],
+        };
+        assert_eq!(super::atom_file_path(&atom), Some("a.rs"));
+    }
+
+    #[test]
+    fn atom_file_path_blob() {
+        let atom = Atom::Blob { path: "lib.rs".into(), hash: [3u8; 32].into(), size: 100 };
+        assert_eq!(super::atom_file_path(&atom), None);
+    }
+
+    #[test]
+    fn atom_label_insert() {
+        let atom = Atom::Insert {
+            at: vec!["file".into(), "main.rs".into(), "fn main".into()],
+            content_hash: [1u8; 32],
+        };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Insert"));
+        assert!(label.contains("fn main"));
+    }
+
+    #[test]
+    fn atom_label_delete() {
+        let atom = Atom::Delete { at: vec!["file".into(), "old.rs".into()], prior_hash: [2u8; 32] };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Delete"));
+    }
+
+    #[test]
+    fn atom_label_move() {
+        let atom = Atom::Move {
+            from: vec!["file".into(), "a.rs".into()],
+            to: vec!["file".into(), "b.rs".into()],
+        };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Move"));
+    }
+
+    #[test]
+    fn atom_label_semantics_preserving() {
+        let atom = Atom::SemanticsPreserving {
+            at: vec!["file".into(), "lib.rs".into()],
+            description: "refactor".into(),
+        };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Reformat"));
+        assert!(label.contains("refactor"));
+    }
+
+    #[test]
+    fn atom_label_directory() {
+        let atom = Atom::Directory { path: vec!["file".into(), "src".into()] };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Directory"));
+    }
+
+    #[test]
+    fn atom_label_blob() {
+        let atom = Atom::Blob { path: "lib.rs".into(), hash: [3u8; 32].into(), size: 100 };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Blob"));
+        assert!(label.contains("lib.rs"));
+    }
+
+    #[test]
+    fn atom_label_mount() {
+        let atom = Atom::Mount {
+            path: vec!["file".into(), "lib".into()],
+            coordinate: SpacetimeCoordinate {
+                namespace: "ns".into(),
+                repo: "repo".into(),
+                hash: [4u8; 32].into(),
+            },
+        };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Mount"));
+    }
+
+    #[test]
+    fn atom_label_conflict() {
+        let atom = Atom::Conflict {
+            bases: vec![[1u8; 32]],
+            sides: vec![[2u8; 32], [3u8; 32]],
+            at: vec!["file".into(), "main.rs".into()],
+        };
+        let label = super::atom_label(&atom);
+        assert!(label.contains("Conflict"));
+    }
+
+    // ============================================================
+    // prefix_atom_path
+    // ============================================================
+
+    #[test]
+    fn prefix_atom_insert() {
+        let atom = Atom::Insert { at: vec!["fn main".into()], content_hash: [1u8; 32] };
+        let prefixed = super::prefix_atom_path(atom, "main.rs");
+        match prefixed {
+            Atom::Insert { at, .. } => assert_eq!(at, vec!["file", "main.rs", "fn main"]),
+            _ => panic!("expected Insert"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_delete() {
+        let atom = Atom::Delete { at: vec!["fn old".into()], prior_hash: [2u8; 32] };
+        let prefixed = super::prefix_atom_path(atom, "old.rs");
+        match prefixed {
+            Atom::Delete { at, .. } => assert_eq!(at, vec!["file", "old.rs", "fn old"]),
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_move() {
+        let atom = Atom::Move { from: vec!["a".into()], to: vec!["b".into()] };
+        let prefixed = super::prefix_atom_path(atom, "lib.rs");
+        match prefixed {
+            Atom::Move { from, to } => {
+                assert_eq!(from, vec!["file", "lib.rs", "a"]);
+                assert_eq!(to, vec!["file", "lib.rs", "b"]);
+            }
+            _ => panic!("expected Move"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_directory() {
+        let atom = Atom::Directory { path: vec!["src".into()] };
+        let prefixed = super::prefix_atom_path(atom, "root");
+        match prefixed {
+            Atom::Directory { path } => assert_eq!(path, vec!["file", "root", "src"]),
+            _ => panic!("expected Directory"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_blob_nonempty_path() {
+        let atom = Atom::Blob { path: "lib.rs".into(), hash: [3u8; 32].into(), size: 100 };
+        let prefixed = super::prefix_atom_path(atom, "src");
+        match prefixed {
+            Atom::Blob { path, .. } => assert_eq!(path, "src/lib.rs"),
+            _ => panic!("expected Blob"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_blob_empty_path() {
+        let atom = Atom::Blob { path: "".into(), hash: [3u8; 32].into(), size: 100 };
+        let prefixed = super::prefix_atom_path(atom, "lib.rs");
+        match prefixed {
+            Atom::Blob { path, .. } => assert_eq!(path, "lib.rs"),
+            _ => panic!("expected Blob"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_mount() {
+        let atom = Atom::Mount {
+            path: vec!["lib".into()],
+            coordinate: SpacetimeCoordinate {
+                namespace: "ns".into(),
+                repo: "repo".into(),
+                hash: [4u8; 32].into(),
+            },
+        };
+        let prefixed = super::prefix_atom_path(atom, "src");
+        match prefixed {
+            Atom::Mount { path, .. } => assert_eq!(path, vec!["file", "src", "lib"]),
+            _ => panic!("expected Mount"),
+        }
+    }
+
+    #[test]
+    fn prefix_atom_conflict() {
+        let bases = vec![[1u8; 32]];
+        let sides = vec![[2u8; 32]];
+        let atom = Atom::Conflict {
+            bases: bases.clone(),
+            sides: sides.clone(),
+            at: vec!["main.rs".into()],
+        };
+        let prefixed = super::prefix_atom_path(atom, "src");
+        match prefixed {
+            Atom::Conflict { at, bases: b, sides: s } => {
+                assert_eq!(at, vec!["file", "src", "main.rs"]);
+                assert_eq!(b, bases);
+                assert_eq!(s, sides);
+            }
+            _ => panic!("expected Conflict"),
+        }
+    }
+
+    // ============================================================
+    // contains_hard_ignored_dir
+    // ============================================================
+
+    #[test]
+    fn hard_ignored_target() {
+        assert!(contains_hard_ignored_dir(Path::new("target/debug")));
+    }
+
+    #[test]
+    fn hard_ignored_node_modules() {
+        assert!(contains_hard_ignored_dir(Path::new("app/node_modules/pkg")));
+    }
+
+    #[test]
+    fn hard_ignored_git() {
+        assert!(contains_hard_ignored_dir(Path::new(".git/objects")));
+    }
+
+    #[test]
+    fn hard_ignored_dist() {
+        assert!(contains_hard_ignored_dir(Path::new("dist/bundle.js")));
+    }
+
+    #[test]
+    fn hard_ignored_build() {
+        assert!(contains_hard_ignored_dir(Path::new("build/output")));
+    }
+
+    #[test]
+    fn hard_ignored_not_ignored() {
+        assert!(!contains_hard_ignored_dir(Path::new("src/main.rs")));
+    }
+
+    #[test]
+    fn hard_ignored_empty_path() {
+        assert!(!contains_hard_ignored_dir(Path::new("")));
+    }
+
+    // ============================================================
+    // count_files_recursive
+    // ============================================================
+
+    #[test]
+    fn count_files_nonexistent_dir() {
+        assert_eq!(count_files_recursive(Path::new("/nonexistent/path/xyz")), 0);
+    }
+
+    #[test]
+    fn count_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(count_files_recursive(dir.path()), 0);
+    }
+
+    #[test]
+    fn count_files_with_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
+        fs::write(dir.path().join("b.rs"), "fn b() {}").unwrap();
+        assert_eq!(count_files_recursive(dir.path()), 2);
+    }
+
+    #[test]
+    fn count_files_with_subdirs() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
+        let sub = dir.path().join("src");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("b.rs"), "fn b() {}").unwrap();
+        assert_eq!(count_files_recursive(dir.path()), 2);
+    }
+
+    // ============================================================
+    // contains_function
+    // ============================================================
+
+    #[test]
+    fn contains_function_empty_expression() {
+        let expr = arc_revset::RevsetExpression::Symbol("HEAD".into());
+        assert!(!contains_function(&expr, "glob"));
+    }
+
+    #[test]
+    fn contains_function_non_function() {
+        let expr = arc_revset::RevsetExpression::Symbol("HEAD".into());
+        assert!(!contains_function(&expr, "glob"));
+    }
+
+    #[test]
+    fn contains_function_with_matching_name() {
+        let expr = arc_revset::RevsetExpression::Function {
+            name: "file".into(),
+            args: vec![arc_revset::RevsetExpression::StringLiteral("*.rs".into())],
+        };
+        assert!(contains_function(&expr, "file"));
+    }
+
+    #[test]
+    fn contains_function_nested_in_union() {
+        let inner = arc_revset::RevsetExpression::Function {
+            name: "file".into(),
+            args: vec![arc_revset::RevsetExpression::StringLiteral("*.rs".into())],
+        };
+        let expr = arc_revset::RevsetExpression::Union(
+            Box::new(arc_revset::RevsetExpression::Symbol("HEAD".into())),
+            Box::new(inner),
+        );
+        assert!(contains_function(&expr, "file"));
+    }
+
+    // ============================================================
+    // next_mutation_id
+    // ============================================================
+
+    #[test]
+    fn next_mutation_id_deterministic() {
+        let cmd = "rebase";
+        let view = "main";
+        let rewrite_map = HashMap::new();
+        let id1 = next_mutation_id(cmd, view, &rewrite_map).unwrap();
+        let id2 = next_mutation_id(cmd, view, &rewrite_map).unwrap();
+        assert_eq!(id1.0.len(), 32);
+        assert_eq!(id2.0.len(), 32);
+    }
+
+    #[test]
+    fn next_mutation_id_different_commands() {
+        let view = "main";
+        let rewrite_map = HashMap::new();
+        let id1 = next_mutation_id("rebase", view, &rewrite_map).unwrap();
+        let id2 = next_mutation_id("squash", view, &rewrite_map).unwrap();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn next_mutation_id_different_views() {
+        let cmd = "rebase";
+        let rewrite_map = HashMap::new();
+        let id1 = next_mutation_id(cmd, "main", &rewrite_map).unwrap();
+        let id2 = next_mutation_id(cmd, "feature", &rewrite_map).unwrap();
+        assert_ne!(id1, id2);
+    }
+
+    // ============================================================
+    // hashes_to_change_ids / change_ids_to_hashes
+    // ============================================================
+
+    #[test]
+    fn hashes_to_change_ids_roundtrip() {
+        let h1 = [1u8; 32];
+        let h2 = [2u8; 32];
+        let mut set = HashSet::new();
+        set.insert(h1);
+        set.insert(h2);
+        let change_ids = hashes_to_change_ids(&set);
+        assert_eq!(change_ids.len(), 2);
+        let hashes = change_ids_to_hashes(&change_ids);
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains(&h1));
+        assert!(hashes.contains(&h2));
+    }
+
+    #[test]
+    fn hashes_to_change_ids_empty() {
+        let set = HashSet::new();
+        let change_ids = hashes_to_change_ids(&set);
+        assert!(change_ids.is_empty());
+    }
+
+    #[test]
+    fn change_ids_to_hashes_empty() {
+        let set = BTreeSet::new();
+        let hashes = change_ids_to_hashes(&set);
+        assert!(hashes.is_empty());
+    }
+
+    #[test]
+    fn hashes_to_change_ids_deterministic_order() {
+        let h1 = [3u8; 32];
+        let h2 = [1u8; 32];
+        let h3 = [2u8; 32];
+        let mut set = HashSet::new();
+        set.insert(h1);
+        set.insert(h2);
+        set.insert(h3);
+        let change_ids: Vec<_> = hashes_to_change_ids(&set).into_iter().collect();
+        assert_eq!(change_ids.len(), 3);
+        // BTreeSet guarantees sorted order
+        assert!(change_ids.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn change_ids_to_hashes_preserves_content() {
+        let mut set = BTreeSet::new();
+        let h = [42u8; 32];
+        set.insert(ChangeId(h));
+        let hashes = change_ids_to_hashes(&set);
+        assert!(hashes.contains(&h));
+    }
+
+    // ============================================================
+    // decode_conflict_projection
+    // ============================================================
+
+    #[test]
+    fn decode_conflict_projection_none_marker() {
+        let bytes = b"<NONE>";
+        assert!(decode_conflict_projection(bytes).is_none());
+    }
+
+    #[test]
+    fn decode_conflict_projection_valid_bytes() {
+        let bases = vec![[10u8; 32], [20u8; 32]];
+        let sides = vec![[30u8; 32]];
+        let atom = Atom::Conflict {
+            bases: bases.clone(),
+            sides: sides.clone(),
+            at: vec!["file".into(), "main.rs".into()],
+        };
+        let mut input = Vec::from(ARC_CONFLICT_REF_PREFIX);
+        input.extend_from_slice(&bincode::serialize(&atom).unwrap());
+        let decoded = decode_conflict_projection(&input).unwrap();
+        assert_eq!(decoded, (bases, sides));
+    }
+
+    #[test]
+    fn decode_conflict_projection_empty_bytes() {
+        assert!(decode_conflict_projection(b"").is_none());
+    }
+
+    #[test]
+    fn decode_conflict_projection_exact_none_length() {
+        assert!(decode_conflict_projection(b"abcdef").is_none());
+    }
+
+    // ============================================================
+    // extract_filepaths_from_state
+    // ============================================================
+
+    #[test]
+    fn extract_filepaths_empty_state() {
+        let state = MaterializedState::new();
+        let paths = extract_filepaths_from_state(&state);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn extract_filepaths_multiple() {
+        let mut state = MaterializedState::new();
+        state.insert(NodePath::from(vec!["file".into(), "a.rs".into()]), vec![]);
+        state.insert(NodePath::from(vec!["file".into(), "b.rs".into()]), vec![]);
+        let paths = extract_filepaths_from_state(&state);
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains("a.rs"));
+        assert!(paths.contains("b.rs"));
+    }
+
+    #[test]
+    fn extract_filepaths_with_content() {
+        let mut state = MaterializedState::new();
+        state.insert(
+            NodePath::from(vec!["file".into(), "main.rs".into()]),
+            b"fn main() {}".to_vec(),
+        );
+        let paths = extract_filepaths_from_state(&state);
+        assert!(paths.contains("main.rs"));
+    }
+
+    #[test]
+    fn extract_filepaths_nested_path() {
+        let mut state = MaterializedState::new();
+        state.insert(NodePath::from(vec!["file".into(), "src".into(), "lib.rs".into()]), vec![]);
+        let paths = extract_filepaths_from_state(&state);
+        assert!(paths.contains("src"));
+    }
+
+    // ============================================================
+    // extract_content_at_path
+    // ============================================================
+
+    #[test]
+    fn extract_content_at_path_found() {
+        let mut state = MaterializedState::new();
+        let path = NodePath::from(vec!["file".into(), "main.rs".into()]);
+        state.insert(path.clone(), b"fn main() {}".to_vec());
+        let content = extract_content_at_path(&state, &path);
+        assert_eq!(content, b"fn main() {}");
+    }
+
+    #[test]
+    fn extract_content_at_path_not_found() {
+        let state = MaterializedState::new();
+        let path = NodePath::from(vec!["file".into(), "missing.rs".into()]);
+        let content = extract_content_at_path(&state, &path);
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn extract_content_at_path_empty_content() {
+        let mut state = MaterializedState::new();
+        let path = NodePath::from(vec!["file".into(), "empty.rs".into()]);
+        state.insert(path.clone(), vec![]);
+        let content = extract_content_at_path(&state, &path);
+        assert!(content.is_empty());
+    }
+
+    // ============================================================
+    // find_overlapping_path (&[Atom] API)
+    // ============================================================
+
+    #[test]
+    fn find_overlapping_path_same_file_different_subpaths() {
+        let a = vec![Atom::Insert {
+            at: vec!["file".into(), "main.rs".into(), "fn main".into()],
+            content_hash: [1u8; 32],
+        }];
+        let b = vec![Atom::Insert {
+            at: vec!["file".into(), "main.rs".into(), "fn helper".into()],
+            content_hash: [2u8; 32],
+        }];
+        let result = find_overlapping_path(&a, &b);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_overlapping_path_different_files() {
+        let a =
+            vec![Atom::Insert { at: vec!["file".into(), "a.rs".into()], content_hash: [1u8; 32] }];
+        let b =
+            vec![Atom::Insert { at: vec!["file".into(), "b.rs".into()], content_hash: [2u8; 32] }];
+        assert!(find_overlapping_path(&a, &b).is_none());
+    }
+
+    #[test]
+    fn find_overlapping_path_empty_left() {
+        let b =
+            vec![Atom::Insert { at: vec!["file".into(), "a.rs".into()], content_hash: [2u8; 32] }];
+        assert!(find_overlapping_path(&[], &b).is_none());
+    }
+
+    #[test]
+    fn find_overlapping_path_empty_right() {
+        let a =
+            vec![Atom::Insert { at: vec!["file".into(), "a.rs".into()], content_hash: [1u8; 32] }];
+        assert!(find_overlapping_path(&a, &[]).is_none());
+    }
+
+    #[test]
+    fn find_overlapping_path_both_empty() {
+        assert!(find_overlapping_path(&[], &[]).is_none());
+    }
+
+    #[test]
+    fn find_overlapping_path_returns_longer_path() {
+        let a =
+            vec![Atom::Insert { at: vec!["file".into(), "a.rs".into()], content_hash: [1u8; 32] }];
+        let b = vec![Atom::Insert {
+            at: vec!["file".into(), "a.rs".into(), "fn foo".into()],
+            content_hash: [2u8; 32],
+        }];
+        let result = find_overlapping_path(&a, &b);
+        assert_eq!(result.unwrap(), vec!["file", "a.rs", "fn foo"]);
+    }
+
+    // ============================================================
+    // is_implicitly_ignored
+    // ============================================================
+
+    #[test]
+    fn implicitly_ignored_target_dir() {
+        assert!(is_implicitly_ignored(Path::new("target/debug/binary")));
+    }
+
+    #[test]
+    fn implicitly_ignored_node_modules() {
+        assert!(is_implicitly_ignored(Path::new("node_modules/pkg/index.js")));
+    }
+
+    #[test]
+    fn implicitly_ignored_dot_git() {
+        assert!(is_implicitly_ignored(Path::new(".git/objects/pack")));
+    }
+
+    #[test]
+    fn implicitly_ignored_env_file() {
+        assert!(is_implicitly_ignored(Path::new(".env")));
+    }
+
+    #[test]
+    fn implicitly_ignored_id_rsa() {
+        assert!(is_implicitly_ignored(Path::new("id_rsa")));
+    }
+
+    #[test]
+    fn implicitly_ignored_pem_file() {
+        assert!(is_implicitly_ignored(Path::new("cert.pem")));
+    }
+
+    #[test]
+    fn implicitly_ignored_key_file() {
+        assert!(is_implicitly_ignored(Path::new("server.key")));
+    }
+
+    #[test]
+    fn implicitly_not_ignored_rs_file() {
+        assert!(!is_implicitly_ignored(Path::new("src/main.rs")));
+    }
+
+    #[test]
+    fn implicitly_not_ignored_ts_file() {
+        assert!(!is_implicitly_ignored(Path::new("src/app.ts")));
+    }
+
+    #[test]
+    fn implicitly_not_ignored_json_file() {
+        assert!(!is_implicitly_ignored(Path::new("package.json")));
+    }
+
+    #[test]
+    fn implicitly_not_ignored_toml_file() {
+        assert!(!is_implicitly_ignored(Path::new("Cargo.toml")));
+    }
+
+    #[test]
+    fn implicitly_ignored_png_file() {
+        assert!(is_implicitly_ignored(Path::new("image.png")));
+    }
+
+    #[test]
+    fn implicitly_ignored_bin_file() {
+        assert!(is_implicitly_ignored(Path::new("release.bin")));
+    }
+
+    #[test]
+    fn implicitly_not_ignored_with_env_tracking() {
+        // SAFETY: single-threaded test; env manipulation is safe here
+        unsafe { std::env::set_var("ARC_TRACK_IMPLICITLY_IGNORED", "1") };
+        let result = is_implicitly_ignored(Path::new(".env"));
+        // SAFETY: single-threaded test; restoring env to clean state
+        unsafe { std::env::remove_var("ARC_TRACK_IMPLICITLY_IGNORED") };
+        assert!(!result);
+    }
+
+    // ============================================================
+    // validate_sparse_patterns
+    // ============================================================
+
+    #[test]
+    fn validate_sparse_patterns_empty() {
+        assert!(validate_sparse_patterns(&[], &ArcIgnoreMatcher::empty()).is_ok());
+    }
+
+    // ============================================================
+    // _hex
+    // ============================================================
+
+    #[test]
+    fn hex_roundtrip() {
+        let hash = [0xAB; 32];
+        let hex_str = super::_hex(&hash);
+        assert_eq!(hex_str.len(), 64);
+        assert!(hex_str.chars().all(|c| c.is_ascii_hexdigit()));
+        let restored = hex_to_blake3(&hex_str).unwrap();
+        assert_eq!(hash, restored);
+    }
+
+    #[test]
+    fn hex_format_all_zeros() {
+        let hash = [0u8; 32];
+        let hex_str = super::_hex(&hash);
+        assert_eq!(hex_str, "0".repeat(64));
     }
 }

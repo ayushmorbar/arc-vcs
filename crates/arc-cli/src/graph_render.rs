@@ -2,8 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use arc_algebra_types::Atom;
 use arc_change::Change;
-use arc_store_types::author::Author;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::{author::Author, newtypes::ChangeId};
 use owo_colors::OwoColorize;
 
 /// Renders a revision DAG into stable, line-oriented ASCII/Unicode output.
@@ -134,7 +133,8 @@ impl TemplateField {
             "badges" => Ok(Self::Badges),
             "" => Err("template contains an empty placeholder '{}'".to_string()),
             _ => Err(format!(
-                "unsupported template field '{name}'. Supported fields: id, id_short, author, intent, state_badges, ref_badges, badges"
+                "unsupported template field '{name}'. Supported fields: id, id_short, author, \
+                 intent, state_badges, ref_badges, badges"
             )),
         }
     }
@@ -516,8 +516,7 @@ mod tests {
 
     use arc_algebra_types::Atom;
     use arc_change::Change;
-    use arc_store_types::author::test_keypair;
-    use arc_store_types::newtypes::ChangeId;
+    use arc_store_types::{author::test_keypair, newtypes::ChangeId};
 
     use super::{GraphDecorations, GraphRenderer, LogTemplate};
 
@@ -630,5 +629,125 @@ mod tests {
 
         let lines = GraphRenderer::monochrome().render(&newest_first);
         assert!(lines.iter().any(|line| line.contains("commits elided")));
+    }
+
+    #[test]
+    fn template_parse_unclosed_brace() {
+        let err = LogTemplate::parse("{id").unwrap_err();
+        assert!(err.contains("unclosed"));
+    }
+
+    #[test]
+    fn template_parse_unmatched_close_brace() {
+        let err = LogTemplate::parse("id}").unwrap_err();
+        assert!(err.contains("unmatched"));
+    }
+
+    #[test]
+    fn template_parse_empty_placeholder() {
+        let err = LogTemplate::parse("{}").unwrap_err();
+        assert!(err.contains("empty placeholder"));
+    }
+
+    #[test]
+    fn template_parse_all_valid_fields() {
+        let tpl = LogTemplate::parse(
+            "{id} {id_short} {author} {intent} {state_badges} {ref_badges} {badges}",
+        );
+        assert!(tpl.is_ok(), "all valid fields must parse");
+    }
+
+    #[test]
+    fn template_render_literal_only() {
+        let tpl = LogTemplate::parse("hello world").unwrap();
+        let root = mk_change(HashSet::new(), "root", false, false);
+        let lines = GraphRenderer::monochrome().render_with_decorations_and_template(
+            &[root],
+            &GraphDecorations::default(),
+            Some(&tpl),
+        );
+        assert!(lines[0].contains("hello world"));
+    }
+
+    #[test]
+    fn single_commit_renders_one_line() {
+        let root = mk_change(HashSet::new(), "solo", false, false);
+        let lines = GraphRenderer::monochrome().render(&[root]);
+        assert_eq!(lines.len(), 1, "single commit must produce exactly one line");
+    }
+
+    #[test]
+    fn empty_render_produces_no_lines() {
+        let lines = GraphRenderer::monochrome().render(&[]);
+        assert!(lines.is_empty(), "empty input must produce no output");
+    }
+
+    #[test]
+    fn graph_renderer_new_is_color() {
+        let r = GraphRenderer::new();
+        assert!(r.use_color, "default renderer must use color");
+    }
+
+    #[test]
+    fn graph_renderer_monochrome_is_not_color() {
+        let r = GraphRenderer::monochrome();
+        assert!(!r.use_color, "monochrome renderer must not use color");
+    }
+
+    #[test]
+    fn decorations_default() {
+        let d = GraphDecorations::default();
+        assert!(d.tags.is_empty());
+        assert!(d.remotes.is_empty());
+        assert!(d.current.is_none());
+        assert!(d.active_heads.is_empty());
+        assert!(d.stable_ancestors.is_empty());
+    }
+
+    #[test]
+    fn color_vs_monochrome_single_commit() {
+        let root = mk_change(HashSet::new(), "test", false, false);
+        let color_lines = GraphRenderer::new().render(std::slice::from_ref(&root));
+        let mono_lines = GraphRenderer::monochrome().render(&[root]);
+        assert_eq!(color_lines.len(), mono_lines.len());
+        // Strip ANSI escape codes before comparing content.
+        let strip_ansi = |s: &str| -> String {
+            let mut result = String::with_capacity(s.len());
+            let mut chars = s.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '\x1b' {
+                    while let Some(&next) = chars.peek() {
+                        chars.next();
+                        if next == 'm' {
+                            break;
+                        }
+                    }
+                } else {
+                    result.push(c);
+                }
+            }
+            result
+        };
+        assert_eq!(strip_ansi(&color_lines[0]), mono_lines[0]);
+    }
+
+    #[test]
+    fn current_checkout_shows_at_symbol() {
+        let root = mk_change(HashSet::new(), "root", false, false);
+        let decos = GraphDecorations {
+            current: Some(ChangeId::from(root.id)),
+            ..GraphDecorations::default()
+        };
+        let lines = GraphRenderer::monochrome().render_with_decorations(&[root], &decos);
+        assert!(lines[0].contains("@"), "current commit must show @ symbol");
+    }
+
+    #[test]
+    fn active_head_shows_dot_symbol() {
+        let root = mk_change(HashSet::new(), "root", false, false);
+        let mut decos = GraphDecorations::default();
+        decos.active_heads.insert(ChangeId::from(root.id));
+        let lines = GraphRenderer::monochrome().render_with_decorations(&[root], &decos);
+        assert!(lines[0].contains("●"), "active head must show ● symbol");
     }
 }

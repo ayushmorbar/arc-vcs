@@ -1,5 +1,7 @@
-use std::collections::HashSet;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use arc_change::Change;
 use arc_ux::OutputEvent;
@@ -292,9 +294,9 @@ mod tests {
 
     use arc_change::Change;
     use arc_store_types::author;
+    use arc_ux::OutputEvent;
 
     use super::{AppState, ChangeEntry};
-    use arc_ux::OutputEvent;
 
     fn sample_change() -> Change {
         let (author, signing_key) = author::test_keypair();

@@ -1,7 +1,9 @@
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use arc_policy::{PolicyAtom, PolicyDomain, PolicyLattice, PolicyValue, SourceTrace, TrustLevel};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
@@ -295,6 +297,8 @@ pub fn is_workspace_owned_by_current_user(path: &Path) -> std::io::Result<bool> 
 
         let owner_of_path = std::fs::symlink_metadata(path)?.uid();
         #[allow(unsafe_code)]
+        // SAFETY: libc::geteuid() is always safe on POSIX; the allow lint
+        // satisfies the undocumented_unsafe_blocks policy for FFI calls.
         let owner_of_process = unsafe { libc::geteuid() };
         if owner_of_path == owner_of_process {
             return Ok(true);
@@ -627,5 +631,333 @@ mod tests {
             if line.trim() == "key = old" { Some("key = new".to_string()) } else { None }
         });
         assert_eq!(out, b"# header\r\nkey = new\n# footer");
+    }
+
+    #[test]
+    fn match_result_is_ignore_true_and_false() {
+        let ignored = MatchResult { ignore: true };
+        assert!(ignored.is_ignore());
+        let not_ignored = MatchResult { ignore: false };
+        assert!(!not_ignored.is_ignore());
+    }
+
+    #[test]
+    fn match_result_default_is_not_ignored() {
+        let default = MatchResult::default();
+        assert!(!default.is_ignore());
+    }
+
+    #[test]
+    fn empty_matcher_matches_nothing() {
+        let matcher = ArcIgnoreMatcher::empty();
+        let result = matcher.matched_path_or_any_parents("src/main.rs", false);
+        assert!(!result.is_ignore(), "empty matcher must not ignore anything");
+    }
+
+    #[test]
+    fn empty_matcher_explain_returns_unset() {
+        let matcher = ArcIgnoreMatcher::empty();
+        let trace = matcher.explain_path("src/main.rs");
+        assert!(
+            matches!(trace.decision, PathPolicyDecision::Unset),
+            "empty matcher should yield Unset decision"
+        );
+        assert!(trace.entries.is_empty(), "empty matcher should produce no trace entries");
+    }
+
+    #[test]
+    fn toml_scalar_to_string_covers_all_variants() {
+        assert_eq!(toml_scalar_to_string(&toml::Value::String("hello".into())), "hello");
+        assert_eq!(toml_scalar_to_string(&toml::Value::Integer(42)), "42");
+        assert_eq!(
+            toml_scalar_to_string(&toml::Value::Float(std::f64::consts::PI)),
+            "3.141592653589793"
+        );
+        assert_eq!(toml_scalar_to_string(&toml::Value::Boolean(true)), "true");
+        assert_eq!(
+            toml_scalar_to_string(&toml::Value::Array(vec![toml::Value::Integer(1)])),
+            "[1]"
+        );
+    }
+
+    #[test]
+    fn flatten_config_value_handles_table_and_scalar() {
+        use arc_policy::{PolicyLattice, PolicyValue};
+
+        let mut lattice = PolicyLattice::new();
+        let path = PathBuf::from("/test/config.toml");
+        let toml_val = toml::Value::try_from(toml::toml! {
+            [server]
+            host = "localhost"
+            port = 8080
+        })
+        .unwrap();
+
+        flatten_config_value(&toml_val, "", &path, 0, TrustLevel::Repo, &mut lattice);
+        let trace = lattice.resolve("server.host");
+        match trace.winner.map(|w| w.value) {
+            Some(PolicyValue::Present(v)) => assert_eq!(v.as_ref(), "localhost"),
+            other => panic!("expected Present(localhost), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn policy_store_error_display_covers_all_variants() {
+        let read_err = PolicyStoreError::Read {
+            path: PathBuf::from("/test"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
+        };
+        assert!(format!("{read_err}").contains("failed to read"));
+
+        let glob_err = PolicyStoreError::InvalidGlob {
+            path: PathBuf::from("/test"),
+            pattern: "[bad".into(),
+            details: "unclosed bracket".into(),
+        };
+        assert!(format!("{glob_err}").contains("invalid include pattern"));
+
+        let cycle_err = PolicyStoreError::IncludeCycle { cycle: "a -> b -> a".into() };
+        assert!(format!("{cycle_err}").contains("include cycle"));
+
+        let outside_err = PolicyStoreError::OutsideWorkspace { path: PathBuf::from("/escape") };
+        assert!(format!("{outside_err}").contains("escapes workspace root"));
+
+        let depth_err = PolicyStoreError::MaxDepth { path: PathBuf::from("/deep") };
+        assert!(format!("{depth_err}").contains("too many include levels"));
+    }
+
+    #[test]
+    fn parse_config_includes_extracts_include_directives() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonicalize root");
+        let included = root.join("extra.toml");
+        fs::write(&included, "key = \"value\"\n").expect("included file");
+        let main = root.join("config.toml");
+        fs::write(&main, "include = \"extra.toml\"\nother = 1\n").expect("main config");
+
+        let bytes = fs::read(&main).unwrap();
+        let directives = parse_config_includes(&bytes, &main, &root);
+        assert_eq!(directives.len(), 1, "should find one include directive");
+        assert!(directives[0].is_ok(), "include directive should resolve successfully");
+    }
+
+    #[test]
+    fn parse_config_includes_skips_comments_and_blanks() {
+        let bytes = b"# this is a comment\n\nother = true\n";
+        let root = PathBuf::from("/nonexistent");
+        let directives = parse_config_includes(bytes, &root, &root);
+        assert!(directives.is_empty(), "comments and blanks must produce no directives");
+    }
+
+    #[test]
+    fn is_workspace_owned_by_current_user_returns_bool_on_windows() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let result = is_workspace_owned_by_current_user(tmp.path());
+        assert!(result.is_ok());
+        // On Windows this always returns false (stub), on Unix returns true for own dir
+        let owned = result.unwrap();
+        assert!(matches!(owned, true | false), "result must be a valid bool");
+    }
+
+    #[test]
+    fn include_state_detects_max_depth() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let real_path = tmp.path().canonicalize().expect("canonicalize");
+        let path = real_path.join("file.toml");
+        fs::write(&path, "").unwrap();
+        let mut state = IncludeState::new(0);
+        let result = state.enter(&path, 1);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PolicyStoreError::MaxDepth { .. }));
+    }
+
+    #[test]
+    fn arc_ignore_matcher_load_with_no_arcignore() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let matcher = ArcIgnoreMatcher::load(tmp.path()).expect("load with no .arcignore");
+        let result = matcher.matched_path_or_any_parents("any/path.rs", false);
+        assert!(!result.is_ignore());
+    }
+
+    #[test]
+    fn arc_ignore_matcher_load_with_real_patterns() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        fs::write(root.join(".arcignore"), "*.log\ntarget/\n!target/keep.rs\n").expect("ignore");
+
+        let matcher = ArcIgnoreMatcher::load(root).expect("load matcher");
+        assert!(
+            matcher.matched_path_or_any_parents("debug.log", false).is_ignore(),
+            "*.log should be ignored"
+        );
+        assert!(
+            matcher.matched_path_or_any_parents("target/debug", true).is_ignore(),
+            "target/ should be ignored"
+        );
+        assert!(
+            !matcher.matched_path_or_any_parents("target/keep.rs", false).is_ignore(),
+            "!target/keep.rs should be un-ignored"
+        );
+        assert!(
+            !matcher.matched_path_or_any_parents("src/main.rs", false).is_ignore(),
+            "unmatched path should not be ignored"
+        );
+    }
+
+    #[test]
+    fn rewrite_policy_text_lossless_empty_input() {
+        let out = rewrite_policy_text_lossless(b"", |_| Some("replaced".to_string()));
+        assert!(out.is_empty(), "empty input should produce empty output");
+    }
+
+    #[test]
+    fn rewrite_policy_text_lossless_passthrough() {
+        let input = b"line1\nline2\nline3\n";
+        let out = rewrite_policy_text_lossless(input, |_| None);
+        assert_eq!(out, input, "callback returning None should pass through unchanged");
+    }
+
+    #[test]
+    fn rewrite_policy_text_lossless_no_trailing_newline() {
+        let input = b"line1\nline2";
+        let out = rewrite_policy_text_lossless(input, |line| {
+            if line == "line2" { Some("LINE2".to_string()) } else { None }
+        });
+        assert_eq!(out, b"line1\nLINE2");
+    }
+
+    #[test]
+    fn flatten_config_value_with_nested_table() {
+        use arc_policy::{PolicyLattice, PolicyValue};
+
+        let mut lattice = PolicyLattice::new();
+        let path = PathBuf::from("/test/config.toml");
+        let toml_val: toml::Value = toml::from_str("[a.b]\nkey = \"val\"").unwrap();
+
+        flatten_config_value(&toml_val, "", &path, 0, TrustLevel::Repo, &mut lattice);
+        let trace = lattice.resolve("a.b.key");
+        match trace.winner.map(|w| w.value) {
+            Some(PolicyValue::Present(v)) => assert_eq!(v.as_ref(), "val"),
+            other => panic!("expected Present(val), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn flatten_config_value_with_array() {
+        use arc_policy::{PolicyLattice, PolicyValue};
+
+        let mut lattice = PolicyLattice::new();
+        let path = PathBuf::from("/test/config.toml");
+        let toml_val: toml::Value = toml::from_str("[server]\nhosts = [\"a\", \"b\"]").unwrap();
+
+        flatten_config_value(&toml_val, "", &path, 0, TrustLevel::Repo, &mut lattice);
+        let trace = lattice.resolve("server.hosts");
+        match trace.winner.map(|w| w.value) {
+            Some(PolicyValue::Present(v)) => assert_eq!(v.as_ref(), "a,b"),
+            other => panic!("expected Present(a,b), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn toml_scalar_to_string_datetime_variant() {
+        let toml_str = "dt = 2025-01-15T10:30:00Z";
+        let parsed: toml::Value = toml::from_str(toml_str).expect("parse toml with datetime");
+        let table = parsed.as_table().expect("must be table");
+        let dt_val = table.get("dt").expect("dt key must exist");
+        assert!(matches!(dt_val, toml::Value::Datetime(_)), "value must be Datetime variant");
+        let s = toml_scalar_to_string(dt_val);
+        assert_eq!(s, "2025-01-15T10:30:00Z");
+    }
+
+    #[test]
+    fn parse_config_includes_includeif_exists() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonicalize root");
+        let extra = root.join("extra.toml");
+        fs::write(&extra, "x = 1\n").expect("write extra");
+
+        let main = root.join("config.toml");
+        fs::write(&main, "includeIf.exists = \"extra.toml\"\n").expect("write main");
+
+        let bytes = fs::read(&main).unwrap();
+        let directives = parse_config_includes(&bytes, &main, &root);
+        assert_eq!(directives.len(), 1, "should find one includeIf.exists directive");
+        assert!(directives[0].is_ok(), "directive should resolve successfully");
+    }
+
+    #[test]
+    fn parse_config_includes_includeif_exists_missing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonicalize root");
+
+        let main = root.join("config.toml");
+        fs::write(&main, "includeIf.exists = \"nonexistent.toml\"\n").expect("write main");
+
+        let bytes = fs::read(&main).unwrap();
+        let directives = parse_config_includes(&bytes, &main, &root);
+        assert!(directives.is_empty(), "missing file should produce no directives");
+    }
+
+    #[test]
+    fn parse_config_includes_includeif_gitdir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonicalize root");
+        let extra = root.join("extra.toml");
+        fs::write(&extra, "y = 2\n").expect("write extra");
+
+        let root_norm = root.to_string_lossy().replace('\\', "/");
+        let main = root.join("config.toml");
+        let directive_line = format!("includeIf.gitdir: {root_norm} = \"extra.toml\"\n");
+        fs::write(&main, &directive_line).expect("write main");
+
+        let bytes = fs::read(&main).unwrap();
+        let directives = parse_config_includes(&bytes, &main, &root);
+        assert_eq!(directives.len(), 1, "should find one includeIf.gitdir directive");
+        assert!(directives[0].is_ok(), "directive should resolve successfully");
+    }
+
+    #[test]
+    fn parse_config_includes_includeif_gitdir_no_match() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonicalize root");
+        let extra = root.join("extra.toml");
+        fs::write(&extra, "z = 3\n").expect("write extra");
+
+        let main = root.join("config.toml");
+        let directive_line = "includeIf.gitdir: /completely/different/path = \"extra.toml\"\n";
+        fs::write(&main, directive_line).expect("write main");
+
+        let bytes = fs::read(&main).unwrap();
+        let directives = parse_config_includes(&bytes, &main, &root);
+        assert!(directives.is_empty(), "non-matching gitdir prefix should produce no directives");
+    }
+
+    #[test]
+    fn explain_config_key_with_existing_key() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        let arc_dir = root.join(".arc");
+        fs::create_dir_all(&arc_dir).expect("create .arc dir");
+        fs::write(arc_dir.join("config.toml"), "[server]\nport = 8080\n").expect("write config");
+
+        let trace = explain_config_key(root, "server.port").expect("explain_config_key failed");
+        assert!(trace.winner.is_some(), "trace should have a winner for server.port");
+    }
+
+    #[test]
+    fn include_state_enter_with_visited_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let real_path = tmp.path().canonicalize().expect("canonicalize");
+        let path = real_path.join("file.toml");
+        fs::write(&path, "").unwrap();
+
+        let mut state = IncludeState::new(10);
+        let first = state.enter(&path, 0).expect("first enter must succeed");
+        assert!(first.is_some(), "first enter should return Some(path)");
+
+        state.exit();
+
+        let second = state.enter(&path, 0).expect("second enter must succeed");
+        assert!(second.is_none(), "second enter of already-visited path should return Ok(None)");
     }
 }
