@@ -54,6 +54,22 @@ just docs          # builds the mdBook
 just docs-serve    # live-reload server at http://localhost:3000
 ```
 
+## Release build targets
+
+Release binaries are produced for 6 targets (see `.github/workflows/release.yml`):
+
+| Target | OS | Runner |
+|---|---|---|
+| `x86_64-apple-darwin` | macOS Intel | `macos-latest` |
+| `aarch64-apple-darwin` | macOS Apple Silicon | `macos-latest` |
+| `x86_64-unknown-linux-gnu` | Linux glibc x86_64 | `ubuntu-24.04` |
+| `aarch64-unknown-linux-gnu` | Linux glibc aarch64 | `ubuntu-24.04` |
+| `x86_64-unknown-linux-musl` | Linux musl x86_64 | `ubuntu-24.04` |
+| `x86_64-pc-windows-msvc` | Windows x86_64 | `windows-latest` |
+
+Cross-compilation uses `cargo-cross`. See `scripts/ci/install-cross-tools.sh`
+and `scripts/ci/build-release.sh`.
+
 ---
 
 ## Zero-Warning Policy

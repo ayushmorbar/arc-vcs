@@ -1,0 +1,72 @@
+pub mod arc_error
+pub macro arc_error::bail!
+pub macro arc_error::ensure!
+pub macro arc_error::message!
+pub struct arc_error::Error
+impl arc_error::Error
+pub fn arc_error::Error::from_error<E>(E) -> Self where E: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+impl core::error::Error for arc_error::Error
+pub fn arc_error::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_error::Error
+pub fn arc_error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_error::Error
+pub fn arc_error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<arc_error::Exn<E>> for arc_error::Error where E: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn arc_error::Error::from(arc_error::Exn<E>) -> Self
+pub struct arc_error::Exn<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static>
+pub arc_error::Exn::_marker: core::marker::PhantomData<E>
+pub arc_error::Exn::frame: arc_error::Frame
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> arc_error::Exn<E>
+pub fn arc_error::Exn<E>::erased(self) -> arc_error::Exn
+pub fn arc_error::Exn<E>::new(E) -> Self
+pub fn arc_error::Exn<E>::probable_cause(&self) -> &(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)
+pub fn arc_error::Exn<E>::raise<Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static>(self, Ctx) -> arc_error::Exn<Ctx>
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::error::Error for arc_error::Exn<E>
+pub fn arc_error::Exn<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::fmt::Debug for arc_error::Exn<E>
+pub fn arc_error::Exn<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::fmt::Display for arc_error::Exn<E>
+pub fn arc_error::Exn<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<arc_error::Exn<E>> for arc_error::Error where E: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn arc_error::Error::from(arc_error::Exn<E>) -> Self
+pub struct arc_error::Frame
+pub arc_error::Frame::error: alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>
+pub arc_error::Frame::location: &'static core::panic::location::Location<'static>
+pub arc_error::Frame::source: core::option::Option<alloc::boxed::Box<arc_error::Frame>>
+impl core::error::Error for arc_error::Frame
+pub fn arc_error::Frame::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_error::Frame
+pub fn arc_error::Frame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_error::Frame
+pub fn arc_error::Frame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_error::Message(_)
+impl arc_error::Message
+pub fn arc_error::Message::new(impl core::convert::Into<alloc::string::String>) -> Self
+impl core::clone::Clone for arc_error::Message
+pub fn arc_error::Message::clone(&self) -> arc_error::Message
+impl core::error::Error for arc_error::Message
+impl core::fmt::Debug for arc_error::Message
+pub fn arc_error::Message::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_error::Message
+pub fn arc_error::Message::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_error::Untyped
+impl core::error::Error for arc_error::Untyped
+impl core::fmt::Debug for arc_error::Untyped
+pub fn arc_error::Untyped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_error::Untyped
+pub fn arc_error::Untyped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_error::ErrorExt: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn arc_error::ErrorExt::and_raise<Ctx>(self, Ctx) -> arc_error::Exn<Ctx> where Self: core::marker::Sized, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn arc_error::ErrorExt::raise(self) -> arc_error::Exn<Self> where Self: core::marker::Sized
+impl<T> arc_error::ErrorExt for T where T: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn T::and_raise<Ctx>(self, Ctx) -> arc_error::Exn<Ctx> where Self: core::marker::Sized, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn T::raise(self) -> arc_error::Exn<Self> where Self: core::marker::Sized
+pub trait arc_error::OptionExt<T>
+pub fn arc_error::OptionExt::ok_or_raise<Ctx, F>(self, F) -> core::result::Result<T, arc_error::Exn<Ctx>> where F: core::ops::function::FnOnce() -> Ctx, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+impl<T> arc_error::OptionExt<T> for core::option::Option<T>
+pub fn core::option::Option<T>::ok_or_raise<Ctx, F>(self, F) -> core::result::Result<T, arc_error::Exn<Ctx>> where F: core::ops::function::FnOnce() -> Ctx, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub trait arc_error::ResultExt<T, E>
+pub fn arc_error::ResultExt::or_raise<Ctx, F>(self, F) -> core::result::Result<T, arc_error::Exn<Ctx>> where F: core::ops::function::FnOnce() -> Ctx, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+impl<T, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> arc_error::ResultExt<T, E> for core::result::Result<T, E>
+pub fn core::result::Result<T, E>::or_raise<Ctx, F>(self, F) -> core::result::Result<T, arc_error::Exn<Ctx>> where F: core::ops::function::FnOnce() -> Ctx, Ctx: core::error::Error + core::marker::Send + core::marker::Sync + 'static
+pub fn arc_error::message(impl core::convert::Into<alloc::string::String>) -> arc_error::Message

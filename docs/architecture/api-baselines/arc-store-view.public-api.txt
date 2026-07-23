@@ -1,0 +1,541 @@
+pub mod arc_store_view
+pub use arc_store_view::<<arc_fs_ops::lock::*>>
+pub use arc_store_view::<<arc_fs_ops::tempfile::*>>
+pub mod arc_store_view::checkpoint
+pub fn arc_store_view::checkpoint::load_json<T>(&std::path::Path) -> anyhow::Result<core::option::Option<T>> where T: serde_core::de::DeserializeOwned
+pub fn arc_store_view::checkpoint::remove(&std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_view::checkpoint::save_json_atomic<T>(&std::path::Path, &T) -> anyhow::Result<()> where T: serde_core::ser::Serialize
+pub mod arc_store_view::lock
+pub use arc_store_view::lock::<<arc_fs_ops::lock::*>>
+pub mod arc_store_view::oplog
+pub enum arc_store_view::oplog::Causality
+pub arc_store_view::oplog::Causality::Local
+pub arc_store_view::oplog::Causality::NetworkStable
+impl core::clone::Clone for arc_store_view::Causality
+pub fn arc_store_view::Causality::clone(&self) -> arc_store_view::Causality
+impl core::cmp::Eq for arc_store_view::Causality
+impl core::cmp::PartialEq for arc_store_view::Causality
+pub fn arc_store_view::Causality::eq(&self, &arc_store_view::Causality) -> bool
+impl core::fmt::Debug for arc_store_view::Causality
+pub fn arc_store_view::Causality::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::Causality
+impl core::marker::StructuralPartialEq for arc_store_view::Causality
+impl serde_core::ser::Serialize for arc_store_view::Causality
+pub fn arc_store_view::Causality::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::Causality
+pub fn arc_store_view::Causality::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::oplog::OpAction
+pub arc_store_view::oplog::OpAction::Merge
+pub arc_store_view::oplog::OpAction::Revert
+pub arc_store_view::oplog::OpAction::Snap
+pub arc_store_view::oplog::OpAction::Squash
+impl core::clone::Clone for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::clone(&self) -> arc_store_view::OpAction
+impl core::cmp::Eq for arc_store_view::OpAction
+impl core::cmp::PartialEq for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::eq(&self, &arc_store_view::OpAction) -> bool
+impl core::fmt::Debug for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OpAction
+impl serde_core::ser::Serialize for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::oplog::OperationAgent
+pub arc_store_view::oplog::OperationAgent::Ai
+pub arc_store_view::oplog::OperationAgent::Human
+impl arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::label(&self) -> &'static str
+impl core::clone::Clone for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::clone(&self) -> arc_store_view::OperationAgent
+impl core::cmp::Eq for arc_store_view::OperationAgent
+impl core::cmp::PartialEq for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::eq(&self, &arc_store_view::OperationAgent) -> bool
+impl core::default::Default for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::default() -> arc_store_view::OperationAgent
+impl core::fmt::Debug for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OperationAgent
+impl serde_core::ser::Serialize for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::oplog::OperationKind
+pub arc_store_view::oplog::OperationKind::Generic
+pub arc_store_view::oplog::OperationKind::Rewrite
+impl core::clone::Clone for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::clone(&self) -> arc_store_view::OperationKind
+impl core::cmp::Eq for arc_store_view::OperationKind
+impl core::cmp::PartialEq for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::eq(&self, &arc_store_view::OperationKind) -> bool
+impl core::default::Default for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::default() -> arc_store_view::OperationKind
+impl core::fmt::Debug for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OperationKind
+impl serde_core::ser::Serialize for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::oplog::OpLog
+impl arc_store_view::OpLog
+pub fn arc_store_view::OpLog::append(&self, &arc_store_view::Operation) -> anyhow::Result<()>
+pub fn arc_store_view::OpLog::append_transaction(&self, &arc_store_view::RewriteTransaction) -> anyhow::Result<()>
+pub fn arc_store_view::OpLog::new(&std::path::Path) -> Self
+pub fn arc_store_view::OpLog::pop(&self) -> anyhow::Result<core::option::Option<arc_store_view::Operation>>
+pub fn arc_store_view::OpLog::read_all(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_view::Operation>>
+pub fn arc_store_view::OpLog::read_reversed(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_view::Operation>>
+pub struct arc_store_view::oplog::OpRecord
+pub arc_store_view::oplog::OpRecord::action: arc_store_view::OpAction
+pub arc_store_view::oplog::OpRecord::causality: arc_store_view::Causality
+pub arc_store_view::oplog::OpRecord::id: alloc::string::String
+pub arc_store_view::oplog::OpRecord::intent_summary: core::option::Option<alloc::string::String>
+pub arc_store_view::oplog::OpRecord::target_oid: [u8; 20]
+pub arc_store_view::oplog::OpRecord::timestamp: i64
+impl core::clone::Clone for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::clone(&self) -> arc_store_view::OpRecord
+impl core::cmp::Eq for arc_store_view::OpRecord
+impl core::cmp::PartialEq for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::eq(&self, &arc_store_view::OpRecord) -> bool
+impl core::fmt::Debug for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OpRecord
+impl serde_core::ser::Serialize for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::oplog::Operation
+pub arc_store_view::oplog::Operation::after_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::Operation::agent: arc_store_view::OperationAgent
+pub arc_store_view::oplog::Operation::before_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::Operation::command: alloc::string::String
+pub arc_store_view::oplog::Operation::id: alloc::string::String
+pub arc_store_view::oplog::Operation::kind: arc_store_view::OperationKind
+pub arc_store_view::oplog::Operation::parents: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::SnapshotId>
+pub arc_store_view::oplog::Operation::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::Operation::snapshot: core::option::Option<arc_store_types::newtypes::SnapshotId>
+pub arc_store_view::oplog::Operation::timestamp: u64
+pub arc_store_view::oplog::Operation::tx_id: core::option::Option<arc_store_types::newtypes::MutationId>
+pub arc_store_view::oplog::Operation::view: alloc::string::String
+impl arc_store_view::Operation
+pub fn arc_store_view::Operation::after_short(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::before_short(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::formatted_time(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>) -> Self
+pub fn arc_store_view::Operation::new_with_agent(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, arc_store_view::OperationAgent) -> Self
+impl core::clone::Clone for arc_store_view::Operation
+pub fn arc_store_view::Operation::clone(&self) -> arc_store_view::Operation
+impl core::fmt::Debug for arc_store_view::Operation
+pub fn arc_store_view::Operation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_view::Operation
+pub fn arc_store_view::Operation::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::Operation
+pub fn arc_store_view::Operation::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::oplog::RewriteTransaction
+pub arc_store_view::oplog::RewriteTransaction::after_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::RewriteTransaction::agent: arc_store_view::OperationAgent
+pub arc_store_view::oplog::RewriteTransaction::before_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::RewriteTransaction::command: alloc::string::String
+pub arc_store_view::oplog::RewriteTransaction::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_store_view::oplog::RewriteTransaction::tx_id: arc_store_types::newtypes::MutationId
+pub arc_store_view::oplog::RewriteTransaction::view: alloc::string::String
+impl core::clone::Clone for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::clone(&self) -> arc_store_view::RewriteTransaction
+impl core::fmt::Debug for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub const arc_store_view::oplog::MAX_RETRY_ATTEMPTS: usize
+pub fn arc_store_view::oplog::auto_intent_summary(&[alloc::string::String]) -> alloc::string::String
+pub mod arc_store_view::synthesis
+pub enum arc_store_view::synthesis::SnapshotRefresh
+pub arc_store_view::synthesis::SnapshotRefresh::ForceRefresh
+pub arc_store_view::synthesis::SnapshotRefresh::PreferCached
+impl core::clone::Clone for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::clone(&self) -> arc_store_view::SnapshotRefresh
+impl core::cmp::Eq for arc_store_view::SnapshotRefresh
+impl core::cmp::PartialEq for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::eq(&self, &arc_store_view::SnapshotRefresh) -> bool
+impl core::fmt::Debug for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::SnapshotRefresh
+impl core::marker::StructuralPartialEq for arc_store_view::SnapshotRefresh
+pub struct arc_store_view::synthesis::SnapshotCache
+impl arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::clear(&self)
+pub fn arc_store_view::SnapshotCache::invalidate(&self, arc_store_types::newtypes::SnapshotId)
+pub fn arc_store_view::SnapshotCache::new() -> Self
+impl core::clone::Clone for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::clone(&self) -> arc_store_view::SnapshotCache
+impl core::default::Default for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::default() -> arc_store_view::SnapshotCache
+impl core::fmt::Debug for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_view::synthesis::SynthArtifact
+pub arc_store_view::synthesis::SynthArtifact::byte_len: u64
+pub arc_store_view::synthesis::SynthArtifact::content_hash: [u8; 32]
+pub arc_store_view::synthesis::SynthArtifact::path: alloc::string::String
+impl core::clone::Clone for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::clone(&self) -> arc_store_view::SynthArtifact
+impl core::cmp::Eq for arc_store_view::SynthArtifact
+impl core::cmp::PartialEq for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::eq(&self, &arc_store_view::SynthArtifact) -> bool
+impl core::fmt::Debug for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::SynthArtifact
+impl serde_core::ser::Serialize for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::synthesis::SynthesisSnapshot
+pub arc_store_view::synthesis::SynthesisSnapshot::artifacts: alloc::vec::Vec<arc_store_view::SynthArtifact>
+pub arc_store_view::synthesis::SynthesisSnapshot::created_at_unix: u64
+pub arc_store_view::synthesis::SynthesisSnapshot::id: arc_store_types::newtypes::SnapshotId
+pub arc_store_view::synthesis::SynthesisSnapshot::source: alloc::string::String
+impl arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::capture(&std::path::Path, impl core::convert::Into<alloc::string::String>, &[std::path::PathBuf]) -> anyhow::Result<Self>
+pub fn arc_store_view::SynthesisSnapshot::load(&std::path::Path, arc_store_types::newtypes::SnapshotId) -> anyhow::Result<Self>
+pub fn arc_store_view::SynthesisSnapshot::persist(&self, &std::path::Path) -> anyhow::Result<()>
+impl core::clone::Clone for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::clone(&self) -> arc_store_view::SynthesisSnapshot
+impl core::cmp::Eq for arc_store_view::SynthesisSnapshot
+impl core::cmp::PartialEq for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::eq(&self, &arc_store_view::SynthesisSnapshot) -> bool
+impl core::fmt::Debug for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::SynthesisSnapshot
+impl serde_core::ser::Serialize for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_store_view::synthesis::list_snapshot_ids(&std::path::Path) -> anyhow::Result<alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>>
+pub fn arc_store_view::synthesis::load_with_cache(&std::path::Path, arc_store_types::newtypes::SnapshotId, &arc_store_view::SnapshotCache, arc_store_view::SnapshotRefresh) -> anyhow::Result<alloc::sync::Arc<arc_store_view::SynthesisSnapshot>>
+pub mod arc_store_view::tempfile
+pub use arc_store_view::tempfile::<<arc_fs_ops::tempfile::*>>
+pub mod arc_store_view::vfs
+pub struct arc_store_view::vfs::VfsMetadata
+pub arc_store_view::vfs::VfsMetadata::is_dir: bool
+pub arc_store_view::vfs::VfsMetadata::is_virtual: bool
+pub arc_store_view::vfs::VfsMetadata::len: u64
+pub arc_store_view::vfs::VfsMetadata::oid: core::option::Option<arc_store_view::GitOid>
+impl core::clone::Clone for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::clone(&self) -> arc_store_view::VfsMetadata
+impl core::cmp::Eq for arc_store_view::VfsMetadata
+impl core::cmp::PartialEq for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::eq(&self, &arc_store_view::VfsMetadata) -> bool
+impl core::fmt::Debug for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::VfsMetadata
+pub trait arc_store_view::vfs::Vfs
+pub fn arc_store_view::vfs::Vfs::materialize(&self, &arc_store_view::GitOid, &std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_view::vfs::Vfs::read_at_oid(&self, &arc_store_view::GitOid) -> alloc::boxed::Box<dyn alloc::io::read::Read>
+pub fn arc_store_view::vfs::Vfs::resolve_mount(&self, &arc_algebra_types::SpacetimeCoordinate) -> anyhow::Result<alloc::boxed::Box<dyn alloc::io::read::Read>>
+pub fn arc_store_view::vfs::Vfs::stat(&self, &std::path::Path) -> anyhow::Result<arc_store_view::VfsMetadata>
+pub type arc_store_view::vfs::GitOid = [u8; 20]
+pub mod arc_store_view::view
+pub enum arc_store_view::view::OverlayPrecedence
+pub arc_store_view::view::OverlayPrecedence::Left
+pub arc_store_view::view::OverlayPrecedence::Right
+impl core::clone::Clone for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::clone(&self) -> arc_store_view::OverlayPrecedence
+impl core::cmp::Eq for arc_store_view::OverlayPrecedence
+impl core::cmp::PartialEq for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::eq(&self, &arc_store_view::OverlayPrecedence) -> bool
+impl core::fmt::Debug for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::OverlayPrecedence
+impl core::marker::StructuralPartialEq for arc_store_view::OverlayPrecedence
+pub struct arc_store_view::view::View
+pub arc_store_view::view::View::heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub arc_store_view::view::View::name: alloc::string::String
+impl arc_store_view::View
+pub fn arc_store_view::View::load(impl core::convert::AsRef<std::path::Path>, &str) -> core::result::Result<Self, arc_store_view::StoreError>
+pub fn arc_store_view::View::new(impl core::convert::Into<alloc::string::String>, std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> Self
+pub fn arc_store_view::View::save(&self, impl core::convert::AsRef<std::path::Path>) -> core::result::Result<(), arc_store_view::StoreError>
+impl core::clone::Clone for arc_store_view::View
+pub fn arc_store_view::View::clone(&self) -> arc_store_view::View
+impl core::cmp::Eq for arc_store_view::View
+impl core::cmp::PartialEq for arc_store_view::View
+pub fn arc_store_view::View::eq(&self, &arc_store_view::View) -> bool
+impl core::fmt::Debug for arc_store_view::View
+pub fn arc_store_view::View::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::View
+impl serde_core::ser::Serialize for arc_store_view::View
+pub fn arc_store_view::View::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::View
+pub fn arc_store_view::View::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_store_view::view::load_views_with_overlay(impl core::convert::AsRef<std::path::Path>, &[arc_store_view::View], arc_store_view::OverlayPrecedence) -> core::result::Result<alloc::vec::Vec<arc_store_view::View>, arc_store_view::StoreError>
+pub fn arc_store_view::view::merge_sorted_overlay<T, I, J, K, F>(I, J, F, arc_store_view::OverlayPrecedence) -> alloc::vec::into_iter::IntoIter<T> where I: core::iter::traits::collect::IntoIterator<Item = T>, J: core::iter::traits::collect::IntoIterator<Item = T>, F: core::ops::function::Fn(&T) -> K, K: core::cmp::Ord
+pub enum arc_store_view::Causality
+pub arc_store_view::Causality::Local
+pub arc_store_view::Causality::NetworkStable
+impl core::clone::Clone for arc_store_view::Causality
+pub fn arc_store_view::Causality::clone(&self) -> arc_store_view::Causality
+impl core::cmp::Eq for arc_store_view::Causality
+impl core::cmp::PartialEq for arc_store_view::Causality
+pub fn arc_store_view::Causality::eq(&self, &arc_store_view::Causality) -> bool
+impl core::fmt::Debug for arc_store_view::Causality
+pub fn arc_store_view::Causality::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::Causality
+impl core::marker::StructuralPartialEq for arc_store_view::Causality
+impl serde_core::ser::Serialize for arc_store_view::Causality
+pub fn arc_store_view::Causality::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::Causality
+pub fn arc_store_view::Causality::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::OpAction
+pub arc_store_view::OpAction::Merge
+pub arc_store_view::OpAction::Revert
+pub arc_store_view::OpAction::Snap
+pub arc_store_view::OpAction::Squash
+impl core::clone::Clone for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::clone(&self) -> arc_store_view::OpAction
+impl core::cmp::Eq for arc_store_view::OpAction
+impl core::cmp::PartialEq for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::eq(&self, &arc_store_view::OpAction) -> bool
+impl core::fmt::Debug for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OpAction
+impl serde_core::ser::Serialize for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OpAction
+pub fn arc_store_view::OpAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::OperationAgent
+pub arc_store_view::OperationAgent::Ai
+pub arc_store_view::OperationAgent::Human
+impl arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::label(&self) -> &'static str
+impl core::clone::Clone for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::clone(&self) -> arc_store_view::OperationAgent
+impl core::cmp::Eq for arc_store_view::OperationAgent
+impl core::cmp::PartialEq for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::eq(&self, &arc_store_view::OperationAgent) -> bool
+impl core::default::Default for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::default() -> arc_store_view::OperationAgent
+impl core::fmt::Debug for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OperationAgent
+impl serde_core::ser::Serialize for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OperationAgent
+pub fn arc_store_view::OperationAgent::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::OperationKind
+pub arc_store_view::OperationKind::Generic
+pub arc_store_view::OperationKind::Rewrite
+impl core::clone::Clone for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::clone(&self) -> arc_store_view::OperationKind
+impl core::cmp::Eq for arc_store_view::OperationKind
+impl core::cmp::PartialEq for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::eq(&self, &arc_store_view::OperationKind) -> bool
+impl core::default::Default for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::default() -> arc_store_view::OperationKind
+impl core::fmt::Debug for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OperationKind
+impl serde_core::ser::Serialize for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OperationKind
+pub fn arc_store_view::OperationKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_view::OverlayPrecedence
+pub arc_store_view::OverlayPrecedence::Left
+pub arc_store_view::OverlayPrecedence::Right
+impl core::clone::Clone for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::clone(&self) -> arc_store_view::OverlayPrecedence
+impl core::cmp::Eq for arc_store_view::OverlayPrecedence
+impl core::cmp::PartialEq for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::eq(&self, &arc_store_view::OverlayPrecedence) -> bool
+impl core::fmt::Debug for arc_store_view::OverlayPrecedence
+pub fn arc_store_view::OverlayPrecedence::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::OverlayPrecedence
+impl core::marker::StructuralPartialEq for arc_store_view::OverlayPrecedence
+pub enum arc_store_view::SnapshotRefresh
+pub arc_store_view::SnapshotRefresh::ForceRefresh
+pub arc_store_view::SnapshotRefresh::PreferCached
+impl core::clone::Clone for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::clone(&self) -> arc_store_view::SnapshotRefresh
+impl core::cmp::Eq for arc_store_view::SnapshotRefresh
+impl core::cmp::PartialEq for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::eq(&self, &arc_store_view::SnapshotRefresh) -> bool
+impl core::fmt::Debug for arc_store_view::SnapshotRefresh
+pub fn arc_store_view::SnapshotRefresh::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_view::SnapshotRefresh
+impl core::marker::StructuralPartialEq for arc_store_view::SnapshotRefresh
+pub enum arc_store_view::StoreError
+pub arc_store_view::StoreError::Io(core::io::error::Error)
+pub arc_store_view::StoreError::Serialization(alloc::boxed::Box<bincode::error::ErrorKind>)
+impl core::convert::From<alloc::boxed::Box<bincode::error::ErrorKind>> for arc_store_view::StoreError
+pub fn arc_store_view::StoreError::from(alloc::boxed::Box<bincode::error::ErrorKind>) -> Self
+impl core::convert::From<core::io::error::Error> for arc_store_view::StoreError
+pub fn arc_store_view::StoreError::from(core::io::error::Error) -> Self
+impl core::error::Error for arc_store_view::StoreError
+pub fn arc_store_view::StoreError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_store_view::StoreError
+pub fn arc_store_view::StoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_view::StoreError
+pub fn arc_store_view::StoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_view::OpLog
+impl arc_store_view::OpLog
+pub fn arc_store_view::OpLog::append(&self, &arc_store_view::Operation) -> anyhow::Result<()>
+pub fn arc_store_view::OpLog::append_transaction(&self, &arc_store_view::RewriteTransaction) -> anyhow::Result<()>
+pub fn arc_store_view::OpLog::new(&std::path::Path) -> Self
+pub fn arc_store_view::OpLog::pop(&self) -> anyhow::Result<core::option::Option<arc_store_view::Operation>>
+pub fn arc_store_view::OpLog::read_all(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_view::Operation>>
+pub fn arc_store_view::OpLog::read_reversed(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_view::Operation>>
+pub struct arc_store_view::OpRecord
+pub arc_store_view::OpRecord::action: arc_store_view::OpAction
+pub arc_store_view::OpRecord::causality: arc_store_view::Causality
+pub arc_store_view::OpRecord::id: alloc::string::String
+pub arc_store_view::OpRecord::intent_summary: core::option::Option<alloc::string::String>
+pub arc_store_view::OpRecord::target_oid: [u8; 20]
+pub arc_store_view::OpRecord::timestamp: i64
+impl core::clone::Clone for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::clone(&self) -> arc_store_view::OpRecord
+impl core::cmp::Eq for arc_store_view::OpRecord
+impl core::cmp::PartialEq for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::eq(&self, &arc_store_view::OpRecord) -> bool
+impl core::fmt::Debug for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::OpRecord
+impl serde_core::ser::Serialize for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::OpRecord
+pub fn arc_store_view::OpRecord::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::Operation
+pub arc_store_view::Operation::after_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::Operation::agent: arc_store_view::OperationAgent
+pub arc_store_view::Operation::before_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::Operation::command: alloc::string::String
+pub arc_store_view::Operation::id: alloc::string::String
+pub arc_store_view::Operation::kind: arc_store_view::OperationKind
+pub arc_store_view::Operation::parents: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::SnapshotId>
+pub arc_store_view::Operation::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_store_view::Operation::snapshot: core::option::Option<arc_store_types::newtypes::SnapshotId>
+pub arc_store_view::Operation::timestamp: u64
+pub arc_store_view::Operation::tx_id: core::option::Option<arc_store_types::newtypes::MutationId>
+pub arc_store_view::Operation::view: alloc::string::String
+impl arc_store_view::Operation
+pub fn arc_store_view::Operation::after_short(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::before_short(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::formatted_time(&self) -> alloc::string::String
+pub fn arc_store_view::Operation::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>) -> Self
+pub fn arc_store_view::Operation::new_with_agent(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, arc_store_view::OperationAgent) -> Self
+impl core::clone::Clone for arc_store_view::Operation
+pub fn arc_store_view::Operation::clone(&self) -> arc_store_view::Operation
+impl core::fmt::Debug for arc_store_view::Operation
+pub fn arc_store_view::Operation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_view::Operation
+pub fn arc_store_view::Operation::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::Operation
+pub fn arc_store_view::Operation::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::RewriteTransaction
+pub arc_store_view::RewriteTransaction::after_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::RewriteTransaction::agent: arc_store_view::OperationAgent
+pub arc_store_view::RewriteTransaction::before_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_view::RewriteTransaction::command: alloc::string::String
+pub arc_store_view::RewriteTransaction::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_store_view::RewriteTransaction::tx_id: arc_store_types::newtypes::MutationId
+pub arc_store_view::RewriteTransaction::view: alloc::string::String
+impl core::clone::Clone for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::clone(&self) -> arc_store_view::RewriteTransaction
+impl core::fmt::Debug for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::RewriteTransaction
+pub fn arc_store_view::RewriteTransaction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::SnapshotCache
+impl arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::clear(&self)
+pub fn arc_store_view::SnapshotCache::invalidate(&self, arc_store_types::newtypes::SnapshotId)
+pub fn arc_store_view::SnapshotCache::new() -> Self
+impl core::clone::Clone for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::clone(&self) -> arc_store_view::SnapshotCache
+impl core::default::Default for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::default() -> arc_store_view::SnapshotCache
+impl core::fmt::Debug for arc_store_view::SnapshotCache
+pub fn arc_store_view::SnapshotCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_view::SynthArtifact
+pub arc_store_view::SynthArtifact::byte_len: u64
+pub arc_store_view::SynthArtifact::content_hash: [u8; 32]
+pub arc_store_view::SynthArtifact::path: alloc::string::String
+impl core::clone::Clone for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::clone(&self) -> arc_store_view::SynthArtifact
+impl core::cmp::Eq for arc_store_view::SynthArtifact
+impl core::cmp::PartialEq for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::eq(&self, &arc_store_view::SynthArtifact) -> bool
+impl core::fmt::Debug for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::SynthArtifact
+impl serde_core::ser::Serialize for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::SynthArtifact
+pub fn arc_store_view::SynthArtifact::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::SynthesisSnapshot
+pub arc_store_view::SynthesisSnapshot::artifacts: alloc::vec::Vec<arc_store_view::SynthArtifact>
+pub arc_store_view::SynthesisSnapshot::created_at_unix: u64
+pub arc_store_view::SynthesisSnapshot::id: arc_store_types::newtypes::SnapshotId
+pub arc_store_view::SynthesisSnapshot::source: alloc::string::String
+impl arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::capture(&std::path::Path, impl core::convert::Into<alloc::string::String>, &[std::path::PathBuf]) -> anyhow::Result<Self>
+pub fn arc_store_view::SynthesisSnapshot::load(&std::path::Path, arc_store_types::newtypes::SnapshotId) -> anyhow::Result<Self>
+pub fn arc_store_view::SynthesisSnapshot::persist(&self, &std::path::Path) -> anyhow::Result<()>
+impl core::clone::Clone for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::clone(&self) -> arc_store_view::SynthesisSnapshot
+impl core::cmp::Eq for arc_store_view::SynthesisSnapshot
+impl core::cmp::PartialEq for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::eq(&self, &arc_store_view::SynthesisSnapshot) -> bool
+impl core::fmt::Debug for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::SynthesisSnapshot
+impl serde_core::ser::Serialize for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::SynthesisSnapshot
+pub fn arc_store_view::SynthesisSnapshot::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_view::VfsMetadata
+pub arc_store_view::VfsMetadata::is_dir: bool
+pub arc_store_view::VfsMetadata::is_virtual: bool
+pub arc_store_view::VfsMetadata::len: u64
+pub arc_store_view::VfsMetadata::oid: core::option::Option<arc_store_view::GitOid>
+impl core::clone::Clone for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::clone(&self) -> arc_store_view::VfsMetadata
+impl core::cmp::Eq for arc_store_view::VfsMetadata
+impl core::cmp::PartialEq for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::eq(&self, &arc_store_view::VfsMetadata) -> bool
+impl core::fmt::Debug for arc_store_view::VfsMetadata
+pub fn arc_store_view::VfsMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::VfsMetadata
+pub struct arc_store_view::View
+pub arc_store_view::View::heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub arc_store_view::View::name: alloc::string::String
+impl arc_store_view::View
+pub fn arc_store_view::View::load(impl core::convert::AsRef<std::path::Path>, &str) -> core::result::Result<Self, arc_store_view::StoreError>
+pub fn arc_store_view::View::new(impl core::convert::Into<alloc::string::String>, std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> Self
+pub fn arc_store_view::View::save(&self, impl core::convert::AsRef<std::path::Path>) -> core::result::Result<(), arc_store_view::StoreError>
+impl core::clone::Clone for arc_store_view::View
+pub fn arc_store_view::View::clone(&self) -> arc_store_view::View
+impl core::cmp::Eq for arc_store_view::View
+impl core::cmp::PartialEq for arc_store_view::View
+pub fn arc_store_view::View::eq(&self, &arc_store_view::View) -> bool
+impl core::fmt::Debug for arc_store_view::View
+pub fn arc_store_view::View::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_view::View
+impl serde_core::ser::Serialize for arc_store_view::View
+pub fn arc_store_view::View::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_view::View
+pub fn arc_store_view::View::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub const arc_store_view::MAX_RETRY_ATTEMPTS: usize
+pub trait arc_store_view::Vfs
+pub fn arc_store_view::Vfs::materialize(&self, &arc_store_view::GitOid, &std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_view::Vfs::read_at_oid(&self, &arc_store_view::GitOid) -> alloc::boxed::Box<dyn alloc::io::read::Read>
+pub fn arc_store_view::Vfs::resolve_mount(&self, &arc_algebra_types::SpacetimeCoordinate) -> anyhow::Result<alloc::boxed::Box<dyn alloc::io::read::Read>>
+pub fn arc_store_view::Vfs::stat(&self, &std::path::Path) -> anyhow::Result<arc_store_view::VfsMetadata>
+pub fn arc_store_view::auto_intent_summary(&[alloc::string::String]) -> alloc::string::String
+pub fn arc_store_view::list_snapshot_ids(&std::path::Path) -> anyhow::Result<alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>>
+pub fn arc_store_view::load_json<T>(&std::path::Path) -> anyhow::Result<core::option::Option<T>> where T: serde_core::de::DeserializeOwned
+pub fn arc_store_view::load_views_with_overlay(impl core::convert::AsRef<std::path::Path>, &[arc_store_view::View], arc_store_view::OverlayPrecedence) -> core::result::Result<alloc::vec::Vec<arc_store_view::View>, arc_store_view::StoreError>
+pub fn arc_store_view::load_with_cache(&std::path::Path, arc_store_types::newtypes::SnapshotId, &arc_store_view::SnapshotCache, arc_store_view::SnapshotRefresh) -> anyhow::Result<alloc::sync::Arc<arc_store_view::SynthesisSnapshot>>
+pub fn arc_store_view::merge_sorted_overlay<T, I, J, K, F>(I, J, F, arc_store_view::OverlayPrecedence) -> alloc::vec::into_iter::IntoIter<T> where I: core::iter::traits::collect::IntoIterator<Item = T>, J: core::iter::traits::collect::IntoIterator<Item = T>, F: core::ops::function::Fn(&T) -> K, K: core::cmp::Ord
+pub fn arc_store_view::remove(&std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_view::save_json_atomic<T>(&std::path::Path, &T) -> anyhow::Result<()> where T: serde_core::ser::Serialize
+pub type arc_store_view::GitOid = [u8; 20]

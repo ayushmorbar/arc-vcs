@@ -1,0 +1,109 @@
+pub mod arc_ux
+pub mod arc_ux::capabilities
+pub enum arc_ux::capabilities::RenderMode
+pub arc_ux::capabilities::RenderMode::HumanPlain
+pub arc_ux::capabilities::RenderMode::HumanRich
+pub arc_ux::capabilities::RenderMode::MachineJson
+impl core::clone::Clone for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::clone(&self) -> arc_ux::capabilities::RenderMode
+impl core::cmp::Eq for arc_ux::capabilities::RenderMode
+impl core::cmp::PartialEq for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::eq(&self, &arc_ux::capabilities::RenderMode) -> bool
+impl core::fmt::Debug for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_ux::capabilities::RenderMode
+impl core::marker::StructuralPartialEq for arc_ux::capabilities::RenderMode
+pub struct arc_ux::capabilities::TerminalCapabilities
+pub arc_ux::capabilities::TerminalCapabilities::mode: arc_ux::capabilities::RenderMode
+pub arc_ux::capabilities::TerminalCapabilities::supports_osc8: bool
+pub arc_ux::capabilities::TerminalCapabilities::supports_unicode: bool
+impl core::clone::Clone for arc_ux::capabilities::TerminalCapabilities
+pub fn arc_ux::capabilities::TerminalCapabilities::clone(&self) -> arc_ux::capabilities::TerminalCapabilities
+impl core::fmt::Debug for arc_ux::capabilities::TerminalCapabilities
+pub fn arc_ux::capabilities::TerminalCapabilities::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_ux::capabilities::detect_capabilities(bool, bool) -> arc_ux::capabilities::TerminalCapabilities
+pub mod arc_ux::diagnostics
+pub fn arc_ux::diagnostics::arc_error_to_report(arc_error::Error) -> miette::eyreish::Report
+pub fn arc_ux::diagnostics::format_error_code(u16) -> alloc::string::String
+pub mod arc_ux::event
+pub enum arc_ux::event::OutputEvent
+pub arc_ux::event::OutputEvent::Diagnostic(miette::eyreish::Report)
+pub arc_ux::event::OutputEvent::Progress(u64, u64, alloc::string::String)
+pub arc_ux::event::OutputEvent::Started(alloc::string::String)
+pub arc_ux::event::OutputEvent::Success(alloc::string::String, alloc::vec::Vec<alloc::string::String>)
+pub arc_ux::event::OutputEvent::Warning(alloc::string::String)
+pub mod arc_ux::renderer
+pub struct arc_ux::renderer::HumanPlainRenderer
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanPlainRenderer
+pub fn arc_ux::renderer::HumanPlainRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub struct arc_ux::renderer::HumanRichRenderer
+impl arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::new(bool) -> Self
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub struct arc_ux::renderer::JsonRenderer
+pub arc_ux::renderer::JsonRenderer::ndjson: bool
+impl arc_ux::renderer::Renderer for arc_ux::renderer::JsonRenderer
+pub fn arc_ux::renderer::JsonRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub trait arc_ux::renderer::Renderer
+pub fn arc_ux::renderer::Renderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanPlainRenderer
+pub fn arc_ux::renderer::HumanPlainRenderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::JsonRenderer
+pub fn arc_ux::renderer::JsonRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub fn arc_ux::renderer::hyperlink_for_hash(&str, bool) -> alloc::string::String
+pub fn arc_ux::renderer::hyperlink_for_path(&str, usize, bool) -> alloc::string::String
+pub enum arc_ux::OutputEvent
+pub arc_ux::OutputEvent::Diagnostic(miette::eyreish::Report)
+pub arc_ux::OutputEvent::Progress(u64, u64, alloc::string::String)
+pub arc_ux::OutputEvent::Started(alloc::string::String)
+pub arc_ux::OutputEvent::Success(alloc::string::String, alloc::vec::Vec<alloc::string::String>)
+pub arc_ux::OutputEvent::Warning(alloc::string::String)
+pub enum arc_ux::RenderMode
+pub arc_ux::RenderMode::HumanPlain
+pub arc_ux::RenderMode::HumanRich
+pub arc_ux::RenderMode::MachineJson
+impl core::clone::Clone for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::clone(&self) -> arc_ux::capabilities::RenderMode
+impl core::cmp::Eq for arc_ux::capabilities::RenderMode
+impl core::cmp::PartialEq for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::eq(&self, &arc_ux::capabilities::RenderMode) -> bool
+impl core::fmt::Debug for arc_ux::capabilities::RenderMode
+pub fn arc_ux::capabilities::RenderMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_ux::capabilities::RenderMode
+impl core::marker::StructuralPartialEq for arc_ux::capabilities::RenderMode
+pub struct arc_ux::HumanPlainRenderer
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanPlainRenderer
+pub fn arc_ux::renderer::HumanPlainRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub struct arc_ux::HumanRichRenderer
+impl arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::new(bool) -> Self
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub struct arc_ux::JsonRenderer
+pub arc_ux::JsonRenderer::ndjson: bool
+impl arc_ux::renderer::Renderer for arc_ux::renderer::JsonRenderer
+pub fn arc_ux::renderer::JsonRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub struct arc_ux::TerminalCapabilities
+pub arc_ux::TerminalCapabilities::mode: arc_ux::capabilities::RenderMode
+pub arc_ux::TerminalCapabilities::supports_osc8: bool
+pub arc_ux::TerminalCapabilities::supports_unicode: bool
+impl core::clone::Clone for arc_ux::capabilities::TerminalCapabilities
+pub fn arc_ux::capabilities::TerminalCapabilities::clone(&self) -> arc_ux::capabilities::TerminalCapabilities
+impl core::fmt::Debug for arc_ux::capabilities::TerminalCapabilities
+pub fn arc_ux::capabilities::TerminalCapabilities::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_ux::Renderer
+pub fn arc_ux::Renderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanPlainRenderer
+pub fn arc_ux::renderer::HumanPlainRenderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::HumanRichRenderer
+pub fn arc_ux::renderer::HumanRichRenderer::render(&mut self, arc_ux::event::OutputEvent)
+impl arc_ux::renderer::Renderer for arc_ux::renderer::JsonRenderer
+pub fn arc_ux::renderer::JsonRenderer::render(&mut self, arc_ux::event::OutputEvent)
+pub fn arc_ux::arc_error_to_report(arc_error::Error) -> miette::eyreish::Report
+pub fn arc_ux::detect_capabilities(bool, bool) -> arc_ux::capabilities::TerminalCapabilities
+pub fn arc_ux::format_error_code(u16) -> alloc::string::String
+pub fn arc_ux::hyperlink_for_hash(&str, bool) -> alloc::string::String
+pub fn arc_ux::hyperlink_for_path(&str, usize, bool) -> alloc::string::String

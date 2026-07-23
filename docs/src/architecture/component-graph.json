@@ -68,10 +68,16 @@
       "stabilityTier": 2
     },
     {
-      "id": "arc-vfs",
+      "id": "arc-keyring",
       "class": "foundation",
-      "owner": "storage-systems",
-      "stabilityTier": 3
+      "owner": "security-governance",
+      "stabilityTier": 2
+    },
+    {
+      "id": "arc-ux",
+      "class": "foundation",
+      "owner": "product-surfaces",
+      "stabilityTier": 2
     },
     {
       "id": "arc-algebra",
@@ -198,6 +204,12 @@
       "class": "cli-surface",
       "owner": "product-surfaces",
       "stabilityTier": 1
+    },
+    {
+      "id": "arc-tui",
+      "class": "cli-surface",
+      "owner": "product-surfaces",
+      "stabilityTier": 2
     }
   ]
 }

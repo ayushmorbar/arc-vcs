@@ -1,0 +1,228 @@
+pub mod arc_policy
+pub mod arc_policy::conflict
+pub enum arc_policy::conflict::ValidationFix
+pub arc_policy::conflict::ValidationFix::InvalidDestinationDropped
+pub arc_policy::conflict::ValidationFix::InvalidDestinationDropped::destination: alloc::string::String
+pub arc_policy::conflict::ValidationFix::InvalidDestinationDropped::rule_index: usize
+impl core::clone::Clone for arc_policy::conflict::ValidationFix
+pub fn arc_policy::conflict::ValidationFix::clone(&self) -> arc_policy::conflict::ValidationFix
+impl core::cmp::Eq for arc_policy::conflict::ValidationFix
+impl core::cmp::PartialEq for arc_policy::conflict::ValidationFix
+pub fn arc_policy::conflict::ValidationFix::eq(&self, &arc_policy::conflict::ValidationFix) -> bool
+impl core::fmt::Debug for arc_policy::conflict::ValidationFix
+pub fn arc_policy::conflict::ValidationFix::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_policy::conflict::ValidationFix
+pub enum arc_policy::conflict::ValidationIssue
+pub arc_policy::conflict::ValidationIssue::Conflict
+pub arc_policy::conflict::ValidationIssue::Conflict::destination: alloc::string::String
+pub arc_policy::conflict::ValidationIssue::Conflict::rule_indexes: alloc::vec::Vec<usize>
+pub arc_policy::conflict::ValidationIssue::Conflict::sources: alloc::vec::Vec<alloc::string::String>
+impl arc_policy::conflict::ValidationIssue
+pub fn arc_policy::conflict::ValidationIssue::destination(&self) -> &str
+impl core::clone::Clone for arc_policy::conflict::ValidationIssue
+pub fn arc_policy::conflict::ValidationIssue::clone(&self) -> arc_policy::conflict::ValidationIssue
+impl core::cmp::Eq for arc_policy::conflict::ValidationIssue
+impl core::cmp::PartialEq for arc_policy::conflict::ValidationIssue
+pub fn arc_policy::conflict::ValidationIssue::eq(&self, &arc_policy::conflict::ValidationIssue) -> bool
+impl core::fmt::Debug for arc_policy::conflict::ValidationIssue
+pub fn arc_policy::conflict::ValidationIssue::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_policy::conflict::ValidationIssue
+pub struct arc_policy::conflict::MappingRecord
+pub arc_policy::conflict::MappingRecord::destination: core::option::Option<alloc::string::String>
+pub arc_policy::conflict::MappingRecord::rule_index: usize
+pub arc_policy::conflict::MappingRecord::source: alloc::string::String
+impl core::clone::Clone for arc_policy::conflict::MappingRecord
+pub fn arc_policy::conflict::MappingRecord::clone(&self) -> arc_policy::conflict::MappingRecord
+impl core::cmp::Eq for arc_policy::conflict::MappingRecord
+impl core::cmp::PartialEq for arc_policy::conflict::MappingRecord
+pub fn arc_policy::conflict::MappingRecord::eq(&self, &arc_policy::conflict::MappingRecord) -> bool
+impl core::fmt::Debug for arc_policy::conflict::MappingRecord
+pub fn arc_policy::conflict::MappingRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_policy::conflict::MappingRecord
+pub struct arc_policy::conflict::ValidatedMappings
+pub arc_policy::conflict::ValidatedMappings::accepted: alloc::vec::Vec<arc_policy::conflict::MappingRecord>
+pub arc_policy::conflict::ValidatedMappings::fixes: alloc::vec::Vec<arc_policy::conflict::ValidationFix>
+impl core::clone::Clone for arc_policy::conflict::ValidatedMappings
+pub fn arc_policy::conflict::ValidatedMappings::clone(&self) -> arc_policy::conflict::ValidatedMappings
+impl core::cmp::Eq for arc_policy::conflict::ValidatedMappings
+impl core::cmp::PartialEq for arc_policy::conflict::ValidatedMappings
+pub fn arc_policy::conflict::ValidatedMappings::eq(&self, &arc_policy::conflict::ValidatedMappings) -> bool
+impl core::fmt::Debug for arc_policy::conflict::ValidatedMappings
+pub fn arc_policy::conflict::ValidatedMappings::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_policy::conflict::ValidatedMappings
+pub struct arc_policy::conflict::ValidationError
+pub arc_policy::conflict::ValidationError::issues: alloc::vec::Vec<arc_policy::conflict::ValidationIssue>
+impl core::clone::Clone for arc_policy::conflict::ValidationError
+pub fn arc_policy::conflict::ValidationError::clone(&self) -> arc_policy::conflict::ValidationError
+impl core::cmp::Eq for arc_policy::conflict::ValidationError
+impl core::cmp::PartialEq for arc_policy::conflict::ValidationError
+pub fn arc_policy::conflict::ValidationError::eq(&self, &arc_policy::conflict::ValidationError) -> bool
+impl core::error::Error for arc_policy::conflict::ValidationError
+impl core::fmt::Debug for arc_policy::conflict::ValidationError
+pub fn arc_policy::conflict::ValidationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_policy::conflict::ValidationError
+pub fn arc_policy::conflict::ValidationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_policy::conflict::ValidationError
+pub fn arc_policy::conflict::validate_mappings(alloc::vec::Vec<arc_policy::conflict::MappingRecord>) -> core::result::Result<arc_policy::conflict::ValidatedMappings, arc_policy::conflict::ValidationError>
+pub fn arc_policy::conflict::validate_mappings_with(alloc::vec::Vec<arc_policy::conflict::MappingRecord>, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<arc_policy::conflict::ValidatedMappings, arc_policy::conflict::ValidationError>
+pub enum arc_policy::Permission
+pub arc_policy::Permission::Allow
+pub arc_policy::Permission::Deny
+pub arc_policy::Permission::Forbid
+impl arc_policy::Permission
+pub fn arc_policy::Permission::is_allowed(self) -> bool
+impl arc_policy::DefaultForTrust for arc_policy::Permission
+pub fn arc_policy::Permission::default_for_trust(arc_policy::TrustLevel) -> Self
+impl core::clone::Clone for arc_policy::Permission
+pub fn arc_policy::Permission::clone(&self) -> arc_policy::Permission
+impl core::cmp::Eq for arc_policy::Permission
+impl core::cmp::PartialEq for arc_policy::Permission
+pub fn arc_policy::Permission::eq(&self, &arc_policy::Permission) -> bool
+impl core::fmt::Debug for arc_policy::Permission
+pub fn arc_policy::Permission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_policy::Permission
+pub fn arc_policy::Permission::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_policy::Permission
+impl core::marker::StructuralPartialEq for arc_policy::Permission
+pub enum arc_policy::PolicyDomain
+pub arc_policy::PolicyDomain::Config
+pub arc_policy::PolicyDomain::Ignore
+impl core::clone::Clone for arc_policy::PolicyDomain
+pub fn arc_policy::PolicyDomain::clone(&self) -> arc_policy::PolicyDomain
+impl core::cmp::Eq for arc_policy::PolicyDomain
+impl core::cmp::PartialEq for arc_policy::PolicyDomain
+pub fn arc_policy::PolicyDomain::eq(&self, &arc_policy::PolicyDomain) -> bool
+impl core::fmt::Debug for arc_policy::PolicyDomain
+pub fn arc_policy::PolicyDomain::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_policy::PolicyDomain
+pub fn arc_policy::PolicyDomain::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_policy::PolicyDomain
+impl core::marker::StructuralPartialEq for arc_policy::PolicyDomain
+pub enum arc_policy::PolicyValue<T>
+pub arc_policy::PolicyValue::Cleared
+pub arc_policy::PolicyValue::Present(T)
+pub arc_policy::PolicyValue::Unset
+impl<T: core::clone::Clone> core::clone::Clone for arc_policy::PolicyValue<T>
+pub fn arc_policy::PolicyValue<T>::clone(&self) -> arc_policy::PolicyValue<T>
+impl<T: core::cmp::Eq> core::cmp::Eq for arc_policy::PolicyValue<T>
+impl<T: core::cmp::PartialEq> core::cmp::PartialEq for arc_policy::PolicyValue<T>
+pub fn arc_policy::PolicyValue<T>::eq(&self, &arc_policy::PolicyValue<T>) -> bool
+impl<T: core::cmp::PartialEq> core::marker::StructuralPartialEq for arc_policy::PolicyValue<T>
+impl<T: core::fmt::Debug> core::fmt::Debug for arc_policy::PolicyValue<T>
+pub fn arc_policy::PolicyValue<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum arc_policy::TraceOutcome
+pub arc_policy::TraceOutcome::Overridden
+pub arc_policy::TraceOutcome::SkippedUnset
+pub arc_policy::TraceOutcome::Winning
+impl core::clone::Clone for arc_policy::TraceOutcome
+pub fn arc_policy::TraceOutcome::clone(&self) -> arc_policy::TraceOutcome
+impl core::cmp::Eq for arc_policy::TraceOutcome
+impl core::cmp::PartialEq for arc_policy::TraceOutcome
+pub fn arc_policy::TraceOutcome::eq(&self, &arc_policy::TraceOutcome) -> bool
+impl core::fmt::Debug for arc_policy::TraceOutcome
+pub fn arc_policy::TraceOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_policy::TraceOutcome
+impl core::marker::StructuralPartialEq for arc_policy::TraceOutcome
+pub enum arc_policy::TrustLevel
+pub arc_policy::TrustLevel::Repo
+pub arc_policy::TrustLevel::Trusted
+pub arc_policy::TrustLevel::Untrusted
+pub arc_policy::TrustLevel::User
+impl core::clone::Clone for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::clone(&self) -> arc_policy::TrustLevel
+impl core::cmp::Eq for arc_policy::TrustLevel
+impl core::cmp::Ord for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::cmp(&self, &arc_policy::TrustLevel) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::eq(&self, &arc_policy::TrustLevel) -> bool
+impl core::cmp::PartialOrd for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::partial_cmp(&self, &arc_policy::TrustLevel) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_policy::TrustLevel
+pub fn arc_policy::TrustLevel::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_policy::TrustLevel
+impl core::marker::StructuralPartialEq for arc_policy::TrustLevel
+pub struct arc_policy::PolicyAtom<'a, T>
+pub arc_policy::PolicyAtom::domain: arc_policy::PolicyDomain
+pub arc_policy::PolicyAtom::key: alloc::borrow::Cow<'a, str>
+pub arc_policy::PolicyAtom::source: arc_policy::SourceTrace<'a>
+pub arc_policy::PolicyAtom::value: arc_policy::PolicyValue<T>
+impl<'a, T: core::clone::Clone> core::clone::Clone for arc_policy::PolicyAtom<'a, T>
+pub fn arc_policy::PolicyAtom<'a, T>::clone(&self) -> arc_policy::PolicyAtom<'a, T>
+impl<'a, T: core::cmp::Eq> core::cmp::Eq for arc_policy::PolicyAtom<'a, T>
+impl<'a, T: core::cmp::PartialEq> core::cmp::PartialEq for arc_policy::PolicyAtom<'a, T>
+pub fn arc_policy::PolicyAtom<'a, T>::eq(&self, &arc_policy::PolicyAtom<'a, T>) -> bool
+impl<'a, T: core::cmp::PartialEq> core::marker::StructuralPartialEq for arc_policy::PolicyAtom<'a, T>
+impl<'a, T: core::fmt::Debug> core::fmt::Debug for arc_policy::PolicyAtom<'a, T>
+pub fn arc_policy::PolicyAtom<'a, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_policy::PolicyLattice<'a, T>
+impl<'a, T: core::clone::Clone> arc_policy::PolicyLattice<'a, T>
+pub fn arc_policy::PolicyLattice<'a, T>::atoms(&self) -> &[arc_policy::PolicyAtom<'a, T>]
+pub fn arc_policy::PolicyLattice<'a, T>::extend<I>(&mut self, I) where I: core::iter::traits::collect::IntoIterator<Item = arc_policy::PolicyAtom<'a, T>>
+pub fn arc_policy::PolicyLattice<'a, T>::new() -> Self
+pub fn arc_policy::PolicyLattice<'a, T>::push(&mut self, arc_policy::PolicyAtom<'a, T>)
+pub fn arc_policy::PolicyLattice<'a, T>::resolve(&self, &str) -> arc_policy::PolicyTrace<'a, T>
+pub fn arc_policy::PolicyLattice<'a, T>::resolve_with<F>(&self, &str, F) -> arc_policy::PolicyTrace<'a, T> where F: core::ops::function::FnMut(&arc_policy::PolicyAtom<'a, T>, &str) -> bool
+impl<'a, T: core::clone::Clone> core::clone::Clone for arc_policy::PolicyLattice<'a, T>
+pub fn arc_policy::PolicyLattice<'a, T>::clone(&self) -> arc_policy::PolicyLattice<'a, T>
+impl<'a, T: core::default::Default> core::default::Default for arc_policy::PolicyLattice<'a, T>
+pub fn arc_policy::PolicyLattice<'a, T>::default() -> arc_policy::PolicyLattice<'a, T>
+impl<'a, T: core::fmt::Debug> core::fmt::Debug for arc_policy::PolicyLattice<'a, T>
+pub fn arc_policy::PolicyLattice<'a, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_policy::PolicyTrace<'a, T>
+pub arc_policy::PolicyTrace::evaluated: alloc::vec::Vec<arc_policy::PolicyTraceEntry<'a, T>>
+pub arc_policy::PolicyTrace::query: alloc::string::String
+pub arc_policy::PolicyTrace::winner: core::option::Option<arc_policy::PolicyAtom<'a, T>>
+impl<'a, T: core::clone::Clone> core::clone::Clone for arc_policy::PolicyTrace<'a, T>
+pub fn arc_policy::PolicyTrace<'a, T>::clone(&self) -> arc_policy::PolicyTrace<'a, T>
+impl<'a, T: core::cmp::Eq> core::cmp::Eq for arc_policy::PolicyTrace<'a, T>
+impl<'a, T: core::cmp::PartialEq> core::cmp::PartialEq for arc_policy::PolicyTrace<'a, T>
+pub fn arc_policy::PolicyTrace<'a, T>::eq(&self, &arc_policy::PolicyTrace<'a, T>) -> bool
+impl<'a, T: core::cmp::PartialEq> core::marker::StructuralPartialEq for arc_policy::PolicyTrace<'a, T>
+impl<'a, T: core::fmt::Debug> core::fmt::Debug for arc_policy::PolicyTrace<'a, T>
+pub fn arc_policy::PolicyTrace<'a, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_policy::PolicyTraceEntry<'a, T>
+pub arc_policy::PolicyTraceEntry::atom: arc_policy::PolicyAtom<'a, T>
+pub arc_policy::PolicyTraceEntry::outcome: arc_policy::TraceOutcome
+impl<'a, T: core::clone::Clone> core::clone::Clone for arc_policy::PolicyTraceEntry<'a, T>
+pub fn arc_policy::PolicyTraceEntry<'a, T>::clone(&self) -> arc_policy::PolicyTraceEntry<'a, T>
+impl<'a, T: core::cmp::Eq> core::cmp::Eq for arc_policy::PolicyTraceEntry<'a, T>
+impl<'a, T: core::cmp::PartialEq> core::cmp::PartialEq for arc_policy::PolicyTraceEntry<'a, T>
+pub fn arc_policy::PolicyTraceEntry<'a, T>::eq(&self, &arc_policy::PolicyTraceEntry<'a, T>) -> bool
+impl<'a, T: core::cmp::PartialEq> core::marker::StructuralPartialEq for arc_policy::PolicyTraceEntry<'a, T>
+impl<'a, T: core::fmt::Debug> core::fmt::Debug for arc_policy::PolicyTraceEntry<'a, T>
+pub fn arc_policy::PolicyTraceEntry<'a, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_policy::SourceTrace<'a>
+pub arc_policy::SourceTrace::depth: u16
+pub arc_policy::SourceTrace::origin: alloc::borrow::Cow<'a, str>
+pub arc_policy::SourceTrace::trust: arc_policy::TrustLevel
+impl<'a> core::clone::Clone for arc_policy::SourceTrace<'a>
+pub fn arc_policy::SourceTrace<'a>::clone(&self) -> arc_policy::SourceTrace<'a>
+impl<'a> core::cmp::Eq for arc_policy::SourceTrace<'a>
+impl<'a> core::cmp::PartialEq for arc_policy::SourceTrace<'a>
+pub fn arc_policy::SourceTrace<'a>::eq(&self, &arc_policy::SourceTrace<'a>) -> bool
+impl<'a> core::fmt::Debug for arc_policy::SourceTrace<'a>
+pub fn arc_policy::SourceTrace<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::StructuralPartialEq for arc_policy::SourceTrace<'a>
+pub struct arc_policy::TrustMapping<T>
+pub arc_policy::TrustMapping::repo: T
+pub arc_policy::TrustMapping::trusted: T
+pub arc_policy::TrustMapping::untrusted: T
+pub arc_policy::TrustMapping::user: T
+impl<T> arc_policy::TrustMapping<T> where T: core::clone::Clone
+pub fn arc_policy::TrustMapping<T>::by_level(&self, arc_policy::TrustLevel) -> T
+impl<T: core::clone::Clone> core::clone::Clone for arc_policy::TrustMapping<T>
+pub fn arc_policy::TrustMapping<T>::clone(&self) -> arc_policy::TrustMapping<T>
+impl<T: core::cmp::Eq> core::cmp::Eq for arc_policy::TrustMapping<T>
+impl<T: core::cmp::PartialEq> core::cmp::PartialEq for arc_policy::TrustMapping<T>
+pub fn arc_policy::TrustMapping<T>::eq(&self, &arc_policy::TrustMapping<T>) -> bool
+impl<T: core::cmp::PartialEq> core::marker::StructuralPartialEq for arc_policy::TrustMapping<T>
+impl<T: core::fmt::Debug> core::fmt::Debug for arc_policy::TrustMapping<T>
+pub fn arc_policy::TrustMapping<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> core::default::Default for arc_policy::TrustMapping<T> where T: arc_policy::DefaultForTrust
+pub fn arc_policy::TrustMapping<T>::default() -> Self
+pub trait arc_policy::DefaultForTrust
+pub fn arc_policy::DefaultForTrust::default_for_trust(arc_policy::TrustLevel) -> Self
+impl arc_policy::DefaultForTrust for arc_policy::Permission
+pub fn arc_policy::Permission::default_for_trust(arc_policy::TrustLevel) -> Self

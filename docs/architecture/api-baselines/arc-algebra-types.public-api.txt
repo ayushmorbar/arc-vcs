@@ -1,0 +1,117 @@
+pub mod arc_algebra_types
+pub mod arc_algebra_types::frontier
+pub struct arc_algebra_types::frontier::Frontier
+impl arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::as_slice(&self) -> &[arc_algebra_types::Blake3Hash]
+pub fn arc_algebra_types::frontier::Frontier::compute_missing<F>(&self, &arc_algebra_types::frontier::Frontier, F) -> alloc::vec::Vec<arc_algebra_types::Blake3Hash> where F: core::ops::function::Fn(&arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_algebra_types::frontier::Frontier::contains(&self, &arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_algebra_types::frontier::Frontier::covers<F>(&self, &arc_algebra_types::frontier::Frontier, F) -> bool where F: core::ops::function::Fn(&arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_algebra_types::frontier::Frontier::difference(&self, &arc_algebra_types::frontier::Frontier) -> arc_algebra_types::frontier::Frontier
+pub const fn arc_algebra_types::frontier::Frontier::empty() -> Self
+pub fn arc_algebra_types::frontier::Frontier::from_hashes<I: core::iter::traits::collect::IntoIterator<Item = arc_algebra_types::Blake3Hash>>(I) -> Self
+pub fn arc_algebra_types::frontier::Frontier::intersection(&self, &arc_algebra_types::frontier::Frontier) -> arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::is_empty(&self) -> bool
+pub fn arc_algebra_types::frontier::Frontier::iter(&self) -> core::slice::iter::Iter<'_, arc_algebra_types::Blake3Hash>
+pub fn arc_algebra_types::frontier::Frontier::len(&self) -> usize
+pub fn arc_algebra_types::frontier::Frontier::merge(&self, &arc_algebra_types::frontier::Frontier) -> arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::new(alloc::vec::Vec<arc_algebra_types::Blake3Hash>) -> Self
+pub fn arc_algebra_types::frontier::Frontier::single(arc_algebra_types::Blake3Hash) -> Self
+impl core::clone::Clone for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::clone(&self) -> arc_algebra_types::frontier::Frontier
+impl core::cmp::Eq for arc_algebra_types::frontier::Frontier
+impl core::cmp::PartialEq for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::eq(&self, &arc_algebra_types::frontier::Frontier) -> bool
+impl core::convert::From<alloc::vec::Vec<[u8; 32]>> for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::from(alloc::vec::Vec<arc_algebra_types::Blake3Hash>) -> Self
+impl core::convert::From<arc_algebra_types::frontier::Frontier> for alloc::vec::Vec<arc_algebra_types::Blake3Hash>
+pub fn alloc::vec::Vec<arc_algebra_types::Blake3Hash>::from(arc_algebra_types::frontier::Frontier) -> Self
+impl core::default::Default for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::default() -> Self
+impl core::fmt::Debug for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::iter::traits::collect::IntoIterator for arc_algebra_types::frontier::Frontier
+pub type arc_algebra_types::frontier::Frontier::IntoIter = alloc::vec::into_iter::IntoIter<[u8; 32]>
+pub type arc_algebra_types::frontier::Frontier::Item = [u8; 32]
+pub fn arc_algebra_types::frontier::Frontier::into_iter(self) -> Self::IntoIter
+impl core::marker::StructuralPartialEq for arc_algebra_types::frontier::Frontier
+impl core::ops::arith::Sub for &arc_algebra_types::frontier::Frontier
+pub type &arc_algebra_types::frontier::Frontier::Output = arc_algebra_types::frontier::Frontier
+pub fn &arc_algebra_types::frontier::Frontier::sub(self, Self) -> Self::Output
+impl core::ops::bit::BitAnd for &arc_algebra_types::frontier::Frontier
+pub type &arc_algebra_types::frontier::Frontier::Output = arc_algebra_types::frontier::Frontier
+pub fn &arc_algebra_types::frontier::Frontier::bitand(self, Self) -> Self::Output
+impl core::ops::bit::BitOr for &arc_algebra_types::frontier::Frontier
+pub type &arc_algebra_types::frontier::Frontier::Output = arc_algebra_types::frontier::Frontier
+pub fn &arc_algebra_types::frontier::Frontier::bitor(self, Self) -> Self::Output
+impl serde_core::ser::Serialize for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_algebra_types::frontier::Frontier
+pub fn arc_algebra_types::frontier::Frontier::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_algebra_types::Atom
+pub arc_algebra_types::Atom::Blob
+pub arc_algebra_types::Atom::Blob::hash: blake3::Hash
+pub arc_algebra_types::Atom::Blob::path: alloc::string::String
+pub arc_algebra_types::Atom::Blob::size: u64
+pub arc_algebra_types::Atom::Conflict
+pub arc_algebra_types::Atom::Conflict::at: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Conflict::bases: alloc::vec::Vec<arc_algebra_types::Blake3Hash>
+pub arc_algebra_types::Atom::Conflict::sides: alloc::vec::Vec<arc_algebra_types::Blake3Hash>
+pub arc_algebra_types::Atom::Delete
+pub arc_algebra_types::Atom::Delete::at: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Delete::prior_hash: arc_algebra_types::Blake3Hash
+pub arc_algebra_types::Atom::Directory
+pub arc_algebra_types::Atom::Directory::path: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Insert
+pub arc_algebra_types::Atom::Insert::at: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Insert::content_hash: arc_algebra_types::Blake3Hash
+pub arc_algebra_types::Atom::Mount
+pub arc_algebra_types::Atom::Mount::coordinate: arc_algebra_types::SpacetimeCoordinate
+pub arc_algebra_types::Atom::Mount::path: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Move
+pub arc_algebra_types::Atom::Move::from: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::Move::to: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::SemanticsPreserving
+pub arc_algebra_types::Atom::SemanticsPreserving::at: arc_algebra_types::NodePath
+pub arc_algebra_types::Atom::SemanticsPreserving::description: alloc::string::String
+impl arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::paths(&self) -> alloc::vec::Vec<&arc_algebra_types::NodePath>
+impl core::clone::Clone for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::clone(&self) -> arc_algebra_types::Atom
+impl core::cmp::Eq for arc_algebra_types::Atom
+impl core::cmp::PartialEq for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::eq(&self, &arc_algebra_types::Atom) -> bool
+impl core::fmt::Debug for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra_types::Atom
+impl serde_core::ser::Serialize for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_algebra_types::SpacetimeCoordinate
+pub arc_algebra_types::SpacetimeCoordinate::hash: blake3::Hash
+pub arc_algebra_types::SpacetimeCoordinate::namespace: alloc::string::String
+pub arc_algebra_types::SpacetimeCoordinate::repo: alloc::string::String
+impl arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::from_uri(&str) -> core::result::Result<Self, alloc::string::String>
+pub fn arc_algebra_types::SpacetimeCoordinate::to_uri(&self) -> alloc::string::String
+impl core::clone::Clone for arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::clone(&self) -> arc_algebra_types::SpacetimeCoordinate
+impl core::cmp::Eq for arc_algebra_types::SpacetimeCoordinate
+impl core::cmp::PartialEq for arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::eq(&self, &arc_algebra_types::SpacetimeCoordinate) -> bool
+impl core::fmt::Debug for arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra_types::SpacetimeCoordinate
+impl serde_core::ser::Serialize for arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_algebra_types::SpacetimeCoordinate
+pub fn arc_algebra_types::SpacetimeCoordinate::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub type arc_algebra_types::Blake3Hash = [u8; 32]
+pub type arc_algebra_types::NodePath = alloc::vec::Vec<alloc::string::String>
+pub type arc_algebra_types::SemanticAtom = arc_algebra_types::Atom

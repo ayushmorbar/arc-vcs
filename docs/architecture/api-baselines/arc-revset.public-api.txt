@@ -1,0 +1,63 @@
+pub mod arc_revset
+pub mod arc_revset::engine
+pub struct arc_revset::engine::RevsetEvaluator<'g, F, R> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>> + ?core::marker::Sized, R: arc_revset::ReferenceResolver + ?core::marker::Sized
+impl<'g, F, R> arc_revset::RevsetEvaluator<'g, F, R> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>> + ?core::marker::Sized, R: arc_revset::ReferenceResolver + ?core::marker::Sized
+pub fn arc_revset::RevsetEvaluator<'g, F, R>::evaluate<'a>(&mut self, &arc_revset::RevsetExpression) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>>
+pub fn arc_revset::RevsetEvaluator<'g, F, R>::new(alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &'g mut F, &'g mut R) -> Self
+pub trait arc_revset::engine::ReferenceResolver
+pub fn arc_revset::engine::ReferenceResolver::resolve_reference_heads(&mut self, &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+impl<F> arc_revset::ReferenceResolver for F where F: core::ops::function::FnMut(&str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn F::resolve_reference_heads(&mut self, &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_revset::engine::compile<'a, F>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F) -> anyhow::Result<arc_revset::RevsetIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
+pub fn arc_revset::engine::compile_change_ids<'a, F>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>
+pub fn arc_revset::engine::compile_change_ids_with_refs<'a, F, R>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F, &mut R) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>, R: arc_revset::ReferenceResolver
+pub type arc_revset::engine::RevsetChangeIdIterator<'a> = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = arc_store_types::newtypes::ChangeId> + 'a)>
+pub type arc_revset::engine::RevsetIterator<'a> = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = arc_algebra_types::Blake3Hash> + 'a)>
+pub mod arc_revset::parser
+pub enum arc_revset::parser::RevsetExpression
+pub arc_revset::parser::RevsetExpression::Function
+pub arc_revset::parser::RevsetExpression::Function::args: alloc::vec::Vec<arc_revset::RevsetExpression>
+pub arc_revset::parser::RevsetExpression::Function::name: alloc::string::String
+pub arc_revset::parser::RevsetExpression::Intersection(alloc::boxed::Box<arc_revset::RevsetExpression>, alloc::boxed::Box<arc_revset::RevsetExpression>)
+pub arc_revset::parser::RevsetExpression::StringLiteral(alloc::string::String)
+pub arc_revset::parser::RevsetExpression::Symbol(alloc::string::String)
+pub arc_revset::parser::RevsetExpression::Union(alloc::boxed::Box<arc_revset::RevsetExpression>, alloc::boxed::Box<arc_revset::RevsetExpression>)
+impl core::clone::Clone for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::clone(&self) -> arc_revset::RevsetExpression
+impl core::cmp::Eq for arc_revset::RevsetExpression
+impl core::cmp::PartialEq for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::eq(&self, &arc_revset::RevsetExpression) -> bool
+impl core::fmt::Debug for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_revset::RevsetExpression
+pub fn arc_revset::parser::parse(&str) -> anyhow::Result<arc_revset::RevsetExpression>
+pub enum arc_revset::RevsetExpression
+pub arc_revset::RevsetExpression::Function
+pub arc_revset::RevsetExpression::Function::args: alloc::vec::Vec<arc_revset::RevsetExpression>
+pub arc_revset::RevsetExpression::Function::name: alloc::string::String
+pub arc_revset::RevsetExpression::Intersection(alloc::boxed::Box<arc_revset::RevsetExpression>, alloc::boxed::Box<arc_revset::RevsetExpression>)
+pub arc_revset::RevsetExpression::StringLiteral(alloc::string::String)
+pub arc_revset::RevsetExpression::Symbol(alloc::string::String)
+pub arc_revset::RevsetExpression::Union(alloc::boxed::Box<arc_revset::RevsetExpression>, alloc::boxed::Box<arc_revset::RevsetExpression>)
+impl core::clone::Clone for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::clone(&self) -> arc_revset::RevsetExpression
+impl core::cmp::Eq for arc_revset::RevsetExpression
+impl core::cmp::PartialEq for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::eq(&self, &arc_revset::RevsetExpression) -> bool
+impl core::fmt::Debug for arc_revset::RevsetExpression
+pub fn arc_revset::RevsetExpression::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_revset::RevsetExpression
+pub struct arc_revset::RevsetEvaluator<'g, F, R> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>> + ?core::marker::Sized, R: arc_revset::ReferenceResolver + ?core::marker::Sized
+impl<'g, F, R> arc_revset::RevsetEvaluator<'g, F, R> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>> + ?core::marker::Sized, R: arc_revset::ReferenceResolver + ?core::marker::Sized
+pub fn arc_revset::RevsetEvaluator<'g, F, R>::evaluate<'a>(&mut self, &arc_revset::RevsetExpression) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>>
+pub fn arc_revset::RevsetEvaluator<'g, F, R>::new(alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &'g mut F, &'g mut R) -> Self
+pub trait arc_revset::ReferenceResolver
+pub fn arc_revset::ReferenceResolver::resolve_reference_heads(&mut self, &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+impl<F> arc_revset::ReferenceResolver for F where F: core::ops::function::FnMut(&str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn F::resolve_reference_heads(&mut self, &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_revset::compile<'a, F>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F) -> anyhow::Result<arc_revset::RevsetIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
+pub fn arc_revset::compile_change_ids<'a, F>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>
+pub fn arc_revset::compile_change_ids_with_refs<'a, F, R>(&arc_revset::RevsetExpression, alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>, &mut F, &mut R) -> anyhow::Result<arc_revset::RevsetChangeIdIterator<'a>> where F: core::ops::function::FnMut(&str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>, R: arc_revset::ReferenceResolver
+pub fn arc_revset::parse(&str) -> anyhow::Result<arc_revset::RevsetExpression>
+pub type arc_revset::RevsetChangeIdIterator<'a> = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = arc_store_types::newtypes::ChangeId> + 'a)>
+pub type arc_revset::RevsetIterator<'a> = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = arc_algebra_types::Blake3Hash> + 'a)>

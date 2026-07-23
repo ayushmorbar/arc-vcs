@@ -161,6 +161,34 @@ issues before push.
 
 ---
 
+## Cross-Compilation
+
+Release binaries are built for 6 targets via `scripts/ci/build-release.sh`.
+Cross-compilation uses [`cargo-cross`](https://github.com/cross-rs/cross).
+
+### Supported targets
+
+| Target | Runner | Notes |
+|---|---|---|
+| `x86_64-apple-darwin` | macOS native | No cross tool needed |
+| `aarch64-apple-darwin` | macOS native | No cross tool needed |
+| `x86_64-unknown-linux-gnu` | Linux native | No cross tool needed |
+| `aarch64-unknown-linux-gnu` | Linux x86_64 | Requires `aarch64-linux-gnu-gcc` cross linker |
+| `x86_64-unknown-linux-musl` | Linux x86_64 | Requires `musl-tools` |
+| `x86_64-pc-windows-msvc` | Windows native | No cross tool needed |
+
+### Building for a specific target
+
+```sh
+# Native build (current platform)
+bash scripts/ci/build-release.sh $(rustup show active-toolchain | cut -d' ' -f1)
+
+# Specific target via cargo-cross
+bash scripts/ci/build-release.sh x86_64-unknown-linux-musl
+```
+
+---
+
 ## Contributor Workflow Norms
 
 1. Prefer small, focused PRs for iterative change.

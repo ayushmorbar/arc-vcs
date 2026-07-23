@@ -1,0 +1,406 @@
+pub mod arc_store_graph
+pub mod arc_store_graph::bisect
+pub enum arc_store_graph::bisect::BisectMark
+pub arc_store_graph::bisect::BisectMark::Bad
+pub arc_store_graph::bisect::BisectMark::Good
+pub arc_store_graph::bisect::BisectMark::Untested
+impl core::clone::Clone for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::clone(&self) -> arc_store_graph::BisectMark
+impl core::cmp::Eq for arc_store_graph::BisectMark
+impl core::cmp::PartialEq for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::eq(&self, &arc_store_graph::BisectMark) -> bool
+impl core::fmt::Debug for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_graph::BisectMark
+impl core::marker::StructuralPartialEq for arc_store_graph::BisectMark
+impl serde_core::ser::Serialize for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_graph::bisect::BisectEngine
+impl arc_store_graph::BisectEngine
+pub fn arc_store_graph::BisectEngine::mark(&arc_store_graph::ChangeGraph, &mut arc_store_graph::BisectState, arc_store_types::newtypes::ChangeId, arc_store_graph::BisectMark) -> anyhow::Result<()>
+pub fn arc_store_graph::BisectEngine::select_next(&arc_store_graph::ChangeGraph, &arc_store_graph::BisectState) -> core::option::Option<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::BisectEngine::start(alloc::string::String, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, bool) -> arc_store_graph::BisectState
+pub struct arc_store_graph::bisect::BisectState
+pub arc_store_graph::bisect::BisectState::candidates: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_graph::bisect::BisectState::current: core::option::Option<arc_store_types::newtypes::ChangeId>
+pub arc_store_graph::bisect::BisectState::find_good: bool
+pub arc_store_graph::bisect::BisectState::marks: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_graph::BisectMark>
+pub arc_store_graph::bisect::BisectState::range_expr: alloc::string::String
+pub arc_store_graph::bisect::BisectState::started_at_unix: u64
+impl arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::bad_count(&self) -> usize
+pub fn arc_store_graph::BisectState::good_count(&self) -> usize
+pub fn arc_store_graph::BisectState::untested_count(&self) -> usize
+impl core::clone::Clone for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::clone(&self) -> arc_store_graph::BisectState
+impl core::fmt::Debug for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_store_graph::bisect::clear_state(&std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_graph::bisect::load_state(&std::path::Path) -> anyhow::Result<core::option::Option<arc_store_graph::BisectState>>
+pub fn arc_store_graph::bisect::save_state(&std::path::Path, &arc_store_graph::BisectState) -> anyhow::Result<()>
+pub fn arc_store_graph::bisect::state_path(&std::path::Path) -> std::path::PathBuf
+pub mod arc_store_graph::graph
+pub struct arc_store_graph::graph::ChangeGraph
+impl arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::add_change(&mut self, arc_change::change::Change)
+pub fn arc_store_graph::ChangeGraph::ancestors(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::child_ids(&self, arc_store_types::newtypes::ChangeId) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::get(&self, &arc_algebra_types::Blake3Hash) -> core::option::Option<&arc_change::change::Change>
+pub fn arc_store_graph::ChangeGraph::is_empty(&self) -> bool
+pub fn arc_store_graph::ChangeGraph::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &arc_change::change::Change>
+pub fn arc_store_graph::ChangeGraph::len(&self) -> usize
+pub fn arc_store_graph::ChangeGraph::merge_base(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::merge_base_deterministic(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> core::option::Option<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::merge_bases_ordered(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> alloc::collections::btree::set::BTreeSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::new() -> Self
+pub fn arc_store_graph::ChangeGraph::parent_ids(&self, arc_store_types::newtypes::ChangeId) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::tip_ids(&self) -> alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::topological_sort(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> alloc::vec::Vec<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::topological_sort_ids(&self, &alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+impl arc_store_graph::ImmutableInsert<arc_change::change::Change> for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::inserted(&self, arc_change::change::Change) -> Self
+impl core::clone::Clone for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::clone(&self) -> arc_store_graph::ChangeGraph
+impl core::default::Default for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::default() -> Self
+pub trait arc_store_graph::graph::ImmutableInsert<T>: core::marker::Sized
+pub fn arc_store_graph::graph::ImmutableInsert::inserted(&self, T) -> Self
+impl arc_store_graph::ImmutableInsert<arc_change::change::Change> for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::inserted(&self, arc_change::change::Change) -> Self
+pub mod arc_store_graph::scoped_workers
+pub fn arc_store_graph::scoped_workers::run_scoped_map<T, R, F>(alloc::vec::Vec<T>, usize, F) -> alloc::vec::Vec<R> where T: core::marker::Send, R: core::marker::Send, F: core::ops::function::Fn(T) -> R + core::marker::Send + core::marker::Sync
+pub mod arc_store_graph::traversal_state
+pub struct arc_store_graph::traversal_state::TraversalBits(_)
+impl arc_store_graph::TraversalBits
+pub const arc_store_graph::TraversalBits::ADVERTISED: Self
+pub const arc_store_graph::TraversalBits::COMMON: Self
+pub const arc_store_graph::TraversalBits::POPPED: Self
+pub const arc_store_graph::TraversalBits::QUEUED: Self
+pub const arc_store_graph::TraversalBits::SEEN: Self
+impl arc_store_graph::TraversalBits
+pub const fn arc_store_graph::TraversalBits::all() -> Self
+pub const fn arc_store_graph::TraversalBits::bits(&self) -> u8
+pub const fn arc_store_graph::TraversalBits::complement(self) -> Self
+pub const fn arc_store_graph::TraversalBits::contains(&self, Self) -> bool
+pub const fn arc_store_graph::TraversalBits::difference(self, Self) -> Self
+pub const fn arc_store_graph::TraversalBits::empty() -> Self
+pub const fn arc_store_graph::TraversalBits::from_bits(u8) -> core::option::Option<Self>
+pub const fn arc_store_graph::TraversalBits::from_bits_retain(u8) -> Self
+pub const fn arc_store_graph::TraversalBits::from_bits_truncate(u8) -> Self
+pub fn arc_store_graph::TraversalBits::from_name(&str) -> core::option::Option<Self>
+pub fn arc_store_graph::TraversalBits::insert(&mut self, Self)
+pub const fn arc_store_graph::TraversalBits::intersection(self, Self) -> Self
+pub const fn arc_store_graph::TraversalBits::intersects(&self, Self) -> bool
+pub const fn arc_store_graph::TraversalBits::is_all(&self) -> bool
+pub const fn arc_store_graph::TraversalBits::is_empty(&self) -> bool
+pub fn arc_store_graph::TraversalBits::remove(&mut self, Self)
+pub fn arc_store_graph::TraversalBits::set(&mut self, Self, bool)
+pub const fn arc_store_graph::TraversalBits::symmetric_difference(self, Self) -> Self
+pub fn arc_store_graph::TraversalBits::toggle(&mut self, Self)
+pub const fn arc_store_graph::TraversalBits::union(self, Self) -> Self
+impl arc_store_graph::TraversalBits
+pub const fn arc_store_graph::TraversalBits::iter(&self) -> bitflags::iter::Iter<arc_store_graph::TraversalBits>
+pub const fn arc_store_graph::TraversalBits::iter_names(&self) -> bitflags::iter::IterNames<arc_store_graph::TraversalBits>
+impl bitflags::traits::Flags for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Bits = u8
+pub const arc_store_graph::TraversalBits::FLAGS: &'static [bitflags::traits::Flag<arc_store_graph::TraversalBits>]
+pub fn arc_store_graph::TraversalBits::all_named() -> arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bits(&self) -> u8
+pub fn arc_store_graph::TraversalBits::from_bits_retain(u8) -> arc_store_graph::TraversalBits
+impl bitflags::traits::PublicFlags for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Internal = InternalBitFlags
+pub type arc_store_graph::TraversalBits::Primitive = u8
+impl core::clone::Clone for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::clone(&self) -> arc_store_graph::TraversalBits
+impl core::cmp::Eq for arc_store_graph::TraversalBits
+impl core::cmp::PartialEq for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::eq(&self, &arc_store_graph::TraversalBits) -> bool
+impl core::default::Default for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::default() -> arc_store_graph::TraversalBits
+impl core::fmt::Binary for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Debug for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::iter::traits::collect::Extend<arc_store_graph::TraversalBits> for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<arc_store_graph::TraversalBits> for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::IntoIter = bitflags::iter::Iter<arc_store_graph::TraversalBits>
+pub type arc_store_graph::TraversalBits::Item = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::into_iter(self) -> Self::IntoIter
+impl core::marker::Copy for arc_store_graph::TraversalBits
+impl core::marker::StructuralPartialEq for arc_store_graph::TraversalBits
+impl core::ops::arith::Sub for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitor(self, arc_store_graph::TraversalBits) -> Self
+impl core::ops::bit::BitOrAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::not(self) -> Self
+pub struct arc_store_graph::traversal_state::TraversalMeta
+pub arc_store_graph::traversal_state::TraversalMeta::bits: arc_store_graph::TraversalBits
+pub arc_store_graph::traversal_state::TraversalMeta::original_ttl: u16
+pub arc_store_graph::traversal_state::TraversalMeta::ttl: u16
+impl core::clone::Clone for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::clone(&self) -> arc_store_graph::TraversalMeta
+impl core::cmp::Eq for arc_store_graph::TraversalMeta
+impl core::cmp::PartialEq for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::eq(&self, &arc_store_graph::TraversalMeta) -> bool
+impl core::default::Default for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::default() -> arc_store_graph::TraversalMeta
+impl core::fmt::Debug for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_graph::TraversalMeta
+impl core::marker::StructuralPartialEq for arc_store_graph::TraversalMeta
+pub struct arc_store_graph::traversal_state::TraversalState<K>
+impl<K> arc_store_graph::TraversalState<K> where K: core::cmp::Eq + core::hash::Hash
+pub fn arc_store_graph::TraversalState<K>::clear(&mut self, &K, arc_store_graph::TraversalBits)
+pub fn arc_store_graph::TraversalState<K>::contains(&self, &K, arc_store_graph::TraversalBits) -> bool
+pub fn arc_store_graph::TraversalState<K>::get(&self, &K) -> core::option::Option<&arc_store_graph::TraversalMeta>
+pub fn arc_store_graph::TraversalState<K>::get_or_default_mut(&mut self, K) -> &mut arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalState<K>::is_empty(&self) -> bool
+pub fn arc_store_graph::TraversalState<K>::len(&self) -> usize
+pub fn arc_store_graph::TraversalState<K>::mark(&mut self, K, arc_store_graph::TraversalBits)
+pub fn arc_store_graph::TraversalState<K>::new() -> Self
+pub fn arc_store_graph::TraversalState<K>::refresh_ttl(&mut self, K, u16, u16)
+impl<K: core::clone::Clone> core::clone::Clone for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::clone(&self) -> arc_store_graph::TraversalState<K>
+impl<K: core::default::Default> core::default::Default for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::default() -> arc_store_graph::TraversalState<K>
+impl<K: core::fmt::Debug> core::fmt::Debug for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum arc_store_graph::BisectMark
+pub arc_store_graph::BisectMark::Bad
+pub arc_store_graph::BisectMark::Good
+pub arc_store_graph::BisectMark::Untested
+impl core::clone::Clone for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::clone(&self) -> arc_store_graph::BisectMark
+impl core::cmp::Eq for arc_store_graph::BisectMark
+impl core::cmp::PartialEq for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::eq(&self, &arc_store_graph::BisectMark) -> bool
+impl core::fmt::Debug for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_graph::BisectMark
+impl core::marker::StructuralPartialEq for arc_store_graph::BisectMark
+impl serde_core::ser::Serialize for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_graph::BisectMark
+pub fn arc_store_graph::BisectMark::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_graph::BisectEngine
+impl arc_store_graph::BisectEngine
+pub fn arc_store_graph::BisectEngine::mark(&arc_store_graph::ChangeGraph, &mut arc_store_graph::BisectState, arc_store_types::newtypes::ChangeId, arc_store_graph::BisectMark) -> anyhow::Result<()>
+pub fn arc_store_graph::BisectEngine::select_next(&arc_store_graph::ChangeGraph, &arc_store_graph::BisectState) -> core::option::Option<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::BisectEngine::start(alloc::string::String, alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>, bool) -> arc_store_graph::BisectState
+pub struct arc_store_graph::BisectState
+pub arc_store_graph::BisectState::candidates: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub arc_store_graph::BisectState::current: core::option::Option<arc_store_types::newtypes::ChangeId>
+pub arc_store_graph::BisectState::find_good: bool
+pub arc_store_graph::BisectState::marks: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_graph::BisectMark>
+pub arc_store_graph::BisectState::range_expr: alloc::string::String
+pub arc_store_graph::BisectState::started_at_unix: u64
+impl arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::bad_count(&self) -> usize
+pub fn arc_store_graph::BisectState::good_count(&self) -> usize
+pub fn arc_store_graph::BisectState::untested_count(&self) -> usize
+impl core::clone::Clone for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::clone(&self) -> arc_store_graph::BisectState
+impl core::fmt::Debug for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_graph::BisectState
+pub fn arc_store_graph::BisectState::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_graph::Blake3Hasher(_)
+impl core::default::Default for arc_store_graph::Blake3Hasher
+pub fn arc_store_graph::Blake3Hasher::default() -> arc_store_graph::Blake3Hasher
+impl core::hash::Hasher for arc_store_graph::Blake3Hasher
+pub fn arc_store_graph::Blake3Hasher::finish(&self) -> u64
+pub fn arc_store_graph::Blake3Hasher::write(&mut self, &[u8])
+pub struct arc_store_graph::ChangeGraph
+impl arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::add_change(&mut self, arc_change::change::Change)
+pub fn arc_store_graph::ChangeGraph::ancestors(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::child_ids(&self, arc_store_types::newtypes::ChangeId) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::get(&self, &arc_algebra_types::Blake3Hash) -> core::option::Option<&arc_change::change::Change>
+pub fn arc_store_graph::ChangeGraph::is_empty(&self) -> bool
+pub fn arc_store_graph::ChangeGraph::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &arc_change::change::Change>
+pub fn arc_store_graph::ChangeGraph::len(&self) -> usize
+pub fn arc_store_graph::ChangeGraph::merge_base(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::merge_base_deterministic(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> core::option::Option<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::merge_bases_ordered(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> alloc::collections::btree::set::BTreeSet<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::new() -> Self
+pub fn arc_store_graph::ChangeGraph::parent_ids(&self, arc_store_types::newtypes::ChangeId) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::tip_ids(&self) -> alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
+pub fn arc_store_graph::ChangeGraph::topological_sort(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> alloc::vec::Vec<arc_algebra_types::Blake3Hash>
+pub fn arc_store_graph::ChangeGraph::topological_sort_ids(&self, &alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>) -> alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
+impl arc_store_graph::ImmutableInsert<arc_change::change::Change> for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::inserted(&self, arc_change::change::Change) -> Self
+impl core::clone::Clone for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::clone(&self) -> arc_store_graph::ChangeGraph
+impl core::default::Default for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::default() -> Self
+pub struct arc_store_graph::TraversalBits(_)
+impl arc_store_graph::TraversalBits
+pub const arc_store_graph::TraversalBits::ADVERTISED: Self
+pub const arc_store_graph::TraversalBits::COMMON: Self
+pub const arc_store_graph::TraversalBits::POPPED: Self
+pub const arc_store_graph::TraversalBits::QUEUED: Self
+pub const arc_store_graph::TraversalBits::SEEN: Self
+impl arc_store_graph::TraversalBits
+pub const fn arc_store_graph::TraversalBits::all() -> Self
+pub const fn arc_store_graph::TraversalBits::bits(&self) -> u8
+pub const fn arc_store_graph::TraversalBits::complement(self) -> Self
+pub const fn arc_store_graph::TraversalBits::contains(&self, Self) -> bool
+pub const fn arc_store_graph::TraversalBits::difference(self, Self) -> Self
+pub const fn arc_store_graph::TraversalBits::empty() -> Self
+pub const fn arc_store_graph::TraversalBits::from_bits(u8) -> core::option::Option<Self>
+pub const fn arc_store_graph::TraversalBits::from_bits_retain(u8) -> Self
+pub const fn arc_store_graph::TraversalBits::from_bits_truncate(u8) -> Self
+pub fn arc_store_graph::TraversalBits::from_name(&str) -> core::option::Option<Self>
+pub fn arc_store_graph::TraversalBits::insert(&mut self, Self)
+pub const fn arc_store_graph::TraversalBits::intersection(self, Self) -> Self
+pub const fn arc_store_graph::TraversalBits::intersects(&self, Self) -> bool
+pub const fn arc_store_graph::TraversalBits::is_all(&self) -> bool
+pub const fn arc_store_graph::TraversalBits::is_empty(&self) -> bool
+pub fn arc_store_graph::TraversalBits::remove(&mut self, Self)
+pub fn arc_store_graph::TraversalBits::set(&mut self, Self, bool)
+pub const fn arc_store_graph::TraversalBits::symmetric_difference(self, Self) -> Self
+pub fn arc_store_graph::TraversalBits::toggle(&mut self, Self)
+pub const fn arc_store_graph::TraversalBits::union(self, Self) -> Self
+impl arc_store_graph::TraversalBits
+pub const fn arc_store_graph::TraversalBits::iter(&self) -> bitflags::iter::Iter<arc_store_graph::TraversalBits>
+pub const fn arc_store_graph::TraversalBits::iter_names(&self) -> bitflags::iter::IterNames<arc_store_graph::TraversalBits>
+impl bitflags::traits::Flags for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Bits = u8
+pub const arc_store_graph::TraversalBits::FLAGS: &'static [bitflags::traits::Flag<arc_store_graph::TraversalBits>]
+pub fn arc_store_graph::TraversalBits::all_named() -> arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bits(&self) -> u8
+pub fn arc_store_graph::TraversalBits::from_bits_retain(u8) -> arc_store_graph::TraversalBits
+impl bitflags::traits::PublicFlags for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Internal = InternalBitFlags
+pub type arc_store_graph::TraversalBits::Primitive = u8
+impl core::clone::Clone for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::clone(&self) -> arc_store_graph::TraversalBits
+impl core::cmp::Eq for arc_store_graph::TraversalBits
+impl core::cmp::PartialEq for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::eq(&self, &arc_store_graph::TraversalBits) -> bool
+impl core::default::Default for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::default() -> arc_store_graph::TraversalBits
+impl core::fmt::Binary for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Debug for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::iter::traits::collect::Extend<arc_store_graph::TraversalBits> for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<arc_store_graph::TraversalBits> for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::IntoIter = bitflags::iter::Iter<arc_store_graph::TraversalBits>
+pub type arc_store_graph::TraversalBits::Item = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::into_iter(self) -> Self::IntoIter
+impl core::marker::Copy for arc_store_graph::TraversalBits
+impl core::marker::StructuralPartialEq for arc_store_graph::TraversalBits
+impl core::ops::arith::Sub for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitor(self, arc_store_graph::TraversalBits) -> Self
+impl core::ops::bit::BitOrAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for arc_store_graph::TraversalBits
+pub type arc_store_graph::TraversalBits::Output = arc_store_graph::TraversalBits
+pub fn arc_store_graph::TraversalBits::not(self) -> Self
+pub struct arc_store_graph::TraversalMeta
+pub arc_store_graph::TraversalMeta::bits: arc_store_graph::TraversalBits
+pub arc_store_graph::TraversalMeta::original_ttl: u16
+pub arc_store_graph::TraversalMeta::ttl: u16
+impl core::clone::Clone for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::clone(&self) -> arc_store_graph::TraversalMeta
+impl core::cmp::Eq for arc_store_graph::TraversalMeta
+impl core::cmp::PartialEq for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::eq(&self, &arc_store_graph::TraversalMeta) -> bool
+impl core::default::Default for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::default() -> arc_store_graph::TraversalMeta
+impl core::fmt::Debug for arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalMeta::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_graph::TraversalMeta
+impl core::marker::StructuralPartialEq for arc_store_graph::TraversalMeta
+pub struct arc_store_graph::TraversalState<K>
+impl<K> arc_store_graph::TraversalState<K> where K: core::cmp::Eq + core::hash::Hash
+pub fn arc_store_graph::TraversalState<K>::clear(&mut self, &K, arc_store_graph::TraversalBits)
+pub fn arc_store_graph::TraversalState<K>::contains(&self, &K, arc_store_graph::TraversalBits) -> bool
+pub fn arc_store_graph::TraversalState<K>::get(&self, &K) -> core::option::Option<&arc_store_graph::TraversalMeta>
+pub fn arc_store_graph::TraversalState<K>::get_or_default_mut(&mut self, K) -> &mut arc_store_graph::TraversalMeta
+pub fn arc_store_graph::TraversalState<K>::is_empty(&self) -> bool
+pub fn arc_store_graph::TraversalState<K>::len(&self) -> usize
+pub fn arc_store_graph::TraversalState<K>::mark(&mut self, K, arc_store_graph::TraversalBits)
+pub fn arc_store_graph::TraversalState<K>::new() -> Self
+pub fn arc_store_graph::TraversalState<K>::refresh_ttl(&mut self, K, u16, u16)
+impl<K: core::clone::Clone> core::clone::Clone for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::clone(&self) -> arc_store_graph::TraversalState<K>
+impl<K: core::default::Default> core::default::Default for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::default() -> arc_store_graph::TraversalState<K>
+impl<K: core::fmt::Debug> core::fmt::Debug for arc_store_graph::TraversalState<K>
+pub fn arc_store_graph::TraversalState<K>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_store_graph::ImmutableInsert<T>: core::marker::Sized
+pub fn arc_store_graph::ImmutableInsert::inserted(&self, T) -> Self
+impl arc_store_graph::ImmutableInsert<arc_change::change::Change> for arc_store_graph::ChangeGraph
+pub fn arc_store_graph::ChangeGraph::inserted(&self, arc_change::change::Change) -> Self
+pub fn arc_store_graph::clear_state(&std::path::Path) -> anyhow::Result<()>
+pub fn arc_store_graph::load_state(&std::path::Path) -> anyhow::Result<core::option::Option<arc_store_graph::BisectState>>
+pub fn arc_store_graph::run_scoped_map<T, R, F>(alloc::vec::Vec<T>, usize, F) -> alloc::vec::Vec<R> where T: core::marker::Send, R: core::marker::Send, F: core::ops::function::Fn(T) -> R + core::marker::Send + core::marker::Sync
+pub fn arc_store_graph::save_state(&std::path::Path, &arc_store_graph::BisectState) -> anyhow::Result<()>
+pub fn arc_store_graph::state_path(&std::path::Path) -> std::path::PathBuf
+pub type arc_store_graph::Blake3HashMap<V> = std::collections::hash::map::HashMap<arc_algebra_types::Blake3Hash, V, core::hash::BuildHasherDefault<arc_store_graph::Blake3Hasher>>

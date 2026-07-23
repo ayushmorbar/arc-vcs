@@ -55,7 +55,7 @@ stable_nodes = []
 for node in graph.get("nodes", []):
     tier = node.get("stabilityTier")
     status = str(node.get("stability", "")).strip().lower()
-    if tier == 1 or status == "stable":
+    if tier in (1, 2) or status == "stable":
         stable_nodes.append(node.get("id"))
 
 lines = []
@@ -112,4 +112,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-echo "API drift check passed for all stable crates."
+echo "API drift check passed for all stable crates (tier 1 and tier 2)."

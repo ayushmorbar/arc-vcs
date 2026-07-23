@@ -1,0 +1,82 @@
+pub mod arc_algebra
+pub mod arc_algebra::apply
+pub fn arc_algebra::apply::apply_change(&mut arc_algebra::apply::MaterializedState, &arc_change::change::Change, &impl arc_algebra::BlobStore, &ignore::gitignore::Gitignore, core::option::Option<&mut arc_algebra::apply::BlameState>) -> core::result::Result<(), alloc::string::String>
+pub fn arc_algebra::apply::apply_change_scoped(&mut arc_algebra::apply::MaterializedState, &arc_change::change::Change, &impl arc_algebra::BlobStore, &ignore::gitignore::Gitignore, core::option::Option<&arc_algebra::sparse::SparseMatcher>, core::option::Option<&mut arc_algebra::apply::BlameState>) -> core::result::Result<(), alloc::string::String>
+pub type arc_algebra::apply::BlameState = std::collections::hash::map::HashMap<arc_algebra_types::NodePath, arc_algebra_types::Blake3Hash>
+pub type arc_algebra::apply::MaterializedState = std::collections::hash::map::HashMap<arc_algebra_types::NodePath, alloc::vec::Vec<u8>>
+pub mod arc_algebra::commute
+pub fn arc_algebra::commute::commute_pair(&arc_change::change::Change, &arc_change::change::Change, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::option::Option<(arc_change::change::Change, arc_change::change::Change)>
+pub fn arc_algebra::commute::commutes(&arc_change::change::Change, &arc_change::change::Change) -> bool
+pub mod arc_algebra::ewah
+pub enum arc_algebra::ewah::EwahDecodeError
+pub arc_algebra::ewah::EwahDecodeError::LengthOverflow
+pub arc_algebra::ewah::EwahDecodeError::UnexpectedEof(&'static str)
+impl core::clone::Clone for arc_algebra::ewah::EwahDecodeError
+pub fn arc_algebra::ewah::EwahDecodeError::clone(&self) -> arc_algebra::ewah::EwahDecodeError
+impl core::cmp::Eq for arc_algebra::ewah::EwahDecodeError
+impl core::cmp::PartialEq for arc_algebra::ewah::EwahDecodeError
+pub fn arc_algebra::ewah::EwahDecodeError::eq(&self, &arc_algebra::ewah::EwahDecodeError) -> bool
+impl core::error::Error for arc_algebra::ewah::EwahDecodeError
+impl core::fmt::Debug for arc_algebra::ewah::EwahDecodeError
+pub fn arc_algebra::ewah::EwahDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_algebra::ewah::EwahDecodeError
+pub fn arc_algebra::ewah::EwahDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra::ewah::EwahDecodeError
+pub struct arc_algebra::ewah::EwahBitmap
+impl arc_algebra::ewah::EwahBitmap
+pub fn arc_algebra::ewah::EwahBitmap::decode(&[u8]) -> core::result::Result<(Self, &[u8]), arc_algebra::ewah::EwahDecodeError>
+pub fn arc_algebra::ewah::EwahBitmap::for_each_set_bit(&self, impl core::ops::function::FnMut(usize) -> bool)
+pub fn arc_algebra::ewah::EwahBitmap::num_bits(&self) -> usize
+pub fn arc_algebra::ewah::EwahBitmap::rlw(&self) -> u32
+impl core::clone::Clone for arc_algebra::ewah::EwahBitmap
+pub fn arc_algebra::ewah::EwahBitmap::clone(&self) -> arc_algebra::ewah::EwahBitmap
+impl core::cmp::Eq for arc_algebra::ewah::EwahBitmap
+impl core::cmp::PartialEq for arc_algebra::ewah::EwahBitmap
+pub fn arc_algebra::ewah::EwahBitmap::eq(&self, &arc_algebra::ewah::EwahBitmap) -> bool
+impl core::fmt::Debug for arc_algebra::ewah::EwahBitmap
+pub fn arc_algebra::ewah::EwahBitmap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra::ewah::EwahBitmap
+pub mod arc_algebra::inverse
+pub enum arc_algebra::inverse::InvertError
+pub arc_algebra::inverse::InvertError::CasMissing(arc_algebra_types::Blake3Hash)
+pub arc_algebra::inverse::InvertError::Unsupported
+impl core::error::Error for arc_algebra::inverse::InvertError
+impl core::fmt::Debug for arc_algebra::inverse::InvertError
+pub fn arc_algebra::inverse::InvertError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_algebra::inverse::InvertError
+pub fn arc_algebra::inverse::InvertError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_algebra::inverse::invert_atom(&arc_algebra_types::Atom, &impl arc_algebra::BlobStore) -> core::result::Result<arc_algebra_types::Atom, arc_algebra::inverse::InvertError>
+pub fn arc_algebra::inverse::invert_change(&arc_change::change::Change, &impl arc_algebra::BlobStore, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_change::change::Change, arc_algebra::inverse::InvertError>
+pub mod arc_algebra::sparse
+pub struct arc_algebra::sparse::SparseMatcher
+impl arc_algebra::sparse::SparseMatcher
+pub fn arc_algebra::sparse::SparseMatcher::from_patterns(&[alloc::string::String]) -> Self
+pub fn arc_algebra::sparse::SparseMatcher::is_full(&self) -> bool
+pub fn arc_algebra::sparse::SparseMatcher::matches_atom(&self, &arc_algebra_types::Atom) -> bool
+pub fn arc_algebra::sparse::SparseMatcher::matches_file_path(&self, &str) -> bool
+pub fn arc_algebra::sparse::SparseMatcher::matches_node_path(&self, &arc_algebra_types::NodePath) -> bool
+pub fn arc_algebra::sparse::SparseMatcher::patterns(&self) -> &[arc_algebra::sparse::SparsePattern]
+impl core::clone::Clone for arc_algebra::sparse::SparseMatcher
+pub fn arc_algebra::sparse::SparseMatcher::clone(&self) -> arc_algebra::sparse::SparseMatcher
+impl core::cmp::Eq for arc_algebra::sparse::SparseMatcher
+impl core::cmp::PartialEq for arc_algebra::sparse::SparseMatcher
+pub fn arc_algebra::sparse::SparseMatcher::eq(&self, &arc_algebra::sparse::SparseMatcher) -> bool
+impl core::fmt::Debug for arc_algebra::sparse::SparseMatcher
+pub fn arc_algebra::sparse::SparseMatcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra::sparse::SparseMatcher
+pub struct arc_algebra::sparse::SparsePattern(_)
+impl arc_algebra::sparse::SparsePattern
+pub fn arc_algebra::sparse::SparsePattern::as_str(&self) -> &str
+pub fn arc_algebra::sparse::SparsePattern::matches_path(&self, &str) -> bool
+pub fn arc_algebra::sparse::SparsePattern::new(impl core::convert::AsRef<str>) -> core::option::Option<Self>
+impl core::clone::Clone for arc_algebra::sparse::SparsePattern
+pub fn arc_algebra::sparse::SparsePattern::clone(&self) -> arc_algebra::sparse::SparsePattern
+impl core::cmp::Eq for arc_algebra::sparse::SparsePattern
+impl core::cmp::PartialEq for arc_algebra::sparse::SparsePattern
+pub fn arc_algebra::sparse::SparsePattern::eq(&self, &arc_algebra::sparse::SparsePattern) -> bool
+impl core::fmt::Debug for arc_algebra::sparse::SparsePattern
+pub fn arc_algebra::sparse::SparsePattern::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_algebra::sparse::SparsePattern
+pub trait arc_algebra::BlobStore
+pub fn arc_algebra::BlobStore::contains_blob(&self, &arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_algebra::BlobStore::read_blob(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<alloc::vec::Vec<u8>, alloc::string::String>

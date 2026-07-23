@@ -25,12 +25,7 @@ jobs:
           bash scripts/ci/check-package-size.sh \
             "crates/arc-core:300KB" \
             "crates/arc-algebra:400KB" \
-            "crates/arc-crypto:400KB" \
-            "crates/arc-intent:300KB" \
-            "crates/arc-graph:300KB" \
             "crates/arc-store-graph:300KB" \
-            "crates/arc-causal:300KB" \
-            "crates/arc-sync:300KB" \
             "crates/arc-daemon:400KB" \
             "crates/arc-cli:400KB"
 
@@ -51,6 +46,8 @@ jobs:
             os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04
           - target: x86_64-pc-windows-msvc
             os: windows-latest
           - target: x86_64-unknown-linux-musl

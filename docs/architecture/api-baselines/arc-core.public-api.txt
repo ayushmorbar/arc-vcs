@@ -1,0 +1,416 @@
+pub mod arc_core
+pub use arc_core::ai
+pub use arc_core::algebra_types
+pub use arc_core::error
+pub use arc_core::git_bridge
+pub use arc_core::network
+pub use arc_core::store_types
+pub mod arc_core::algebra
+pub use arc_core::algebra::<<arc_algebra::*>>
+pub use arc_core::algebra::Atom
+pub use arc_core::algebra::Blake3Hash
+pub use arc_core::algebra::NodePath
+pub use arc_core::algebra::SpacetimeCoordinate
+pub mod arc_core::algebra::evaluator
+pub struct arc_core::algebra::evaluator::TreeSitterEvaluator
+impl arc_core::algebra::evaluator::TreeSitterEvaluator
+pub fn arc_core::algebra::evaluator::TreeSitterEvaluator::new(arc_core::algebra::policy::ArcPolicy) -> Self
+impl arc_core::algebra::policy::Evaluator for arc_core::algebra::evaluator::TreeSitterEvaluator
+pub fn arc_core::algebra::evaluator::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_core::algebra::policy::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_core::algebra::policy::PolicyError>
+pub const arc_core::algebra::evaluator::RUST_BOUNDARY_QUERY: &str
+pub const arc_core::algebra::evaluator::RUST_INVOCATION_QUERY: &str
+pub mod arc_core::algebra::policy
+pub enum arc_core::algebra::policy::PolicyError
+pub arc_core::algebra::policy::PolicyError::MissingDependency
+pub arc_core::algebra::policy::PolicyError::MissingDependency::dependency: alloc::string::String
+pub arc_core::algebra::policy::PolicyError::ParseConfig
+pub arc_core::algebra::policy::PolicyError::ParseConfig::path: alloc::string::String
+pub arc_core::algebra::policy::PolicyError::ParseConfig::source: serde_json::error::Error
+pub arc_core::algebra::policy::PolicyError::ReadConfig
+pub arc_core::algebra::policy::PolicyError::ReadConfig::path: alloc::string::String
+pub arc_core::algebra::policy::PolicyError::ReadConfig::source: core::io::error::Error
+pub arc_core::algebra::policy::PolicyError::SignatureMismatch
+pub arc_core::algebra::policy::PolicyError::SignatureMismatch::broken_functions: alloc::vec::Vec<alloc::string::String>
+pub arc_core::algebra::policy::PolicyError::SignatureMismatch::new_signature: alloc::string::String
+pub arc_core::algebra::policy::PolicyError::SignatureMismatch::old_signature: alloc::string::String
+impl arc_core::algebra::policy::PolicyError
+pub fn arc_core::algebra::policy::PolicyError::to_mcp_payload(&self) -> serde_json::value::Value
+impl core::error::Error for arc_core::algebra::policy::PolicyError
+pub fn arc_core::algebra::policy::PolicyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_core::algebra::policy::PolicyError
+pub fn arc_core::algebra::policy::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_core::algebra::policy::PolicyError
+pub fn arc_core::algebra::policy::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_core::algebra::policy::ArcPolicy
+pub arc_core::algebra::policy::ArcPolicy::block_unresolved_sem_breaks: bool
+pub arc_core::algebra::policy::ArcPolicy::require_ghost_node_sponsor: bool
+impl arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::default_evaluator(&self) -> arc_core::algebra::policy::DefaultEvaluator
+impl arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::load_from_path(&std::path::Path) -> core::result::Result<Self, arc_core::algebra::policy::PolicyError>
+impl core::clone::Clone for arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::clone(&self) -> arc_core::algebra::policy::ArcPolicy
+impl core::cmp::PartialEq for arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::eq(&self, &arc_core::algebra::policy::ArcPolicy) -> bool
+impl core::default::Default for arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::default() -> Self
+impl core::fmt::Debug for arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::algebra::policy::ArcPolicy
+impl serde_core::ser::Serialize for arc_core::algebra::policy::ArcPolicy
+pub fn arc_core::algebra::policy::ArcPolicy::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_core::algebra::policy::ArcPolicy where arc_core::algebra::policy::ArcPolicy: core::default::Default
+pub fn arc_core::algebra::policy::ArcPolicy::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_core::algebra::policy::Ast
+pub arc_core::algebra::policy::Ast::expected_api_signatures: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+pub arc_core::algebra::policy::Ast::foreign_rust_sources: alloc::vec::Vec<alloc::string::String>
+pub arc_core::algebra::policy::Ast::local_rust_sources: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for arc_core::algebra::policy::Ast
+pub fn arc_core::algebra::policy::Ast::clone(&self) -> arc_core::algebra::policy::Ast
+impl core::default::Default for arc_core::algebra::policy::Ast
+pub fn arc_core::algebra::policy::Ast::default() -> arc_core::algebra::policy::Ast
+impl core::fmt::Debug for arc_core::algebra::policy::Ast
+pub fn arc_core::algebra::policy::Ast::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_core::algebra::policy::Evaluator
+pub fn arc_core::algebra::policy::Evaluator::evaluate_delta_impact(&self, &arc_core::algebra::policy::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_core::algebra::policy::PolicyError>
+impl arc_core::algebra::policy::Evaluator for arc_core::algebra::evaluator::TreeSitterEvaluator
+pub fn arc_core::algebra::evaluator::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_core::algebra::policy::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_core::algebra::policy::PolicyError>
+pub type arc_core::algebra::policy::DefaultEvaluator = arc_core::algebra::evaluator::TreeSitterEvaluator
+pub mod arc_core::algebra::resolver
+pub enum arc_core::algebra::resolver::ResolverError
+pub arc_core::algebra::resolver::ResolverError::SynthesisFailed
+pub arc_core::algebra::resolver::ResolverError::SynthesisFailed::reason: alloc::string::String
+pub arc_core::algebra::resolver::ResolverError::VerificationFailed
+impl core::error::Error for arc_core::algebra::resolver::ResolverError
+impl core::fmt::Debug for arc_core::algebra::resolver::ResolverError
+pub fn arc_core::algebra::resolver::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_core::algebra::resolver::ResolverError
+pub fn arc_core::algebra::resolver::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_core::algebra::resolver::MockAiResolver
+impl arc_core::algebra::resolver::AiResolver for arc_core::algebra::resolver::MockAiResolver
+pub fn arc_core::algebra::resolver::MockAiResolver::synthesize_lens(&self, &arc_core::algebra::policy::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_core::algebra::resolver::ResolverError>
+pub trait arc_core::algebra::resolver::AiResolver
+pub fn arc_core::algebra::resolver::AiResolver::synthesize_lens(&self, &arc_core::algebra::policy::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_core::algebra::resolver::ResolverError>
+impl arc_core::algebra::resolver::AiResolver for arc_core::algebra::resolver::MockAiResolver
+pub fn arc_core::algebra::resolver::MockAiResolver::synthesize_lens(&self, &arc_core::algebra::policy::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_core::algebra::resolver::ResolverError>
+pub fn arc_core::algebra::resolver::ast_context(alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>) -> arc_core::algebra::policy::Ast
+pub fn arc_core::algebra::resolver::default_evaluator() -> arc_core::algebra::evaluator::TreeSitterEvaluator
+pub fn arc_core::algebra::resolver::verify_lens(&arc_core::algebra::evaluator::TreeSitterEvaluator, &arc_core::algebra::policy::Ast, &[arc_algebra_types::Atom], &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_core::algebra::resolver::ResolverError>
+pub mod arc_core::dag
+pub mod arc_core::dag::node
+pub type arc_core::dag::node::Author = arc_change::change::AuthorType
+pub type arc_core::dag::node::Change = arc_change::change::Change
+pub mod arc_core::engine
+pub use arc_core::engine::mutator
+pub use arc_core::engine::spacetime
+pub mod arc_core::git_types
+pub type arc_core::git_types::GitOid = [u8; 20]
+pub mod arc_core::operation_context
+pub enum arc_core::operation_context::OperationReportFormat
+pub arc_core::operation_context::OperationReportFormat::Human
+pub arc_core::operation_context::OperationReportFormat::Json
+impl core::clone::Clone for arc_core::operation_context::OperationReportFormat
+pub fn arc_core::operation_context::OperationReportFormat::clone(&self) -> arc_core::operation_context::OperationReportFormat
+impl core::cmp::Eq for arc_core::operation_context::OperationReportFormat
+impl core::cmp::PartialEq for arc_core::operation_context::OperationReportFormat
+pub fn arc_core::operation_context::OperationReportFormat::eq(&self, &arc_core::operation_context::OperationReportFormat) -> bool
+impl core::fmt::Debug for arc_core::operation_context::OperationReportFormat
+pub fn arc_core::operation_context::OperationReportFormat::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_core::operation_context::OperationReportFormat
+impl core::marker::StructuralPartialEq for arc_core::operation_context::OperationReportFormat
+pub struct arc_core::operation_context::OperationContext<WOut, WErr>
+pub arc_core::operation_context::OperationContext::err: WErr
+pub arc_core::operation_context::OperationContext::metadata: arc_core::operation_context::OperationMetadata
+pub arc_core::operation_context::OperationContext::out: WOut
+pub arc_core::operation_context::OperationContext::report_format: core::option::Option<arc_core::operation_context::OperationReportFormat>
+impl<WOut, WErr> arc_core::operation_context::OperationContext<WOut, WErr>
+pub fn arc_core::operation_context::OperationContext<WOut, WErr>::map_channels<Out2, Err2>(self, impl core::ops::function::FnOnce(WOut) -> Out2, impl core::ops::function::FnOnce(WErr) -> Err2) -> arc_core::operation_context::OperationContext<Out2, Err2>
+pub fn arc_core::operation_context::OperationContext<WOut, WErr>::new(WOut, WErr, core::option::Option<arc_core::operation_context::OperationReportFormat>, arc_core::operation_context::OperationMetadata) -> Self
+impl core::default::Default for arc_core::operation_context::OperationContext<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>
+pub fn arc_core::operation_context::OperationContext<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>::default() -> Self
+impl<WOut: core::fmt::Debug, WErr: core::fmt::Debug> core::fmt::Debug for arc_core::operation_context::OperationContext<WOut, WErr>
+pub fn arc_core::operation_context::OperationContext<WOut, WErr>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_core::operation_context::OperationMetadata
+pub arc_core::operation_context::OperationMetadata::correlation_id: alloc::string::String
+pub arc_core::operation_context::OperationMetadata::name: alloc::string::String
+impl arc_core::operation_context::OperationMetadata
+pub fn arc_core::operation_context::OperationMetadata::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+impl core::clone::Clone for arc_core::operation_context::OperationMetadata
+pub fn arc_core::operation_context::OperationMetadata::clone(&self) -> arc_core::operation_context::OperationMetadata
+impl core::cmp::Eq for arc_core::operation_context::OperationMetadata
+impl core::cmp::PartialEq for arc_core::operation_context::OperationMetadata
+pub fn arc_core::operation_context::OperationMetadata::eq(&self, &arc_core::operation_context::OperationMetadata) -> bool
+impl core::fmt::Debug for arc_core::operation_context::OperationMetadata
+pub fn arc_core::operation_context::OperationMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::operation_context::OperationMetadata
+pub mod arc_core::ops
+pub enum arc_core::ops::OperationStage
+pub arc_core::ops::OperationStage::Discover
+pub arc_core::ops::OperationStage::Finalize
+pub arc_core::ops::OperationStage::Materialize
+pub arc_core::ops::OperationStage::Negotiate
+pub arc_core::ops::OperationStage::Transfer
+impl arc_core::ops::OperationStage
+pub const fn arc_core::ops::OperationStage::as_str(self) -> &'static str
+impl core::clone::Clone for arc_core::ops::OperationStage
+pub fn arc_core::ops::OperationStage::clone(&self) -> arc_core::ops::OperationStage
+impl core::cmp::Eq for arc_core::ops::OperationStage
+impl core::cmp::PartialEq for arc_core::ops::OperationStage
+pub fn arc_core::ops::OperationStage::eq(&self, &arc_core::ops::OperationStage) -> bool
+impl core::fmt::Debug for arc_core::ops::OperationStage
+pub fn arc_core::ops::OperationStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_core::ops::OperationStage
+pub fn arc_core::ops::OperationStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_core::ops::OperationStage
+pub fn arc_core::ops::OperationStage::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_core::ops::OperationStage
+impl core::marker::StructuralPartialEq for arc_core::ops::OperationStage
+pub struct arc_core::ops::SloTimer
+impl arc_core::ops::SloTimer
+pub fn arc_core::ops::SloTimer::finish(self) -> core::time::Duration
+pub fn arc_core::ops::SloTimer::from_env(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn arc_core::ops::SloTimer::new(impl core::convert::Into<alloc::string::String>, core::time::Duration) -> Self
+pub fn arc_core::ops::SloTimer::stage<T>(&self, arc_core::ops::OperationStage, impl core::ops::function::FnOnce() -> T) -> T
+pub const arc_core::ops::DEFAULT_SYNC_SLO_MS: u64
+pub mod arc_core::repository
+pub enum arc_core::repository::ArcError
+pub arc_core::repository::ArcError::Cas(arc_store_cas::cas::CasError)
+pub arc_core::repository::ArcError::InvalidOpenOptions
+pub arc_core::repository::ArcError::InvalidOpenOptions::reason: alloc::string::String
+pub arc_core::repository::ArcError::Io(core::io::error::Error)
+pub arc_core::repository::ArcError::Network(anyhow::Error)
+pub arc_core::repository::ArcError::Policy(arc_store_policy::PolicyStoreError)
+pub arc_core::repository::ArcError::PolicyDenied
+pub arc_core::repository::ArcError::PolicyDenied::path: alloc::string::String
+pub arc_core::repository::ArcError::Store(arc_store_view::StoreError)
+impl core::convert::From<anyhow::Error> for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::from(anyhow::Error) -> Self
+impl core::convert::From<arc_store_cas::cas::CasError> for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::from(arc_store_cas::cas::CasError) -> Self
+impl core::convert::From<arc_store_policy::PolicyStoreError> for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::from(arc_store_policy::PolicyStoreError) -> Self
+impl core::convert::From<arc_store_view::StoreError> for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::from(arc_store_view::StoreError) -> Self
+impl core::convert::From<core::io::error::Error> for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::from(core::io::error::Error) -> Self
+impl core::error::Error for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_core::repository::ArcError
+pub fn arc_core::repository::ArcError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum arc_core::repository::CacheMode
+pub arc_core::repository::CacheMode::Disabled
+pub arc_core::repository::CacheMode::Entries
+pub arc_core::repository::CacheMode::Entries::max_entries: usize
+impl core::clone::Clone for arc_core::repository::CacheMode
+pub fn arc_core::repository::CacheMode::clone(&self) -> arc_core::repository::CacheMode
+impl core::cmp::Eq for arc_core::repository::CacheMode
+impl core::cmp::PartialEq for arc_core::repository::CacheMode
+pub fn arc_core::repository::CacheMode::eq(&self, &arc_core::repository::CacheMode) -> bool
+impl core::default::Default for arc_core::repository::CacheMode
+pub fn arc_core::repository::CacheMode::default() -> Self
+impl core::fmt::Debug for arc_core::repository::CacheMode
+pub fn arc_core::repository::CacheMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_core::repository::CacheMode
+impl core::marker::StructuralPartialEq for arc_core::repository::CacheMode
+pub enum arc_core::repository::PolicyMode
+pub arc_core::repository::PolicyMode::Bypass
+pub arc_core::repository::PolicyMode::Enforce
+impl core::clone::Clone for arc_core::repository::PolicyMode
+pub fn arc_core::repository::PolicyMode::clone(&self) -> arc_core::repository::PolicyMode
+impl core::cmp::Eq for arc_core::repository::PolicyMode
+impl core::cmp::PartialEq for arc_core::repository::PolicyMode
+pub fn arc_core::repository::PolicyMode::eq(&self, &arc_core::repository::PolicyMode) -> bool
+impl core::default::Default for arc_core::repository::PolicyMode
+pub fn arc_core::repository::PolicyMode::default() -> arc_core::repository::PolicyMode
+impl core::fmt::Debug for arc_core::repository::PolicyMode
+pub fn arc_core::repository::PolicyMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_core::repository::PolicyMode
+impl core::marker::StructuralPartialEq for arc_core::repository::PolicyMode
+pub enum arc_core::repository::TrustMode
+pub arc_core::repository::TrustMode::Balanced
+pub arc_core::repository::TrustMode::Permissive
+pub arc_core::repository::TrustMode::Strict
+impl core::clone::Clone for arc_core::repository::TrustMode
+pub fn arc_core::repository::TrustMode::clone(&self) -> arc_core::repository::TrustMode
+impl core::cmp::Eq for arc_core::repository::TrustMode
+impl core::cmp::PartialEq for arc_core::repository::TrustMode
+pub fn arc_core::repository::TrustMode::eq(&self, &arc_core::repository::TrustMode) -> bool
+impl core::default::Default for arc_core::repository::TrustMode
+pub fn arc_core::repository::TrustMode::default() -> arc_core::repository::TrustMode
+impl core::fmt::Debug for arc_core::repository::TrustMode
+pub fn arc_core::repository::TrustMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_core::repository::TrustMode
+impl core::marker::StructuralPartialEq for arc_core::repository::TrustMode
+pub struct arc_core::repository::OpenOptions
+impl arc_core::repository::OpenOptions
+pub fn arc_core::repository::OpenOptions::cache_mode(self, arc_core::repository::CacheMode) -> Self
+pub fn arc_core::repository::OpenOptions::configured_cache_mode(&self) -> arc_core::repository::CacheMode
+pub fn arc_core::repository::OpenOptions::configured_policy_mode(&self) -> arc_core::repository::PolicyMode
+pub fn arc_core::repository::OpenOptions::configured_trust_mode(&self) -> arc_core::repository::TrustMode
+pub fn arc_core::repository::OpenOptions::new() -> Self
+pub fn arc_core::repository::OpenOptions::open(self, impl core::convert::AsRef<std::path::Path>) -> arc_core::repository::ArcResult<arc_core::repository::SharedRepository>
+pub fn arc_core::repository::OpenOptions::policy_mode(self, arc_core::repository::PolicyMode) -> Self
+pub fn arc_core::repository::OpenOptions::trust_mode(self, arc_core::repository::TrustMode) -> Self
+impl core::clone::Clone for arc_core::repository::OpenOptions
+pub fn arc_core::repository::OpenOptions::clone(&self) -> arc_core::repository::OpenOptions
+impl core::cmp::Eq for arc_core::repository::OpenOptions
+impl core::cmp::PartialEq for arc_core::repository::OpenOptions
+pub fn arc_core::repository::OpenOptions::eq(&self, &arc_core::repository::OpenOptions) -> bool
+impl core::default::Default for arc_core::repository::OpenOptions
+pub fn arc_core::repository::OpenOptions::default() -> arc_core::repository::OpenOptions
+impl core::fmt::Debug for arc_core::repository::OpenOptions
+pub fn arc_core::repository::OpenOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::repository::OpenOptions
+pub struct arc_core::repository::Repository
+impl arc_core::repository::Repository
+pub fn arc_core::repository::Repository::from_shared(arc_core::repository::SharedRepository) -> Self
+pub fn arc_core::repository::Repository::local_cache_len(&self) -> usize
+pub fn arc_core::repository::Repository::open(impl core::convert::AsRef<std::path::Path>) -> arc_core::repository::ArcResult<Self>
+pub fn arc_core::repository::Repository::open_with_options(impl core::convert::AsRef<std::path::Path>, arc_core::repository::OpenOptions) -> arc_core::repository::ArcResult<Self>
+pub fn arc_core::repository::Repository::read_blob(&self, &arc_algebra_types::Blake3Hash) -> arc_core::repository::ArcResult<alloc::vec::Vec<u8>>
+pub fn arc_core::repository::Repository::shared(&self) -> &arc_core::repository::SharedRepository
+pub fn arc_core::repository::Repository::write_blob(&self, &[u8]) -> arc_core::repository::ArcResult<arc_algebra_types::Blake3Hash>
+pub fn arc_core::repository::Repository::write_blob_for_path(&self, &str, &[u8]) -> arc_core::repository::ArcResult<arc_algebra_types::Blake3Hash>
+pub struct arc_core::repository::SharedRepository
+impl arc_core::repository::SharedRepository
+pub fn arc_core::repository::SharedRepository::frontier(&self) -> alloc::sync::Arc<alloc::vec::Vec<arc_algebra_types::Blake3Hash>>
+pub fn arc_core::repository::SharedRepository::network_client(&self) -> arc_core::repository::ArcResult<arc_network::network::NetworkClient>
+pub fn arc_core::repository::SharedRepository::open(impl core::convert::AsRef<std::path::Path>) -> arc_core::repository::ArcResult<Self>
+pub fn arc_core::repository::SharedRepository::open_with_options(impl core::convert::AsRef<std::path::Path>, arc_core::repository::OpenOptions) -> arc_core::repository::ArcResult<Self>
+pub fn arc_core::repository::SharedRepository::options(&self) -> &arc_core::repository::OpenOptions
+pub fn arc_core::repository::SharedRepository::root(&self) -> &std::path::Path
+pub fn arc_core::repository::SharedRepository::set_frontier(&self, alloc::vec::Vec<arc_algebra_types::Blake3Hash>)
+pub fn arc_core::repository::SharedRepository::to_thread_local(&self) -> arc_core::repository::Repository
+pub fn arc_core::repository::SharedRepository::with_sync_cycle<T>(&self, &str, impl core::ops::function::FnOnce() -> arc_core::repository::ArcResult<T>) -> arc_core::repository::ArcResult<T>
+pub fn arc_core::repository::SharedRepository::with_sync_cycle_slo<T>(&self, &str, core::time::Duration, impl core::ops::function::FnOnce() -> arc_core::repository::ArcResult<T>) -> arc_core::repository::ArcResult<T>
+impl core::clone::Clone for arc_core::repository::SharedRepository
+pub fn arc_core::repository::SharedRepository::clone(&self) -> arc_core::repository::SharedRepository
+pub type arc_core::repository::ArcResult<T> = core::result::Result<T, arc_core::repository::ArcError>
+pub mod arc_core::revset
+pub use arc_core::revset::<<arc_revset::*>>
+pub mod arc_core::store
+pub use arc_core::store::<<arc_change::change::*>>
+pub use arc_core::store::<<arc_change::content_hash::*>>
+pub use arc_core::store::<<arc_store_cas::cas::*>>
+pub use arc_core::store::<<arc_store_graph::*>>
+pub use arc_core::store::<<arc_store_types::author::*>>
+pub use arc_core::store::<<arc_store_types::newtypes::*>>
+pub use arc_core::store::<<arc_store_types::refs::*>>
+pub use arc_core::store::<<arc_store_types::tag::*>>
+pub use arc_core::store::<<arc_store_view::oplog::*>>
+pub use arc_core::store::<<arc_store_view::synthesis::*>>
+pub use arc_core::store::<<arc_store_view::tempfile::*>>
+pub use arc_core::store::<<arc_store_view::view::*>>
+pub use arc_core::store::Blake3HashMap
+pub use arc_core::store::Blake3Hasher
+pub use arc_core::store::CasBytes
+pub use arc_core::store::StoreError
+pub use arc_core::store::author
+pub use arc_core::store::blake3_hasher
+pub use arc_core::store::cas
+pub use arc_core::store::change
+pub use arc_core::store::content_hash
+pub use arc_core::store::newtypes
+pub use arc_core::store::refs
+pub use arc_core::store::tag
+pub mod arc_core::store::oplog
+pub enum arc_core::store::oplog::Causality
+pub arc_core::store::oplog::Causality::Local
+pub arc_core::store::oplog::Causality::NetworkStable
+impl core::clone::Clone for arc_core::store::oplog::Causality
+pub fn arc_core::store::oplog::Causality::clone(&self) -> arc_core::store::oplog::Causality
+impl core::cmp::Eq for arc_core::store::oplog::Causality
+impl core::cmp::PartialEq for arc_core::store::oplog::Causality
+pub fn arc_core::store::oplog::Causality::eq(&self, &arc_core::store::oplog::Causality) -> bool
+impl core::fmt::Debug for arc_core::store::oplog::Causality
+pub fn arc_core::store::oplog::Causality::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_core::store::oplog::Causality
+impl core::marker::StructuralPartialEq for arc_core::store::oplog::Causality
+impl serde_core::ser::Serialize for arc_core::store::oplog::Causality
+pub fn arc_core::store::oplog::Causality::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_core::store::oplog::Causality
+pub fn arc_core::store::oplog::Causality::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_core::store::oplog::OpAction
+pub arc_core::store::oplog::OpAction::Merge
+pub arc_core::store::oplog::OpAction::Revert
+pub arc_core::store::oplog::OpAction::Snap
+pub arc_core::store::oplog::OpAction::Squash
+impl core::clone::Clone for arc_core::store::oplog::OpAction
+pub fn arc_core::store::oplog::OpAction::clone(&self) -> arc_core::store::oplog::OpAction
+impl core::cmp::Eq for arc_core::store::oplog::OpAction
+impl core::cmp::PartialEq for arc_core::store::oplog::OpAction
+pub fn arc_core::store::oplog::OpAction::eq(&self, &arc_core::store::oplog::OpAction) -> bool
+impl core::fmt::Debug for arc_core::store::oplog::OpAction
+pub fn arc_core::store::oplog::OpAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::store::oplog::OpAction
+impl serde_core::ser::Serialize for arc_core::store::oplog::OpAction
+pub fn arc_core::store::oplog::OpAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_core::store::oplog::OpAction
+pub fn arc_core::store::oplog::OpAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_core::store::oplog::OpLog
+impl arc_core::store::oplog::OpLog
+pub fn arc_core::store::oplog::OpLog::compact_local_history(&mut self) -> core::result::Result<usize, arc_core::store::oplog::Error>
+pub fn arc_core::store::oplog::OpLog::from_records(alloc::vec::Vec<arc_core::store::oplog::OpRecord>) -> Self
+pub fn arc_core::store::oplog::OpLog::new() -> Self
+pub fn arc_core::store::oplog::OpLog::pop_local_for_undo(&mut self) -> core::option::Option<arc_core::git_types::GitOid>
+pub fn arc_core::store::oplog::OpLog::push(&mut self, arc_core::store::oplog::OpRecord)
+pub fn arc_core::store::oplog::OpLog::records(&self) -> &[arc_core::store::oplog::OpRecord]
+impl core::clone::Clone for arc_core::store::oplog::OpLog
+pub fn arc_core::store::oplog::OpLog::clone(&self) -> arc_core::store::oplog::OpLog
+impl core::cmp::Eq for arc_core::store::oplog::OpLog
+impl core::cmp::PartialEq for arc_core::store::oplog::OpLog
+pub fn arc_core::store::oplog::OpLog::eq(&self, &arc_core::store::oplog::OpLog) -> bool
+impl core::default::Default for arc_core::store::oplog::OpLog
+pub fn arc_core::store::oplog::OpLog::default() -> arc_core::store::oplog::OpLog
+impl core::fmt::Debug for arc_core::store::oplog::OpLog
+pub fn arc_core::store::oplog::OpLog::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::store::oplog::OpLog
+pub struct arc_core::store::oplog::OpRecord
+pub arc_core::store::oplog::OpRecord::action: arc_core::store::oplog::OpAction
+pub arc_core::store::oplog::OpRecord::causality: arc_core::store::oplog::Causality
+pub arc_core::store::oplog::OpRecord::id: alloc::string::String
+pub arc_core::store::oplog::OpRecord::intent_summary: core::option::Option<alloc::string::String>
+pub arc_core::store::oplog::OpRecord::target_oid: arc_core::git_types::GitOid
+pub arc_core::store::oplog::OpRecord::timestamp: i64
+impl core::clone::Clone for arc_core::store::oplog::OpRecord
+pub fn arc_core::store::oplog::OpRecord::clone(&self) -> arc_core::store::oplog::OpRecord
+impl core::cmp::Eq for arc_core::store::oplog::OpRecord
+impl core::cmp::PartialEq for arc_core::store::oplog::OpRecord
+pub fn arc_core::store::oplog::OpRecord::eq(&self, &arc_core::store::oplog::OpRecord) -> bool
+impl core::fmt::Debug for arc_core::store::oplog::OpRecord
+pub fn arc_core::store::oplog::OpRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::store::oplog::OpRecord
+impl serde_core::ser::Serialize for arc_core::store::oplog::OpRecord
+pub fn arc_core::store::oplog::OpRecord::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_core::store::oplog::OpRecord
+pub fn arc_core::store::oplog::OpRecord::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_core::store::oplog::auto_intent_summary(&[alloc::string::String]) -> alloc::string::String
+pub type arc_core::store::oplog::Error = core::convert::Infallible
+pub type arc_core::store::oplog::Operation = arc_core::store::oplog::OpRecord
+pub mod arc_core::store::synthesis
+pub use arc_core::store::synthesis::<<arc_store_view::synthesis::*>>
+pub mod arc_core::store::tempfile
+pub use arc_core::store::tempfile::<<arc_store_view::tempfile::*>>
+pub mod arc_core::store::view
+pub use arc_core::store::view::<<arc_store_view::view::*>>
+pub mod arc_core::vfs
+pub struct arc_core::vfs::VfsMetadata
+pub arc_core::vfs::VfsMetadata::is_dir: bool
+pub arc_core::vfs::VfsMetadata::is_virtual: bool
+pub arc_core::vfs::VfsMetadata::len: u64
+pub arc_core::vfs::VfsMetadata::oid: core::option::Option<arc_core::git_types::GitOid>
+impl core::clone::Clone for arc_core::vfs::VfsMetadata
+pub fn arc_core::vfs::VfsMetadata::clone(&self) -> arc_core::vfs::VfsMetadata
+impl core::cmp::Eq for arc_core::vfs::VfsMetadata
+impl core::cmp::PartialEq for arc_core::vfs::VfsMetadata
+pub fn arc_core::vfs::VfsMetadata::eq(&self, &arc_core::vfs::VfsMetadata) -> bool
+impl core::fmt::Debug for arc_core::vfs::VfsMetadata
+pub fn arc_core::vfs::VfsMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_core::vfs::VfsMetadata
+pub trait arc_core::vfs::Vfs
+pub fn arc_core::vfs::Vfs::materialize(&self, &arc_core::git_types::GitOid, &std::path::Path) -> core::result::Result<(), arc_error::Error>
+pub fn arc_core::vfs::Vfs::read_at_oid(&self, &arc_core::git_types::GitOid) -> alloc::boxed::Box<dyn alloc::io::read::Read>
+pub fn arc_core::vfs::Vfs::resolve_mount(&self, &arc_algebra_types::SpacetimeCoordinate) -> core::result::Result<alloc::boxed::Box<dyn alloc::io::read::Read>, arc_error::Error>
+pub fn arc_core::vfs::Vfs::stat(&self, &std::path::Path) -> core::result::Result<arc_core::vfs::VfsMetadata, arc_error::Error>

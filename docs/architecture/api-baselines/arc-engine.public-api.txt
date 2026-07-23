@@ -1,0 +1,126 @@
+pub mod arc_engine
+pub mod arc_engine::mutator
+pub enum arc_engine::mutator::MutatorError
+pub arc_engine::mutator::MutatorError::InvalidReorderSet
+pub arc_engine::mutator::MutatorError::NonCommutingPair(arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId)
+pub arc_engine::mutator::MutatorError::NonLinearChain
+pub arc_engine::mutator::MutatorError::TargetNotAncestor(arc_store_types::newtypes::ChangeId)
+pub arc_engine::mutator::MutatorError::TargetNotFound(arc_store_types::newtypes::ChangeId)
+impl core::error::Error for arc_engine::MutatorError
+impl core::fmt::Debug for arc_engine::MutatorError
+pub fn arc_engine::MutatorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_engine::MutatorError
+pub fn arc_engine::MutatorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_engine::mutator::ReorderOutcome
+pub arc_engine::mutator::ReorderOutcome::new_head: arc_store_types::newtypes::ChangeId
+pub arc_engine::mutator::ReorderOutcome::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_engine::mutator::ReorderOutcome::rewritten: alloc::vec::Vec<arc_change::change::Change>
+impl core::clone::Clone for arc_engine::ReorderOutcome
+pub fn arc_engine::ReorderOutcome::clone(&self) -> arc_engine::ReorderOutcome
+impl core::fmt::Debug for arc_engine::ReorderOutcome
+pub fn arc_engine::ReorderOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_engine::mutator::SquashOutcome
+pub arc_engine::mutator::SquashOutcome::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_engine::mutator::SquashOutcome::squashed: arc_change::change::Change
+impl core::clone::Clone for arc_engine::SquashOutcome
+pub fn arc_engine::SquashOutcome::clone(&self) -> arc_engine::SquashOutcome
+impl core::fmt::Debug for arc_engine::SquashOutcome
+pub fn arc_engine::SquashOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_engine::mutator::reorder(&arc_store_graph::graph::ChangeGraph, &[arc_algebra_types::Blake3Hash], &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_engine::ReorderOutcome, arc_engine::MutatorError>
+pub fn arc_engine::mutator::squash_into(&arc_store_graph::graph::ChangeGraph, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, arc_algebra_types::Blake3Hash, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_engine::SquashOutcome, arc_engine::MutatorError>
+pub mod arc_engine::spacetime
+pub enum arc_engine::spacetime::SpacetimeError
+pub arc_engine::spacetime::SpacetimeError::NonLinearSpine(arc_algebra_types::Blake3Hash)
+pub arc_engine::spacetime::SpacetimeError::TargetNotAncestor(arc_algebra_types::Blake3Hash)
+pub arc_engine::spacetime::SpacetimeError::TargetNotFound(arc_algebra_types::Blake3Hash)
+impl core::error::Error for arc_engine::SpacetimeError
+impl core::fmt::Debug for arc_engine::SpacetimeError
+pub fn arc_engine::SpacetimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_engine::SpacetimeError
+pub fn arc_engine::SpacetimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_engine::spacetime::squash_into(&arc_store_graph::graph::ChangeGraph, &arc_store_cas::cas::ObjectStore, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, arc_algebra_types::Blake3Hash, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_change::change::Change, arc_engine::SpacetimeError>
+pub mod arc_engine::task_harness
+pub struct arc_engine::task_harness::TaskRegistry
+impl arc_engine::TaskRegistry
+pub fn arc_engine::TaskRegistry::ids(&self) -> alloc::vec::Vec<&'static str>
+pub fn arc_engine::TaskRegistry::new() -> Self
+pub fn arc_engine::TaskRegistry::register(&mut self, alloc::boxed::Box<dyn arc_engine::EngineTask>) -> anyhow::Result<()>
+pub fn arc_engine::TaskRegistry::run_all(&self) -> anyhow::Result<alloc::vec::Vec<arc_engine::TaskRunResult>>
+pub fn arc_engine::TaskRegistry::run_one(&self, &str) -> anyhow::Result<arc_engine::TaskRunResult>
+impl core::default::Default for arc_engine::TaskRegistry
+pub fn arc_engine::TaskRegistry::default() -> arc_engine::TaskRegistry
+pub struct arc_engine::task_harness::TaskRunResult
+pub arc_engine::task_harness::TaskRunResult::duration: core::time::Duration
+pub arc_engine::task_harness::TaskRunResult::id: alloc::string::String
+impl core::clone::Clone for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::clone(&self) -> arc_engine::TaskRunResult
+impl core::cmp::Eq for arc_engine::TaskRunResult
+impl core::cmp::PartialEq for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::eq(&self, &arc_engine::TaskRunResult) -> bool
+impl core::fmt::Debug for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_engine::TaskRunResult
+pub trait arc_engine::task_harness::EngineTask: core::marker::Send + core::marker::Sync
+pub fn arc_engine::task_harness::EngineTask::id(&self) -> &'static str
+pub fn arc_engine::task_harness::EngineTask::run(&self) -> anyhow::Result<()>
+pub enum arc_engine::MutatorError
+pub arc_engine::MutatorError::InvalidReorderSet
+pub arc_engine::MutatorError::NonCommutingPair(arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId)
+pub arc_engine::MutatorError::NonLinearChain
+pub arc_engine::MutatorError::TargetNotAncestor(arc_store_types::newtypes::ChangeId)
+pub arc_engine::MutatorError::TargetNotFound(arc_store_types::newtypes::ChangeId)
+impl core::error::Error for arc_engine::MutatorError
+impl core::fmt::Debug for arc_engine::MutatorError
+pub fn arc_engine::MutatorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_engine::MutatorError
+pub fn arc_engine::MutatorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum arc_engine::SpacetimeError
+pub arc_engine::SpacetimeError::NonLinearSpine(arc_algebra_types::Blake3Hash)
+pub arc_engine::SpacetimeError::TargetNotAncestor(arc_algebra_types::Blake3Hash)
+pub arc_engine::SpacetimeError::TargetNotFound(arc_algebra_types::Blake3Hash)
+impl core::error::Error for arc_engine::SpacetimeError
+impl core::fmt::Debug for arc_engine::SpacetimeError
+pub fn arc_engine::SpacetimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_engine::SpacetimeError
+pub fn arc_engine::SpacetimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_engine::ReorderOutcome
+pub arc_engine::ReorderOutcome::new_head: arc_store_types::newtypes::ChangeId
+pub arc_engine::ReorderOutcome::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_engine::ReorderOutcome::rewritten: alloc::vec::Vec<arc_change::change::Change>
+impl core::clone::Clone for arc_engine::ReorderOutcome
+pub fn arc_engine::ReorderOutcome::clone(&self) -> arc_engine::ReorderOutcome
+impl core::fmt::Debug for arc_engine::ReorderOutcome
+pub fn arc_engine::ReorderOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_engine::SquashOutcome
+pub arc_engine::SquashOutcome::rewrite_map: alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, arc_store_types::newtypes::ChangeId>
+pub arc_engine::SquashOutcome::squashed: arc_change::change::Change
+impl core::clone::Clone for arc_engine::SquashOutcome
+pub fn arc_engine::SquashOutcome::clone(&self) -> arc_engine::SquashOutcome
+impl core::fmt::Debug for arc_engine::SquashOutcome
+pub fn arc_engine::SquashOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_engine::TaskRegistry
+impl arc_engine::TaskRegistry
+pub fn arc_engine::TaskRegistry::ids(&self) -> alloc::vec::Vec<&'static str>
+pub fn arc_engine::TaskRegistry::new() -> Self
+pub fn arc_engine::TaskRegistry::register(&mut self, alloc::boxed::Box<dyn arc_engine::EngineTask>) -> anyhow::Result<()>
+pub fn arc_engine::TaskRegistry::run_all(&self) -> anyhow::Result<alloc::vec::Vec<arc_engine::TaskRunResult>>
+pub fn arc_engine::TaskRegistry::run_one(&self, &str) -> anyhow::Result<arc_engine::TaskRunResult>
+impl core::default::Default for arc_engine::TaskRegistry
+pub fn arc_engine::TaskRegistry::default() -> arc_engine::TaskRegistry
+pub struct arc_engine::TaskRunResult
+pub arc_engine::TaskRunResult::duration: core::time::Duration
+pub arc_engine::TaskRunResult::id: alloc::string::String
+impl core::clone::Clone for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::clone(&self) -> arc_engine::TaskRunResult
+impl core::cmp::Eq for arc_engine::TaskRunResult
+impl core::cmp::PartialEq for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::eq(&self, &arc_engine::TaskRunResult) -> bool
+impl core::fmt::Debug for arc_engine::TaskRunResult
+pub fn arc_engine::TaskRunResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_engine::TaskRunResult
+pub trait arc_engine::EngineTask: core::marker::Send + core::marker::Sync
+pub fn arc_engine::EngineTask::id(&self) -> &'static str
+pub fn arc_engine::EngineTask::run(&self) -> anyhow::Result<()>
+pub fn arc_engine::reorder(&arc_store_graph::graph::ChangeGraph, &[arc_algebra_types::Blake3Hash], &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_engine::ReorderOutcome, arc_engine::MutatorError>
+pub fn arc_engine::squash_into(&arc_store_graph::graph::ChangeGraph, &arc_store_cas::cas::ObjectStore, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, arc_algebra_types::Blake3Hash, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_change::change::Change, arc_engine::SpacetimeError>
+pub fn arc_engine::squash_into(&arc_store_graph::graph::ChangeGraph, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, arc_algebra_types::Blake3Hash, &(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)) -> core::result::Result<arc_engine::SquashOutcome, arc_engine::MutatorError>

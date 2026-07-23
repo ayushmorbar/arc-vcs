@@ -4,6 +4,9 @@ version = "2026.7.19"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "arc CLI orchestrator: repository engine, network sync, and the arc binary"
+repository = "https://github.com/ayushmorbar/arc-vcs"
+homepage = "https://github.com/ayushmorbar/arc-vcs"
+documentation = "https://ayushmorbar.github.io/arc-vcs/"
 
 [lib]
 name = "arc_cli"

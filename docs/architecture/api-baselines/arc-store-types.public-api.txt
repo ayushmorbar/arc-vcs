@@ -1,0 +1,288 @@
+pub mod arc_store_types
+pub mod arc_store_types::author
+pub enum arc_store_types::author::Author
+pub arc_store_types::author::Author::AI
+pub arc_store_types::author::Author::AI::human_sponsor: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::author::Author::AI::model: alloc::string::String
+pub arc_store_types::author::Author::Human
+pub arc_store_types::author::Author::Human::email: alloc::string::String
+pub arc_store_types::author::Author::Human::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::author::Author::Human::name: alloc::string::String
+pub arc_store_types::author::Author::Server
+pub arc_store_types::author::Author::Server::canonical_id: alloc::string::String
+pub arc_store_types::author::Author::Server::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::author::Author::Transient
+pub arc_store_types::author::Author::Transient::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::author::Author::Transient::session_id: alloc::string::String
+impl core::clone::Clone for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::clone(&self) -> arc_store_types::author::Author
+impl core::cmp::Eq for arc_store_types::author::Author
+impl core::cmp::PartialEq for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::eq(&self, &arc_store_types::author::Author) -> bool
+impl core::fmt::Debug for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::author::Author
+impl serde_core::ser::Serialize for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::author::IdentityProfile
+pub arc_store_types::author::IdentityProfile::author: arc_store_types::author::Author
+pub arc_store_types::author::IdentityProfile::secret_key: [u8; 32]
+impl core::fmt::Debug for arc_store_types::author::IdentityProfile
+pub fn arc_store_types::author::IdentityProfile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_store_types::author::IdentityProfile
+pub fn arc_store_types::author::IdentityProfile::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::author::IdentityProfile
+pub fn arc_store_types::author::IdentityProfile::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::author::Signature(pub [u8; 64])
+impl core::clone::Clone for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::clone(&self) -> arc_store_types::author::Signature
+impl core::cmp::Eq for arc_store_types::author::Signature
+impl core::cmp::PartialEq for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::eq(&self, &arc_store_types::author::Signature) -> bool
+impl core::fmt::Debug for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::author::Signature
+impl serde_core::ser::Serialize for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub fn arc_store_types::author::generate_server_keypair_seed(&str) -> (arc_store_types::author::Author, [u8; 32])
+pub fn arc_store_types::author::generate_transient_keypair_seed(&str) -> (arc_store_types::author::Author, [u8; 32])
+pub fn arc_store_types::author::load_identity() -> anyhow::Result<(arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)>
+pub fn arc_store_types::author::save_identity(&str, &str) -> anyhow::Result<()>
+pub fn arc_store_types::author::server_author_from_seed(&str, &[u8; 32]) -> arc_store_types::author::Author
+pub fn arc_store_types::author::test_keypair() -> (arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)
+pub type arc_store_types::author::PublicKeyBytes = [u8; 32]
+pub mod arc_store_types::newtypes
+pub enum arc_store_types::newtypes::ParseHexError
+pub arc_store_types::newtypes::ParseHexError::InvalidCharacter
+pub arc_store_types::newtypes::ParseHexError::InvalidCharacter::ch: char
+pub arc_store_types::newtypes::ParseHexError::InvalidLength
+pub arc_store_types::newtypes::ParseHexError::InvalidLength::got: usize
+impl core::clone::Clone for arc_store_types::newtypes::ParseHexError
+pub fn arc_store_types::newtypes::ParseHexError::clone(&self) -> arc_store_types::newtypes::ParseHexError
+impl core::cmp::Eq for arc_store_types::newtypes::ParseHexError
+impl core::cmp::PartialEq for arc_store_types::newtypes::ParseHexError
+pub fn arc_store_types::newtypes::ParseHexError::eq(&self, &arc_store_types::newtypes::ParseHexError) -> bool
+impl core::error::Error for arc_store_types::newtypes::ParseHexError
+impl core::fmt::Debug for arc_store_types::newtypes::ParseHexError
+pub fn arc_store_types::newtypes::ParseHexError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::ParseHexError
+pub fn arc_store_types::newtypes::ParseHexError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::ParseHexError
+pub struct arc_store_types::newtypes::BlobId(pub arc_store_types::Blake3Hash)
+impl arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::from_hex(&str) -> anyhow::Result<Self>
+pub fn arc_store_types::newtypes::BlobId::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::clone(&self) -> arc_store_types::newtypes::BlobId
+impl core::cmp::Eq for arc_store_types::newtypes::BlobId
+impl core::cmp::Ord for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::cmp(&self, &arc_store_types::newtypes::BlobId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::eq(&self, &arc_store_types::newtypes::BlobId) -> bool
+impl core::cmp::PartialOrd for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::partial_cmp(&self, &arc_store_types::newtypes::BlobId) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<[u8; 32]> for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::from(arc_store_types::Blake3Hash) -> Self
+impl core::convert::From<arc_store_types::newtypes::BlobId> for arc_store_types::Blake3Hash
+pub fn arc_store_types::Blake3Hash::from(arc_store_types::newtypes::BlobId) -> Self
+impl core::fmt::Debug for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_store_types::newtypes::BlobId
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::BlobId
+impl serde_core::ser::Serialize for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::newtypes::BlobId
+pub fn arc_store_types::newtypes::BlobId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::newtypes::ChangeId(pub arc_store_types::Blake3Hash)
+impl arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::from_hex(&str) -> anyhow::Result<Self>
+pub fn arc_store_types::newtypes::ChangeId::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::clone(&self) -> arc_store_types::newtypes::ChangeId
+impl core::cmp::Eq for arc_store_types::newtypes::ChangeId
+impl core::cmp::Ord for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::cmp(&self, &arc_store_types::newtypes::ChangeId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::eq(&self, &arc_store_types::newtypes::ChangeId) -> bool
+impl core::cmp::PartialOrd for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::partial_cmp(&self, &arc_store_types::newtypes::ChangeId) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<[u8; 32]> for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::from(arc_store_types::Blake3Hash) -> Self
+impl core::convert::From<arc_store_types::newtypes::ChangeId> for arc_store_types::Blake3Hash
+pub fn arc_store_types::Blake3Hash::from(arc_store_types::newtypes::ChangeId) -> Self
+impl core::fmt::Debug for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_store_types::newtypes::ChangeId
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::ChangeId
+impl serde_core::ser::Serialize for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::newtypes::MutationId(pub arc_store_types::Blake3Hash)
+impl arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::from_hex(&str) -> anyhow::Result<Self>
+pub fn arc_store_types::newtypes::MutationId::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::clone(&self) -> arc_store_types::newtypes::MutationId
+impl core::cmp::Eq for arc_store_types::newtypes::MutationId
+impl core::cmp::Ord for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::cmp(&self, &arc_store_types::newtypes::MutationId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::eq(&self, &arc_store_types::newtypes::MutationId) -> bool
+impl core::cmp::PartialOrd for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::partial_cmp(&self, &arc_store_types::newtypes::MutationId) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<[u8; 32]> for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::from(arc_store_types::Blake3Hash) -> Self
+impl core::convert::From<arc_store_types::newtypes::MutationId> for arc_store_types::Blake3Hash
+pub fn arc_store_types::Blake3Hash::from(arc_store_types::newtypes::MutationId) -> Self
+impl core::fmt::Debug for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_store_types::newtypes::MutationId
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::MutationId
+impl serde_core::ser::Serialize for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::newtypes::MutationId
+pub fn arc_store_types::newtypes::MutationId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::newtypes::SnapshotId(pub arc_store_types::Blake3Hash)
+impl arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::from_hex(&str) -> anyhow::Result<Self>
+pub fn arc_store_types::newtypes::SnapshotId::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::clone(&self) -> arc_store_types::newtypes::SnapshotId
+impl core::cmp::Eq for arc_store_types::newtypes::SnapshotId
+impl core::cmp::Ord for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::cmp(&self, &arc_store_types::newtypes::SnapshotId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::eq(&self, &arc_store_types::newtypes::SnapshotId) -> bool
+impl core::cmp::PartialOrd for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::partial_cmp(&self, &arc_store_types::newtypes::SnapshotId) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<[u8; 32]> for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::from(arc_store_types::Blake3Hash) -> Self
+impl core::convert::From<arc_store_types::newtypes::SnapshotId> for arc_store_types::Blake3Hash
+pub fn arc_store_types::Blake3Hash::from(arc_store_types::newtypes::SnapshotId) -> Self
+impl core::fmt::Debug for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_store_types::newtypes::SnapshotId
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::SnapshotId
+impl serde_core::ser::Serialize for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::newtypes::SnapshotId
+pub fn arc_store_types::newtypes::SnapshotId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub mod arc_store_types::refs
+pub fn arc_store_types::refs::read_bookmark_heads(&std::path::Path) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_store_types::refs::read_bookmark_map(&std::path::Path) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
+pub fn arc_store_types::refs::read_remote_branch_heads(&std::path::Path) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_store_types::refs::read_remote_branch_map(&std::path::Path) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
+pub fn arc_store_types::refs::read_tag_heads(&std::path::Path) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_store_types::refs::read_tag_map(&std::path::Path) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
+pub mod arc_store_types::tag
+pub struct arc_store_types::tag::Tag
+pub arc_store_types::tag::Tag::author: arc_store_types::author::Author
+pub arc_store_types::tag::Tag::name: alloc::string::String
+pub arc_store_types::tag::Tag::signature: arc_store_types::author::Signature
+pub arc_store_types::tag::Tag::target: arc_store_types::Blake3Hash
+impl arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::new(impl core::convert::Into<alloc::string::String>, arc_store_types::Blake3Hash, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_store_types::tag::Tag::verify(&self) -> bool
+impl core::clone::Clone for arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::clone(&self) -> arc_store_types::tag::Tag
+impl core::cmp::Eq for arc_store_types::tag::Tag
+impl core::cmp::PartialEq for arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::eq(&self, &arc_store_types::tag::Tag) -> bool
+impl core::fmt::Debug for arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::tag::Tag
+impl serde_core::ser::Serialize for arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::tag::Tag
+pub fn arc_store_types::tag::Tag::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub enum arc_store_types::Author
+pub arc_store_types::Author::AI
+pub arc_store_types::Author::AI::human_sponsor: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::Author::AI::model: alloc::string::String
+pub arc_store_types::Author::Human
+pub arc_store_types::Author::Human::email: alloc::string::String
+pub arc_store_types::Author::Human::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::Author::Human::name: alloc::string::String
+pub arc_store_types::Author::Server
+pub arc_store_types::Author::Server::canonical_id: alloc::string::String
+pub arc_store_types::Author::Server::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::Author::Transient
+pub arc_store_types::Author::Transient::key: arc_store_types::author::PublicKeyBytes
+pub arc_store_types::Author::Transient::session_id: alloc::string::String
+impl core::clone::Clone for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::clone(&self) -> arc_store_types::author::Author
+impl core::cmp::Eq for arc_store_types::author::Author
+impl core::cmp::PartialEq for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::eq(&self, &arc_store_types::author::Author) -> bool
+impl core::fmt::Debug for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::author::Author
+impl serde_core::ser::Serialize for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::ChangeId(pub arc_store_types::Blake3Hash)
+impl arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::from_hex(&str) -> anyhow::Result<Self>
+pub fn arc_store_types::newtypes::ChangeId::to_hex(self) -> alloc::string::String
+impl core::clone::Clone for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::clone(&self) -> arc_store_types::newtypes::ChangeId
+impl core::cmp::Eq for arc_store_types::newtypes::ChangeId
+impl core::cmp::Ord for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::cmp(&self, &arc_store_types::newtypes::ChangeId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::eq(&self, &arc_store_types::newtypes::ChangeId) -> bool
+impl core::cmp::PartialOrd for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::partial_cmp(&self, &arc_store_types::newtypes::ChangeId) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<[u8; 32]> for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::from(arc_store_types::Blake3Hash) -> Self
+impl core::convert::From<arc_store_types::newtypes::ChangeId> for arc_store_types::Blake3Hash
+pub fn arc_store_types::Blake3Hash::from(arc_store_types::newtypes::ChangeId) -> Self
+impl core::fmt::Debug for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_store_types::newtypes::ChangeId
+impl core::marker::StructuralPartialEq for arc_store_types::newtypes::ChangeId
+impl serde_core::ser::Serialize for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::newtypes::ChangeId
+pub fn arc_store_types::newtypes::ChangeId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_store_types::Signature(pub [u8; 64])
+impl core::clone::Clone for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::clone(&self) -> arc_store_types::author::Signature
+impl core::cmp::Eq for arc_store_types::author::Signature
+impl core::cmp::PartialEq for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::eq(&self, &arc_store_types::author::Signature) -> bool
+impl core::fmt::Debug for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_store_types::author::Signature
+impl serde_core::ser::Serialize for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for arc_store_types::author::Signature
+pub fn arc_store_types::author::Signature::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub type arc_store_types::Blake3Hash = [u8; 32]
+pub type arc_store_types::PublicKeyBytes = [u8; 32]
