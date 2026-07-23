@@ -1029,6 +1029,7 @@ mod tests {
     fn hex_to_blake3_invalid_chars() {
         // Build a 64-char hex string with an invalid char at position 0
         let mut hex = "0".repeat(64);
+        // SAFETY: hex is a valid UTF-8 string; we're only mutating bytes to invalid chars for testing
         let bytes = unsafe { hex.as_bytes_mut() };
         bytes[0] = b'g';
         assert!(hex_to_blake3(&hex).is_err());
@@ -1039,22 +1040,26 @@ mod tests {
     #[test]
     fn allow_unsigned_sync_fallback_env_values() {
         // Clean state: env unset → false
+        // SAFETY: single-threaded test; env manipulation is safe here
         unsafe { std::env::remove_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK") };
         assert!(!allow_unsigned_sync_fallback());
 
         // Truthy values
         for val in ["1", "true", "TRUE", "yes", "YES"] {
+            // SAFETY: single-threaded test; env manipulation is safe here
             unsafe { std::env::set_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK", val) };
             assert!(allow_unsigned_sync_fallback(), "{val} should enable fallback");
         }
 
         // Falsy values
         for val in ["0", "false", "no", "anything"] {
+            // SAFETY: single-threaded test; env manipulation is safe here
             unsafe { std::env::set_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK", val) };
             assert!(!allow_unsigned_sync_fallback(), "{val} should disable fallback");
         }
 
         // Clean up
+        // SAFETY: single-threaded test; restoring env to clean state
         unsafe { std::env::remove_var("ARC_ALLOW_UNSIGNED_SYNC_FALLBACK") };
     }
 

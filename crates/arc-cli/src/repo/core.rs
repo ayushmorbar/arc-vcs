@@ -8444,8 +8444,10 @@ mod tests {
 
     #[test]
     fn implicitly_not_ignored_with_env_tracking() {
+        // SAFETY: single-threaded test; env manipulation is safe here
         unsafe { std::env::set_var("ARC_TRACK_IMPLICITLY_IGNORED", "1") };
         let result = is_implicitly_ignored(Path::new(".env"));
+        // SAFETY: single-threaded test; restoring env to clean state
         unsafe { std::env::remove_var("ARC_TRACK_IMPLICITLY_IGNORED") };
         assert!(!result);
     }

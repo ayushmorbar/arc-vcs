@@ -4789,8 +4789,10 @@ mod tests {
         // SAFETY: env var manipulation is process-global; this single test
         // serialises all scenarios to avoid parallel-test races.
         let run = |val: &str| -> Option<String> {
+            // SAFETY: single-threaded test; env manipulation is safe here
             unsafe { std::env::set_var("ARC_SYNC_TOKEN", val) };
             let r = resolve_sync_token().unwrap();
+            // SAFETY: single-threaded test; restoring env to clean state
             unsafe { std::env::remove_var("ARC_SYNC_TOKEN") };
             r
         };
