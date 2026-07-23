@@ -42,6 +42,9 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Ordered frontier of DAG head hashes for sync negotiation.
+pub mod frontier;
+
 /// BLAKE3 content-addressed identity - 32-byte hash.
 pub type Blake3Hash = [u8; 32];
 
