@@ -1,0 +1,273 @@
+pub mod arc_tui
+pub mod arc_tui::app
+pub struct arc_tui::app::App
+impl arc_tui::app::App
+pub fn arc_tui::app::App::new(impl arc_tui::provider::ChangeProvider, tokio::sync::mpsc::bounded::Receiver<arc_ux::event::OutputEvent>) -> Self
+pub fn arc_tui::app::App::run(&mut self) -> anyhow::Result<()>
+pub mod arc_tui::bridge
+pub struct arc_tui::bridge::BackendBridge
+pub arc_tui::bridge::BackendBridge::inbound: tokio::sync::mpsc::bounded::Sender<arc_ux::event::OutputEvent>
+pub arc_tui::bridge::BackendBridge::inbound_rx: tokio::sync::mpsc::bounded::Receiver<arc_ux::event::OutputEvent>
+impl arc_tui::bridge::BackendBridge
+pub fn arc_tui::bridge::BackendBridge::channel(usize) -> Self
+pub mod arc_tui::components
+pub mod arc_tui::components::commit_input
+pub struct arc_tui::components::commit_input::CommitInput
+impl arc_tui::components::commit_input::CommitInput
+pub fn arc_tui::components::commit_input::CommitInput::handle_key(&mut self, crossterm::event::KeyEvent) -> bool
+pub fn arc_tui::components::commit_input::CommitInput::intent_text(&self) -> alloc::string::String
+pub fn arc_tui::components::commit_input::CommitInput::is_empty(&self) -> bool
+pub fn arc_tui::components::commit_input::CommitInput::new() -> Self
+pub fn arc_tui::components::commit_input::CommitInput::render(&mut self, &mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &str)
+impl core::default::Default for arc_tui::components::commit_input::CommitInput
+pub fn arc_tui::components::commit_input::CommitInput::default() -> Self
+pub mod arc_tui::components::dag_explorer
+pub struct arc_tui::components::dag_explorer::DagExplorer
+impl arc_tui::components::dag_explorer::DagExplorer
+pub fn arc_tui::components::dag_explorer::DagExplorer::new() -> Self
+pub fn arc_tui::components::dag_explorer::DagExplorer::render(&mut self, &mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &arc_tui::model::AppState)
+impl core::default::Default for arc_tui::components::dag_explorer::DagExplorer
+pub fn arc_tui::components::dag_explorer::DagExplorer::default() -> arc_tui::components::dag_explorer::DagExplorer
+pub mod arc_tui::components::detail_panel
+pub struct arc_tui::components::detail_panel::DetailPanel
+impl arc_tui::components::detail_panel::DetailPanel
+pub fn arc_tui::components::detail_panel::DetailPanel::render(&mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &arc_tui::model::AppState)
+pub mod arc_tui::components::diff_view
+pub struct arc_tui::components::diff_view::DiffView
+impl arc_tui::components::diff_view::DiffView
+pub fn arc_tui::components::diff_view::DiffView::render(&mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &arc_tui::diff::generator::SemanticDiff, &arc_tui::components::side_by_side_diff::SideBySideDiff, bool, usize, &std::collections::hash::set::HashSet<usize>)
+pub mod arc_tui::components::side_by_side_diff
+pub struct arc_tui::components::side_by_side_diff::SideBySideDiff
+impl arc_tui::components::side_by_side_diff::SideBySideDiff
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::render(&self, &mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &arc_tui::diff::generator::SemanticDiff)
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::scroll_down(&mut self)
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::scroll_up(&mut self)
+impl core::clone::Clone for arc_tui::components::side_by_side_diff::SideBySideDiff
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::clone(&self) -> arc_tui::components::side_by_side_diff::SideBySideDiff
+impl core::default::Default for arc_tui::components::side_by_side_diff::SideBySideDiff
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::default() -> arc_tui::components::side_by_side_diff::SideBySideDiff
+impl core::fmt::Debug for arc_tui::components::side_by_side_diff::SideBySideDiff
+pub fn arc_tui::components::side_by_side_diff::SideBySideDiff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod arc_tui::components::status_bar
+pub struct arc_tui::components::status_bar::StatusBar
+impl arc_tui::components::status_bar::StatusBar
+pub fn arc_tui::components::status_bar::StatusBar::render(&mut ratatui_core::terminal::frame::Frame<'_>, ratatui_core::layout::rect::Rect, &arc_tui::model::AppState)
+pub mod arc_tui::diff
+pub mod arc_tui::diff::generator
+pub enum arc_tui::diff::generator::SemanticKind
+pub arc_tui::diff::generator::SemanticKind::Delete
+pub arc_tui::diff::generator::SemanticKind::Insert
+pub arc_tui::diff::generator::SemanticKind::Modify
+pub arc_tui::diff::generator::SemanticKind::Unavailable
+impl core::clone::Clone for arc_tui::diff::generator::SemanticKind
+pub fn arc_tui::diff::generator::SemanticKind::clone(&self) -> arc_tui::diff::generator::SemanticKind
+impl core::cmp::Eq for arc_tui::diff::generator::SemanticKind
+impl core::cmp::PartialEq for arc_tui::diff::generator::SemanticKind
+pub fn arc_tui::diff::generator::SemanticKind::eq(&self, &arc_tui::diff::generator::SemanticKind) -> bool
+impl core::fmt::Debug for arc_tui::diff::generator::SemanticKind
+pub fn arc_tui::diff::generator::SemanticKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_tui::diff::generator::SemanticKind
+impl core::marker::StructuralPartialEq for arc_tui::diff::generator::SemanticKind
+pub struct arc_tui::diff::generator::BinaryDiffMetadata
+pub arc_tui::diff::generator::BinaryDiffMetadata::hash_hex: alloc::string::String
+pub arc_tui::diff::generator::BinaryDiffMetadata::label: alloc::string::String
+pub arc_tui::diff::generator::BinaryDiffMetadata::path: alloc::string::String
+impl core::clone::Clone for arc_tui::diff::generator::BinaryDiffMetadata
+pub fn arc_tui::diff::generator::BinaryDiffMetadata::clone(&self) -> arc_tui::diff::generator::BinaryDiffMetadata
+impl core::fmt::Debug for arc_tui::diff::generator::BinaryDiffMetadata
+pub fn arc_tui::diff::generator::BinaryDiffMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::diff::generator::DiffGenerator<'a, S: arc_algebra::BlobStore>
+impl<'a, S: arc_algebra::BlobStore> arc_tui::diff::generator::DiffGenerator<'a, S>
+pub fn arc_tui::diff::generator::DiffGenerator<'a, S>::generate(&mut self, &arc_change::change::Change) -> core::result::Result<arc_tui::diff::generator::SemanticDiff, alloc::string::String>
+pub fn arc_tui::diff::generator::DiffGenerator<'a, S>::new(&'a S) -> Self
+pub struct arc_tui::diff::generator::InMemoryBlobStore
+impl arc_tui::diff::generator::InMemoryBlobStore
+pub fn arc_tui::diff::generator::InMemoryBlobStore::insert_blob(&mut self, &[u8]) -> arc_algebra_types::Blake3Hash
+impl arc_algebra::BlobStore for arc_tui::diff::generator::InMemoryBlobStore
+pub fn arc_tui::diff::generator::InMemoryBlobStore::contains_blob(&self, &arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_tui::diff::generator::InMemoryBlobStore::read_blob(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<alloc::vec::Vec<u8>, alloc::string::String>
+impl core::clone::Clone for arc_tui::diff::generator::InMemoryBlobStore
+pub fn arc_tui::diff::generator::InMemoryBlobStore::clone(&self) -> arc_tui::diff::generator::InMemoryBlobStore
+impl core::default::Default for arc_tui::diff::generator::InMemoryBlobStore
+pub fn arc_tui::diff::generator::InMemoryBlobStore::default() -> arc_tui::diff::generator::InMemoryBlobStore
+impl core::fmt::Debug for arc_tui::diff::generator::InMemoryBlobStore
+pub fn arc_tui::diff::generator::InMemoryBlobStore::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::diff::generator::SemanticDiff
+pub arc_tui::diff::generator::SemanticDiff::after: ratatui_core::text::text::Text<'static>
+pub arc_tui::diff::generator::SemanticDiff::before: ratatui_core::text::text::Text<'static>
+pub arc_tui::diff::generator::SemanticDiff::binary: core::option::Option<arc_tui::diff::generator::BinaryDiffMetadata>
+pub arc_tui::diff::generator::SemanticDiff::lines: alloc::vec::Vec<arc_tui::diff::generator::SemanticDiffLine>
+impl core::clone::Clone for arc_tui::diff::generator::SemanticDiff
+pub fn arc_tui::diff::generator::SemanticDiff::clone(&self) -> arc_tui::diff::generator::SemanticDiff
+impl core::fmt::Debug for arc_tui::diff::generator::SemanticDiff
+pub fn arc_tui::diff::generator::SemanticDiff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::diff::generator::SemanticDiffLine
+pub arc_tui::diff::generator::SemanticDiffLine::after: alloc::string::String
+pub arc_tui::diff::generator::SemanticDiffLine::before: alloc::string::String
+pub arc_tui::diff::generator::SemanticDiffLine::kind: arc_tui::diff::generator::SemanticKind
+pub arc_tui::diff::generator::SemanticDiffLine::path: alloc::string::String
+impl core::clone::Clone for arc_tui::diff::generator::SemanticDiffLine
+pub fn arc_tui::diff::generator::SemanticDiffLine::clone(&self) -> arc_tui::diff::generator::SemanticDiffLine
+impl core::fmt::Debug for arc_tui::diff::generator::SemanticDiffLine
+pub fn arc_tui::diff::generator::SemanticDiffLine::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_tui::diff::generator::is_binary_path(&str) -> bool
+pub mod arc_tui::layout
+pub struct arc_tui::layout::BentoLayout
+pub arc_tui::layout::BentoLayout::dag: ratatui_core::layout::rect::Rect
+pub arc_tui::layout::BentoLayout::detail: ratatui_core::layout::rect::Rect
+pub arc_tui::layout::BentoLayout::status: ratatui_core::layout::rect::Rect
+impl core::clone::Clone for arc_tui::layout::BentoLayout
+pub fn arc_tui::layout::BentoLayout::clone(&self) -> arc_tui::layout::BentoLayout
+impl core::fmt::Debug for arc_tui::layout::BentoLayout
+pub fn arc_tui::layout::BentoLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_tui::layout::BentoLayout
+pub fn arc_tui::layout::split_bento(ratatui_core::layout::rect::Rect) -> arc_tui::layout::BentoLayout
+pub mod arc_tui::model
+pub enum arc_tui::model::Message
+pub arc_tui::model::Message::Backend(arc_ux::event::OutputEvent)
+pub arc_tui::model::Message::IntentEvent(alloc::string::String)
+pub arc_tui::model::Message::MoveDown
+pub arc_tui::model::Message::MoveUp
+pub arc_tui::model::Message::OpenDiff
+pub arc_tui::model::Message::Quit
+pub arc_tui::model::Message::SnapNow
+pub arc_tui::model::Message::SponsorshipNext
+pub arc_tui::model::Message::Tick
+pub arc_tui::model::Message::ToggleAtom
+pub arc_tui::model::Message::ToggleSelectionMode
+impl core::cmp::PartialEq for arc_tui::model::Message
+pub fn arc_tui::model::Message::eq(&self, &Self) -> bool
+pub enum arc_tui::model::Sponsorship
+pub arc_tui::model::Sponsorship::Ai
+pub arc_tui::model::Sponsorship::Human
+pub arc_tui::model::Sponsorship::Hybrid
+impl arc_tui::model::Sponsorship
+pub fn arc_tui::model::Sponsorship::as_label(self) -> &'static str
+pub fn arc_tui::model::Sponsorship::cycle(self) -> Self
+impl core::clone::Clone for arc_tui::model::Sponsorship
+pub fn arc_tui::model::Sponsorship::clone(&self) -> arc_tui::model::Sponsorship
+impl core::cmp::Eq for arc_tui::model::Sponsorship
+impl core::cmp::PartialEq for arc_tui::model::Sponsorship
+pub fn arc_tui::model::Sponsorship::eq(&self, &arc_tui::model::Sponsorship) -> bool
+impl core::fmt::Debug for arc_tui::model::Sponsorship
+pub fn arc_tui::model::Sponsorship::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_tui::model::Sponsorship
+impl core::marker::StructuralPartialEq for arc_tui::model::Sponsorship
+pub struct arc_tui::model::AppState
+pub arc_tui::model::AppState::changes: alloc::vec::Vec<arc_tui::model::ChangeEntry>
+pub arc_tui::model::AppState::diff_cursor: usize
+pub arc_tui::model::AppState::ghost_intent: core::option::Option<alloc::string::String>
+pub arc_tui::model::AppState::running: bool
+pub arc_tui::model::AppState::selected: usize
+pub arc_tui::model::AppState::selected_atoms: std::collections::hash::set::HashSet<usize>
+pub arc_tui::model::AppState::selection_mode: bool
+pub arc_tui::model::AppState::show_diff: bool
+pub arc_tui::model::AppState::sponsorship: arc_tui::model::Sponsorship
+pub arc_tui::model::AppState::status_line: alloc::string::String
+impl arc_tui::model::AppState
+pub fn arc_tui::model::AppState::apply_output_event(&mut self, arc_ux::event::OutputEvent)
+pub fn arc_tui::model::AppState::cycle_sponsorship(&mut self)
+pub fn arc_tui::model::AppState::ghost_text(&self) -> alloc::string::String
+pub fn arc_tui::model::AppState::inject_intent_event(&mut self, alloc::string::String)
+pub fn arc_tui::model::AppState::move_diff_cursor_down(&mut self)
+pub fn arc_tui::model::AppState::move_diff_cursor_up(&mut self)
+pub fn arc_tui::model::AppState::new(alloc::vec::Vec<arc_tui::model::ChangeEntry>) -> Self
+pub fn arc_tui::model::AppState::select_next(&mut self)
+pub fn arc_tui::model::AppState::select_prev(&mut self)
+pub fn arc_tui::model::AppState::selected_atom_count(&self) -> usize
+pub fn arc_tui::model::AppState::selected_change(&self) -> core::option::Option<&arc_tui::model::ChangeEntry>
+pub fn arc_tui::model::AppState::selected_diff(&self) -> core::option::Option<&arc_tui::diff::generator::SemanticDiff>
+pub fn arc_tui::model::AppState::start_success_nudge(&mut self, alloc::string::String)
+pub fn arc_tui::model::AppState::tick_animations(&mut self)
+pub fn arc_tui::model::AppState::toggle_selected_atom(&mut self)
+pub fn arc_tui::model::AppState::toggle_selection_mode(&mut self)
+impl core::fmt::Debug for arc_tui::model::AppState
+pub fn arc_tui::model::AppState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::model::ChangeEntry
+pub arc_tui::model::ChangeEntry::author: alloc::string::String
+pub arc_tui::model::ChangeEntry::change: arc_change::change::Change
+pub arc_tui::model::ChangeEntry::diff: core::option::Option<arc_tui::diff::generator::SemanticDiff>
+pub arc_tui::model::ChangeEntry::hash: alloc::string::String
+pub arc_tui::model::ChangeEntry::id_short: alloc::string::String
+pub arc_tui::model::ChangeEntry::signature: alloc::string::String
+pub arc_tui::model::ChangeEntry::summary: alloc::string::String
+impl core::clone::Clone for arc_tui::model::ChangeEntry
+pub fn arc_tui::model::ChangeEntry::clone(&self) -> arc_tui::model::ChangeEntry
+impl core::fmt::Debug for arc_tui::model::ChangeEntry
+pub fn arc_tui::model::ChangeEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod arc_tui::provider
+pub struct arc_tui::provider::MockProvider
+impl arc_tui::provider::ChangeProvider for arc_tui::provider::MockProvider
+pub fn arc_tui::provider::MockProvider::list_changes(&self) -> alloc::vec::Vec<arc_tui::model::ChangeEntry>
+pub trait arc_tui::provider::ChangeProvider
+pub fn arc_tui::provider::ChangeProvider::list_changes(&self) -> alloc::vec::Vec<arc_tui::model::ChangeEntry>
+impl arc_tui::provider::ChangeProvider for arc_tui::provider::MockProvider
+pub fn arc_tui::provider::MockProvider::list_changes(&self) -> alloc::vec::Vec<arc_tui::model::ChangeEntry>
+pub enum arc_tui::Message
+pub arc_tui::Message::Backend(arc_ux::event::OutputEvent)
+pub arc_tui::Message::IntentEvent(alloc::string::String)
+pub arc_tui::Message::MoveDown
+pub arc_tui::Message::MoveUp
+pub arc_tui::Message::OpenDiff
+pub arc_tui::Message::Quit
+pub arc_tui::Message::SnapNow
+pub arc_tui::Message::SponsorshipNext
+pub arc_tui::Message::Tick
+pub arc_tui::Message::ToggleAtom
+pub arc_tui::Message::ToggleSelectionMode
+impl core::cmp::PartialEq for arc_tui::model::Message
+pub fn arc_tui::model::Message::eq(&self, &Self) -> bool
+pub struct arc_tui::App
+impl arc_tui::app::App
+pub fn arc_tui::app::App::new(impl arc_tui::provider::ChangeProvider, tokio::sync::mpsc::bounded::Receiver<arc_ux::event::OutputEvent>) -> Self
+pub fn arc_tui::app::App::run(&mut self) -> anyhow::Result<()>
+pub struct arc_tui::AppState
+pub arc_tui::AppState::changes: alloc::vec::Vec<arc_tui::model::ChangeEntry>
+pub arc_tui::AppState::diff_cursor: usize
+pub arc_tui::AppState::ghost_intent: core::option::Option<alloc::string::String>
+pub arc_tui::AppState::running: bool
+pub arc_tui::AppState::selected: usize
+pub arc_tui::AppState::selected_atoms: std::collections::hash::set::HashSet<usize>
+pub arc_tui::AppState::selection_mode: bool
+pub arc_tui::AppState::show_diff: bool
+pub arc_tui::AppState::sponsorship: arc_tui::model::Sponsorship
+pub arc_tui::AppState::status_line: alloc::string::String
+impl arc_tui::model::AppState
+pub fn arc_tui::model::AppState::apply_output_event(&mut self, arc_ux::event::OutputEvent)
+pub fn arc_tui::model::AppState::cycle_sponsorship(&mut self)
+pub fn arc_tui::model::AppState::ghost_text(&self) -> alloc::string::String
+pub fn arc_tui::model::AppState::inject_intent_event(&mut self, alloc::string::String)
+pub fn arc_tui::model::AppState::move_diff_cursor_down(&mut self)
+pub fn arc_tui::model::AppState::move_diff_cursor_up(&mut self)
+pub fn arc_tui::model::AppState::new(alloc::vec::Vec<arc_tui::model::ChangeEntry>) -> Self
+pub fn arc_tui::model::AppState::select_next(&mut self)
+pub fn arc_tui::model::AppState::select_prev(&mut self)
+pub fn arc_tui::model::AppState::selected_atom_count(&self) -> usize
+pub fn arc_tui::model::AppState::selected_change(&self) -> core::option::Option<&arc_tui::model::ChangeEntry>
+pub fn arc_tui::model::AppState::selected_diff(&self) -> core::option::Option<&arc_tui::diff::generator::SemanticDiff>
+pub fn arc_tui::model::AppState::start_success_nudge(&mut self, alloc::string::String)
+pub fn arc_tui::model::AppState::tick_animations(&mut self)
+pub fn arc_tui::model::AppState::toggle_selected_atom(&mut self)
+pub fn arc_tui::model::AppState::toggle_selection_mode(&mut self)
+impl core::fmt::Debug for arc_tui::model::AppState
+pub fn arc_tui::model::AppState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::BackendBridge
+pub arc_tui::BackendBridge::inbound: tokio::sync::mpsc::bounded::Sender<arc_ux::event::OutputEvent>
+pub arc_tui::BackendBridge::inbound_rx: tokio::sync::mpsc::bounded::Receiver<arc_ux::event::OutputEvent>
+impl arc_tui::bridge::BackendBridge
+pub fn arc_tui::bridge::BackendBridge::channel(usize) -> Self
+pub struct arc_tui::ChangeEntry
+pub arc_tui::ChangeEntry::author: alloc::string::String
+pub arc_tui::ChangeEntry::change: arc_change::change::Change
+pub arc_tui::ChangeEntry::diff: core::option::Option<arc_tui::diff::generator::SemanticDiff>
+pub arc_tui::ChangeEntry::hash: alloc::string::String
+pub arc_tui::ChangeEntry::id_short: alloc::string::String
+pub arc_tui::ChangeEntry::signature: alloc::string::String
+pub arc_tui::ChangeEntry::summary: alloc::string::String
+impl core::clone::Clone for arc_tui::model::ChangeEntry
+pub fn arc_tui::model::ChangeEntry::clone(&self) -> arc_tui::model::ChangeEntry
+impl core::fmt::Debug for arc_tui::model::ChangeEntry
+pub fn arc_tui::model::ChangeEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_tui::MockProvider
+impl arc_tui::provider::ChangeProvider for arc_tui::provider::MockProvider
+pub fn arc_tui::provider::MockProvider::list_changes(&self) -> alloc::vec::Vec<arc_tui::model::ChangeEntry>

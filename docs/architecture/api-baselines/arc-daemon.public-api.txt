@@ -1,57 +1,8 @@
 pub mod arc_daemon
-pub mod arc_daemon::protocol
-pub struct arc_daemon::protocol::FileState
-pub arc_daemon::protocol::FileState::file_path: alloc::string::String
-pub arc_daemon::protocol::FileState::status: alloc::string::String
-impl core::clone::Clone for arc_daemon::protocol::FileState
-pub fn arc_daemon::protocol::FileState::clone(&self) -> arc_daemon::protocol::FileState
-impl core::fmt::Debug for arc_daemon::protocol::FileState
-pub fn arc_daemon::protocol::FileState::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for arc_daemon::protocol::FileState
-pub fn arc_daemon::protocol::FileState::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-pub struct arc_daemon::protocol::GetFileStatesParams
-pub arc_daemon::protocol::GetFileStatesParams::path: alloc::string::String
-impl core::fmt::Debug for arc_daemon::protocol::GetFileStatesParams
-pub fn arc_daemon::protocol::GetFileStatesParams::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'de> serde_core::de::Deserialize<'de> for arc_daemon::protocol::GetFileStatesParams
-pub fn arc_daemon::protocol::GetFileStatesParams::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub struct arc_daemon::protocol::RpcError
-pub arc_daemon::protocol::RpcError::code: i64
-pub arc_daemon::protocol::RpcError::message: alloc::string::String
-impl core::fmt::Debug for arc_daemon::protocol::RpcError
-pub fn arc_daemon::protocol::RpcError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for arc_daemon::protocol::RpcError
-pub fn arc_daemon::protocol::RpcError::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-pub struct arc_daemon::protocol::RpcNotification<T> where T: serde_core::ser::Serialize
-pub arc_daemon::protocol::RpcNotification::jsonrpc: alloc::string::String
-pub arc_daemon::protocol::RpcNotification::method: alloc::string::String
-pub arc_daemon::protocol::RpcNotification::params: core::option::Option<T>
-impl<T> core::fmt::Debug for arc_daemon::protocol::RpcNotification<T> where T: serde_core::ser::Serialize + core::fmt::Debug
-pub fn arc_daemon::protocol::RpcNotification<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<T> serde_core::ser::Serialize for arc_daemon::protocol::RpcNotification<T> where T: serde_core::ser::Serialize + serde_core::ser::Serialize
-pub fn arc_daemon::protocol::RpcNotification<T>::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-pub struct arc_daemon::protocol::RpcRequest
-pub arc_daemon::protocol::RpcRequest::id: u64
-pub arc_daemon::protocol::RpcRequest::jsonrpc: alloc::string::String
-pub arc_daemon::protocol::RpcRequest::method: alloc::string::String
-pub arc_daemon::protocol::RpcRequest::params: core::option::Option<serde_json::value::Value>
-impl core::fmt::Debug for arc_daemon::protocol::RpcRequest
-pub fn arc_daemon::protocol::RpcRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'de> serde_core::de::Deserialize<'de> for arc_daemon::protocol::RpcRequest
-pub fn arc_daemon::protocol::RpcRequest::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub struct arc_daemon::protocol::RpcResponse<T> where T: serde_core::ser::Serialize
-pub arc_daemon::protocol::RpcResponse::error: core::option::Option<arc_daemon::protocol::RpcError>
-pub arc_daemon::protocol::RpcResponse::id: u64
-pub arc_daemon::protocol::RpcResponse::jsonrpc: alloc::string::String
-pub arc_daemon::protocol::RpcResponse::result: core::option::Option<T>
-impl<T> arc_daemon::protocol::RpcResponse<T> where T: serde_core::ser::Serialize
-pub fn arc_daemon::protocol::RpcResponse<T>::err(id: u64, code: i64, message: impl core::convert::Into<alloc::string::String>) -> Self
-pub fn arc_daemon::protocol::RpcResponse<T>::ok(id: u64, result: T) -> Self
-impl<T> core::fmt::Debug for arc_daemon::protocol::RpcResponse<T> where T: serde_core::ser::Serialize + core::fmt::Debug
-pub fn arc_daemon::protocol::RpcResponse<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<T> serde_core::ser::Serialize for arc_daemon::protocol::RpcResponse<T> where T: serde_core::ser::Serialize + serde_core::ser::Serialize
-pub fn arc_daemon::protocol::RpcResponse<T>::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-pub fn arc_daemon::protocol::send_notification<T: serde_core::ser::Serialize>(method: &str, params: core::option::Option<T>) -> anyhow::Result<()>
-pub fn arc_daemon::protocol::send_response<T>(response: &arc_daemon::protocol::RpcResponse<T>) -> anyhow::Result<()> where T: serde_core::ser::Serialize
-pub mod arc_daemon::server
-pub async fn arc_daemon::server::run() -> anyhow::Result<()>
+pub mod arc_daemon::watcher
+pub struct arc_daemon::watcher::AutoSnapDaemon
+impl arc_daemon::watcher::AutoSnapDaemon
+pub async fn arc_daemon::watcher::AutoSnapDaemon::start(std::path::PathBuf, u64) -> anyhow::Result<()>
+pub struct arc_daemon::AutoSnapDaemon
+impl arc_daemon::watcher::AutoSnapDaemon
+pub async fn arc_daemon::watcher::AutoSnapDaemon::start(std::path::PathBuf, u64) -> anyhow::Result<()>

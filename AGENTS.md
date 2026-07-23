@@ -60,6 +60,22 @@ When proposing or implementing changes:
 - `cargo fmt`
 - `cargo clippy --workspace --all-targets -- -D warnings -A unknown-lints --no-deps`
 
+## Build targets
+
+Release binaries are built for:
+
+| Target | OS | Runner |
+|---|---|---|
+| `x86_64-apple-darwin` | macOS Intel | `macos-latest` |
+| `aarch64-apple-darwin` | macOS Apple Silicon | `macos-latest` |
+| `x86_64-unknown-linux-gnu` | Linux glibc x86_64 | `ubuntu-24.04` |
+| `aarch64-unknown-linux-gnu` | Linux glibc aarch64 | `ubuntu-24.04` |
+| `x86_64-unknown-linux-musl` | Linux musl x86_64 | `ubuntu-24.04` |
+| `x86_64-pc-windows-msvc` | Windows x86_64 | `windows-latest` |
+
+Cross-compilation uses `cargo-cross` for non-native targets. See
+`scripts/ci/install-cross-tools.sh` and `scripts/ci/build-release.sh`.
+
 ## Before finishing work
 
 - Run the narrowest useful validation first, then widen scope.

@@ -6,11 +6,11 @@ pub arc_cli::ai_pending::PendingKind::Resolve
 impl core::clone::Clone for arc_cli::ai_pending::PendingKind
 pub fn arc_cli::ai_pending::PendingKind::clone(&self) -> arc_cli::ai_pending::PendingKind
 impl core::fmt::Debug for arc_cli::ai_pending::PendingKind
-pub fn arc_cli::ai_pending::PendingKind::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::ai_pending::PendingKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::ai_pending::PendingKind
-pub fn arc_cli::ai_pending::PendingKind::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::ai_pending::PendingKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::ai_pending::PendingKind
-pub fn arc_cli::ai_pending::PendingKind::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::ai_pending::PendingKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::ai_pending::PendingAiChange
 pub arc_cli::ai_pending::PendingAiChange::affected_files: alloc::vec::Vec<std::path::PathBuf>
 pub arc_cli::ai_pending::PendingAiChange::intent: alloc::string::String
@@ -20,22 +20,22 @@ pub arc_cli::ai_pending::PendingAiChange::staged_atoms: alloc::vec::Vec<arc_alge
 pub arc_cli::ai_pending::PendingAiChange::staged_deps: alloc::vec::Vec<arc_algebra_types::Blake3Hash>
 pub arc_cli::ai_pending::PendingAiChange::timestamp: u64
 impl arc_cli::ai_pending::PendingAiChange
-pub fn arc_cli::ai_pending::PendingAiChange::new_generate(model: alloc::string::String, intent: alloc::string::String, affected_files: alloc::vec::Vec<std::path::PathBuf>) -> Self
-pub fn arc_cli::ai_pending::PendingAiChange::new_resolve(model: alloc::string::String, intent: alloc::string::String, affected_files: alloc::vec::Vec<std::path::PathBuf>, staged_atoms: alloc::vec::Vec<arc_algebra_types::Atom>, staged_deps: alloc::vec::Vec<arc_algebra_types::Blake3Hash>) -> Self
+pub fn arc_cli::ai_pending::PendingAiChange::new_generate(alloc::string::String, alloc::string::String, alloc::vec::Vec<std::path::PathBuf>) -> Self
+pub fn arc_cli::ai_pending::PendingAiChange::new_resolve(alloc::string::String, alloc::string::String, alloc::vec::Vec<std::path::PathBuf>, alloc::vec::Vec<arc_algebra_types::Atom>, alloc::vec::Vec<arc_algebra_types::Blake3Hash>) -> Self
 impl core::clone::Clone for arc_cli::ai_pending::PendingAiChange
 pub fn arc_cli::ai_pending::PendingAiChange::clone(&self) -> arc_cli::ai_pending::PendingAiChange
 impl core::fmt::Debug for arc_cli::ai_pending::PendingAiChange
-pub fn arc_cli::ai_pending::PendingAiChange::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::ai_pending::PendingAiChange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::ai_pending::PendingAiChange
-pub fn arc_cli::ai_pending::PendingAiChange::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::ai_pending::PendingAiChange::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::ai_pending::PendingAiChange
-pub fn arc_cli::ai_pending::PendingAiChange::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub fn arc_cli::ai_pending::clear_pending_ai(repo_root: &std::path::Path)
-pub fn arc_cli::ai_pending::has_pending_ai(repo_root: &std::path::Path) -> bool
-pub fn arc_cli::ai_pending::load_pending_ai(repo_root: &std::path::Path) -> core::option::Option<arc_cli::ai_pending::PendingAiChange>
-pub fn arc_cli::ai_pending::save_pending_ai(repo_root: &std::path::Path, pending: &arc_cli::ai_pending::PendingAiChange) -> anyhow::Result<()>
+pub fn arc_cli::ai_pending::PendingAiChange::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::ai_pending::clear_pending_ai(&std::path::Path)
+pub fn arc_cli::ai_pending::has_pending_ai(&std::path::Path) -> bool
+pub fn arc_cli::ai_pending::load_pending_ai(&std::path::Path) -> core::option::Option<arc_cli::ai_pending::PendingAiChange>
+pub fn arc_cli::ai_pending::save_pending_ai(&std::path::Path, &arc_cli::ai_pending::PendingAiChange) -> anyhow::Result<()>
 pub mod arc_cli::bugreport
-pub fn arc_cli::bugreport::generate(repo: &arc_cli::repo::Repository, output_path: &str, include_raw_intent: bool) -> anyhow::Result<()>
+pub fn arc_cli::bugreport::generate(&arc_cli::repo::Repository, &str, bool) -> anyhow::Result<()>
 pub mod arc_cli::commands
 pub mod arc_cli::commands::tour
 pub fn arc_cli::commands::tour::run_tour() -> anyhow::Result<()>
@@ -51,8 +51,8 @@ pub fn arc_cli::devtools::interrupt::InterruptState::clone(&self) -> arc_cli::de
 impl core::default::Default for arc_cli::devtools::interrupt::InterruptState
 pub fn arc_cli::devtools::interrupt::InterruptState::default() -> Self
 impl core::fmt::Debug for arc_cli::devtools::interrupt::InterruptState
-pub fn arc_cli::devtools::interrupt::InterruptState::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn arc_cli::devtools::interrupt::install_cleanup_handlers(state: arc_cli::devtools::interrupt::InterruptState) -> anyhow::Result<()>
+pub fn arc_cli::devtools::interrupt::InterruptState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::devtools::interrupt::install_cleanup_handlers(arc_cli::devtools::interrupt::InterruptState) -> anyhow::Result<()>
 pub mod arc_cli::devtools::multicall
 pub enum arc_cli::devtools::multicall::InvocationMode
 pub arc_cli::devtools::multicall::InvocationMode::Arc
@@ -62,17 +62,17 @@ impl core::clone::Clone for arc_cli::devtools::multicall::InvocationMode
 pub fn arc_cli::devtools::multicall::InvocationMode::clone(&self) -> arc_cli::devtools::multicall::InvocationMode
 impl core::cmp::Eq for arc_cli::devtools::multicall::InvocationMode
 impl core::cmp::PartialEq for arc_cli::devtools::multicall::InvocationMode
-pub fn arc_cli::devtools::multicall::InvocationMode::eq(&self, other: &arc_cli::devtools::multicall::InvocationMode) -> bool
+pub fn arc_cli::devtools::multicall::InvocationMode::eq(&self, &arc_cli::devtools::multicall::InvocationMode) -> bool
 impl core::fmt::Debug for arc_cli::devtools::multicall::InvocationMode
-pub fn arc_cli::devtools::multicall::InvocationMode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::devtools::multicall::InvocationMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for arc_cli::devtools::multicall::InvocationMode
 impl core::marker::StructuralPartialEq for arc_cli::devtools::multicall::InvocationMode
-pub fn arc_cli::devtools::multicall::mode_from_executable(executable: &str) -> arc_cli::devtools::multicall::InvocationMode
-pub fn arc_cli::devtools::multicall::normalize_invocation_args(raw_args: alloc::vec::Vec<alloc::string::String>) -> alloc::vec::Vec<alloc::string::String>
+pub fn arc_cli::devtools::multicall::mode_from_executable(&str) -> arc_cli::devtools::multicall::InvocationMode
+pub fn arc_cli::devtools::multicall::normalize_invocation_args(alloc::vec::Vec<alloc::string::String>) -> alloc::vec::Vec<alloc::string::String>
 pub mod arc_cli::devtools::run_wrapper
-pub fn arc_cli::devtools::run_wrapper::run_with_telemetry<F>(mode: &str, interrupts: &arc_cli::devtools::interrupt::InterruptState, run: F) -> anyhow::Result<()> where F: core::ops::function::FnOnce() -> anyhow::Result<()>
+pub fn arc_cli::devtools::run_wrapper::run_with_telemetry<F>(&str, &arc_cli::devtools::interrupt::InterruptState, F) -> anyhow::Result<()> where F: core::ops::function::FnOnce() -> anyhow::Result<()>
 pub mod arc_cli::generate
-pub fn arc_cli::generate::run(goal: &str, file: core::option::Option<&std::path::Path>, repo: &mut arc_cli::repo::Repository) -> anyhow::Result<()>
+pub fn arc_cli::generate::run(&str, core::option::Option<&std::path::Path>, &mut arc_cli::repo::Repository) -> anyhow::Result<()>
 pub mod arc_cli::governance
 pub struct arc_cli::governance::GovernanceAuditReport
 pub arc_cli::governance::GovernanceAuditReport::dependabot_ecosystems: alloc::vec::Vec<alloc::string::String>
@@ -83,8 +83,8 @@ pub arc_cli::governance::GovernanceAuditReport::synthesis_snapshots: alloc::vec:
 impl core::clone::Clone for arc_cli::governance::GovernanceAuditReport
 pub fn arc_cli::governance::GovernanceAuditReport::clone(&self) -> arc_cli::governance::GovernanceAuditReport
 impl core::fmt::Debug for arc_cli::governance::GovernanceAuditReport
-pub fn arc_cli::governance::GovernanceAuditReport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn arc_cli::governance::audit_github_governance(repo_root: &std::path::Path, frontier: alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, synthesis_snapshots: alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::governance::GovernanceAuditReport>
+pub fn arc_cli::governance::GovernanceAuditReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::governance::audit_github_governance(&std::path::Path, alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::governance::GovernanceAuditReport>
 pub mod arc_cli::graph_render
 pub struct arc_cli::graph_render::GraphDecorations
 pub arc_cli::graph_render::GraphDecorations::active_heads: alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>
@@ -97,35 +97,255 @@ pub fn arc_cli::graph_render::GraphDecorations::clone(&self) -> arc_cli::graph_r
 impl core::default::Default for arc_cli::graph_render::GraphDecorations
 pub fn arc_cli::graph_render::GraphDecorations::default() -> arc_cli::graph_render::GraphDecorations
 impl core::fmt::Debug for arc_cli::graph_render::GraphDecorations
-pub fn arc_cli::graph_render::GraphDecorations::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::graph_render::GraphDecorations::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct arc_cli::graph_render::GraphRenderer
 impl arc_cli::graph_render::GraphRenderer
 pub fn arc_cli::graph_render::GraphRenderer::monochrome() -> Self
 pub fn arc_cli::graph_render::GraphRenderer::new() -> Self
-pub fn arc_cli::graph_render::GraphRenderer::render(&self, changes: &[arc_change::change::Change]) -> alloc::vec::Vec<alloc::string::String>
-pub fn arc_cli::graph_render::GraphRenderer::render_with_decorations(&self, changes: &[arc_change::change::Change], decorations: &arc_cli::graph_render::GraphDecorations) -> alloc::vec::Vec<alloc::string::String>
-pub fn arc_cli::graph_render::GraphRenderer::render_with_decorations_and_template(&self, changes: &[arc_change::change::Change], decorations: &arc_cli::graph_render::GraphDecorations, template: core::option::Option<&arc_cli::graph_render::LogTemplate>) -> alloc::vec::Vec<alloc::string::String>
+pub fn arc_cli::graph_render::GraphRenderer::render(&self, &[arc_change::change::Change]) -> alloc::vec::Vec<alloc::string::String>
+pub fn arc_cli::graph_render::GraphRenderer::render_with_decorations(&self, &[arc_change::change::Change], &arc_cli::graph_render::GraphDecorations) -> alloc::vec::Vec<alloc::string::String>
+pub fn arc_cli::graph_render::GraphRenderer::render_with_decorations_and_template(&self, &[arc_change::change::Change], &arc_cli::graph_render::GraphDecorations, core::option::Option<&arc_cli::graph_render::LogTemplate>) -> alloc::vec::Vec<alloc::string::String>
 impl core::clone::Clone for arc_cli::graph_render::GraphRenderer
 pub fn arc_cli::graph_render::GraphRenderer::clone(&self) -> arc_cli::graph_render::GraphRenderer
 impl core::default::Default for arc_cli::graph_render::GraphRenderer
 pub fn arc_cli::graph_render::GraphRenderer::default() -> Self
 impl core::fmt::Debug for arc_cli::graph_render::GraphRenderer
-pub fn arc_cli::graph_render::GraphRenderer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::graph_render::GraphRenderer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for arc_cli::graph_render::GraphRenderer
 pub struct arc_cli::graph_render::LogTemplate
 impl arc_cli::graph_render::LogTemplate
-pub fn arc_cli::graph_render::LogTemplate::parse(input: &str) -> core::result::Result<Self, alloc::string::String>
+pub fn arc_cli::graph_render::LogTemplate::parse(&str) -> core::result::Result<Self, alloc::string::String>
 impl core::clone::Clone for arc_cli::graph_render::LogTemplate
 pub fn arc_cli::graph_render::LogTemplate::clone(&self) -> arc_cli::graph_render::LogTemplate
 impl core::cmp::Eq for arc_cli::graph_render::LogTemplate
 impl core::cmp::PartialEq for arc_cli::graph_render::LogTemplate
-pub fn arc_cli::graph_render::LogTemplate::eq(&self, other: &arc_cli::graph_render::LogTemplate) -> bool
+pub fn arc_cli::graph_render::LogTemplate::eq(&self, &arc_cli::graph_render::LogTemplate) -> bool
 impl core::fmt::Debug for arc_cli::graph_render::LogTemplate
-pub fn arc_cli::graph_render::LogTemplate::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::graph_render::LogTemplate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for arc_cli::graph_render::LogTemplate
 pub mod arc_cli::interop
 pub mod arc_cli::interop::git
-pub fn arc_cli::interop::git::import_repo(git_path: impl core::convert::AsRef<std::path::Path>, arc_repo: &mut arc_cli::repo::Repository, author: &arc_store_types::author::Author, signing_key: &ed25519_dalek::signing::SigningKey) -> anyhow::Result<usize>
+pub fn arc_cli::interop::git::import_repo(impl core::convert::AsRef<std::path::Path>, &mut arc_cli::repo::Repository, &arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> anyhow::Result<usize>
+pub mod arc_cli::ops
+pub enum arc_cli::ops::OperationStage
+pub arc_cli::ops::OperationStage::Discover
+pub arc_cli::ops::OperationStage::Finalize
+pub arc_cli::ops::OperationStage::Materialize
+pub arc_cli::ops::OperationStage::Negotiate
+pub arc_cli::ops::OperationStage::Transfer
+impl arc_cli::ops::OperationStage
+pub const fn arc_cli::ops::OperationStage::as_str(self) -> &'static str
+impl core::clone::Clone for arc_cli::ops::OperationStage
+pub fn arc_cli::ops::OperationStage::clone(&self) -> arc_cli::ops::OperationStage
+impl core::cmp::Eq for arc_cli::ops::OperationStage
+impl core::cmp::PartialEq for arc_cli::ops::OperationStage
+pub fn arc_cli::ops::OperationStage::eq(&self, &arc_cli::ops::OperationStage) -> bool
+impl core::fmt::Debug for arc_cli::ops::OperationStage
+pub fn arc_cli::ops::OperationStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_cli::ops::OperationStage
+pub fn arc_cli::ops::OperationStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_cli::ops::OperationStage
+pub fn arc_cli::ops::OperationStage::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for arc_cli::ops::OperationStage
+impl core::marker::StructuralPartialEq for arc_cli::ops::OperationStage
+pub struct arc_cli::ops::SloTimer
+impl arc_cli::ops::SloTimer
+pub fn arc_cli::ops::SloTimer::finish(self) -> core::time::Duration
+pub fn arc_cli::ops::SloTimer::from_env(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn arc_cli::ops::SloTimer::new(impl core::convert::Into<alloc::string::String>, core::time::Duration) -> Self
+pub fn arc_cli::ops::SloTimer::stage<T>(&self, arc_cli::ops::OperationStage, impl core::ops::function::FnOnce() -> T) -> T
+pub const arc_cli::ops::DEFAULT_SYNC_SLO_MS: u64
+pub mod arc_cli::policy_gate
+pub mod arc_cli::policy_gate::evaluator
+pub struct arc_cli::policy_gate::evaluator::TreeSitterEvaluator
+impl arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::new(arc_cli::policy_gate::ArcPolicy) -> Self
+impl arc_cli::policy_gate::Evaluator for arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+pub const arc_cli::policy_gate::evaluator::RUST_BOUNDARY_QUERY: &str
+pub const arc_cli::policy_gate::evaluator::RUST_INVOCATION_QUERY: &str
+pub mod arc_cli::policy_gate::policy
+pub enum arc_cli::policy_gate::policy::PolicyError
+pub arc_cli::policy_gate::policy::PolicyError::MissingDependency
+pub arc_cli::policy_gate::policy::PolicyError::MissingDependency::dependency: alloc::string::String
+pub arc_cli::policy_gate::policy::PolicyError::ParseConfig
+pub arc_cli::policy_gate::policy::PolicyError::ParseConfig::path: alloc::string::String
+pub arc_cli::policy_gate::policy::PolicyError::ParseConfig::source: serde_json::error::Error
+pub arc_cli::policy_gate::policy::PolicyError::ReadConfig
+pub arc_cli::policy_gate::policy::PolicyError::ReadConfig::path: alloc::string::String
+pub arc_cli::policy_gate::policy::PolicyError::ReadConfig::source: core::io::error::Error
+pub arc_cli::policy_gate::policy::PolicyError::SignatureMismatch
+pub arc_cli::policy_gate::policy::PolicyError::SignatureMismatch::broken_functions: alloc::vec::Vec<alloc::string::String>
+pub arc_cli::policy_gate::policy::PolicyError::SignatureMismatch::new_signature: alloc::string::String
+pub arc_cli::policy_gate::policy::PolicyError::SignatureMismatch::old_signature: alloc::string::String
+impl arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::to_mcp_payload(&self) -> serde_json::value::Value
+impl core::error::Error for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_cli::policy_gate::policy::ArcPolicy
+pub arc_cli::policy_gate::policy::ArcPolicy::block_unresolved_sem_breaks: bool
+pub arc_cli::policy_gate::policy::ArcPolicy::require_ghost_node_sponsor: bool
+impl arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::default_evaluator(&self) -> arc_cli::policy_gate::DefaultEvaluator
+impl arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::load_from_path(&std::path::Path) -> core::result::Result<Self, arc_cli::policy_gate::PolicyError>
+impl core::clone::Clone for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::clone(&self) -> arc_cli::policy_gate::ArcPolicy
+impl core::default::Default for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::default() -> arc_cli::policy_gate::ArcPolicy
+impl core::fmt::Debug for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_cli::policy_gate::ArcPolicy where arc_cli::policy_gate::ArcPolicy: core::default::Default
+pub fn arc_cli::policy_gate::ArcPolicy::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_cli::policy_gate::policy::Ast
+pub arc_cli::policy_gate::policy::Ast::expected_api_signatures: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+pub arc_cli::policy_gate::policy::Ast::foreign_rust_sources: alloc::vec::Vec<alloc::string::String>
+pub arc_cli::policy_gate::policy::Ast::local_rust_sources: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::clone(&self) -> arc_cli::policy_gate::Ast
+impl core::default::Default for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::default() -> arc_cli::policy_gate::Ast
+impl core::fmt::Debug for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_cli::policy_gate::policy::Evaluator
+pub fn arc_cli::policy_gate::policy::Evaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+impl arc_cli::policy_gate::Evaluator for arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+pub type arc_cli::policy_gate::policy::DefaultEvaluator = arc_cli::policy_gate::TreeSitterEvaluator
+pub mod arc_cli::policy_gate::resolver
+pub enum arc_cli::policy_gate::resolver::ResolverError
+pub arc_cli::policy_gate::resolver::ResolverError::SynthesisFailed
+pub arc_cli::policy_gate::resolver::ResolverError::SynthesisFailed::reason: alloc::string::String
+pub arc_cli::policy_gate::resolver::ResolverError::VerificationFailed
+impl core::error::Error for arc_cli::policy_gate::ResolverError
+impl core::fmt::Debug for arc_cli::policy_gate::ResolverError
+pub fn arc_cli::policy_gate::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_cli::policy_gate::ResolverError
+pub fn arc_cli::policy_gate::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_cli::policy_gate::resolver::MockAiResolver
+impl arc_cli::policy_gate::AiResolver for arc_cli::policy_gate::MockAiResolver
+pub fn arc_cli::policy_gate::MockAiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+pub trait arc_cli::policy_gate::resolver::AiResolver
+pub fn arc_cli::policy_gate::resolver::AiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+impl arc_cli::policy_gate::AiResolver for arc_cli::policy_gate::MockAiResolver
+pub fn arc_cli::policy_gate::MockAiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+pub fn arc_cli::policy_gate::resolver::ast_context(alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>) -> arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::resolver::default_evaluator() -> arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::resolver::verify_lens(&arc_cli::policy_gate::TreeSitterEvaluator, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom], &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::ResolverError>
+pub enum arc_cli::policy_gate::PolicyError
+pub arc_cli::policy_gate::PolicyError::MissingDependency
+pub arc_cli::policy_gate::PolicyError::MissingDependency::dependency: alloc::string::String
+pub arc_cli::policy_gate::PolicyError::ParseConfig
+pub arc_cli::policy_gate::PolicyError::ParseConfig::path: alloc::string::String
+pub arc_cli::policy_gate::PolicyError::ParseConfig::source: serde_json::error::Error
+pub arc_cli::policy_gate::PolicyError::ReadConfig
+pub arc_cli::policy_gate::PolicyError::ReadConfig::path: alloc::string::String
+pub arc_cli::policy_gate::PolicyError::ReadConfig::source: core::io::error::Error
+pub arc_cli::policy_gate::PolicyError::SignatureMismatch
+pub arc_cli::policy_gate::PolicyError::SignatureMismatch::broken_functions: alloc::vec::Vec<alloc::string::String>
+pub arc_cli::policy_gate::PolicyError::SignatureMismatch::new_signature: alloc::string::String
+pub arc_cli::policy_gate::PolicyError::SignatureMismatch::old_signature: alloc::string::String
+impl arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::to_mcp_payload(&self) -> serde_json::value::Value
+impl core::error::Error for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_cli::policy_gate::PolicyError
+pub fn arc_cli::policy_gate::PolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum arc_cli::policy_gate::ResolverError
+pub arc_cli::policy_gate::ResolverError::SynthesisFailed
+pub arc_cli::policy_gate::ResolverError::SynthesisFailed::reason: alloc::string::String
+pub arc_cli::policy_gate::ResolverError::VerificationFailed
+impl core::error::Error for arc_cli::policy_gate::ResolverError
+impl core::fmt::Debug for arc_cli::policy_gate::ResolverError
+pub fn arc_cli::policy_gate::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_cli::policy_gate::ResolverError
+pub fn arc_cli::policy_gate::ResolverError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_cli::policy_gate::ArcPolicy
+pub arc_cli::policy_gate::ArcPolicy::block_unresolved_sem_breaks: bool
+pub arc_cli::policy_gate::ArcPolicy::require_ghost_node_sponsor: bool
+impl arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::default_evaluator(&self) -> arc_cli::policy_gate::DefaultEvaluator
+impl arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::load_from_path(&std::path::Path) -> core::result::Result<Self, arc_cli::policy_gate::PolicyError>
+impl core::clone::Clone for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::clone(&self) -> arc_cli::policy_gate::ArcPolicy
+impl core::default::Default for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::default() -> arc_cli::policy_gate::ArcPolicy
+impl core::fmt::Debug for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_cli::policy_gate::ArcPolicy
+pub fn arc_cli::policy_gate::ArcPolicy::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_cli::policy_gate::ArcPolicy where arc_cli::policy_gate::ArcPolicy: core::default::Default
+pub fn arc_cli::policy_gate::ArcPolicy::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_cli::policy_gate::Ast
+pub arc_cli::policy_gate::Ast::expected_api_signatures: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+pub arc_cli::policy_gate::Ast::foreign_rust_sources: alloc::vec::Vec<alloc::string::String>
+pub arc_cli::policy_gate::Ast::local_rust_sources: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::clone(&self) -> arc_cli::policy_gate::Ast
+impl core::default::Default for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::default() -> arc_cli::policy_gate::Ast
+impl core::fmt::Debug for arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::Ast::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_cli::policy_gate::MockAiResolver
+impl arc_cli::policy_gate::AiResolver for arc_cli::policy_gate::MockAiResolver
+pub fn arc_cli::policy_gate::MockAiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+pub struct arc_cli::policy_gate::TreeSitterEvaluator
+impl arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::new(arc_cli::policy_gate::ArcPolicy) -> Self
+impl arc_cli::policy_gate::Evaluator for arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+pub const arc_cli::policy_gate::RUST_BOUNDARY_QUERY: &str
+pub const arc_cli::policy_gate::RUST_INVOCATION_QUERY: &str
+pub trait arc_cli::policy_gate::AiResolver
+pub fn arc_cli::policy_gate::AiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+impl arc_cli::policy_gate::AiResolver for arc_cli::policy_gate::MockAiResolver
+pub fn arc_cli::policy_gate::MockAiResolver::synthesize_lens(&self, &arc_cli::policy_gate::PolicyError) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, arc_cli::policy_gate::ResolverError>
+pub trait arc_cli::policy_gate::Evaluator
+pub fn arc_cli::policy_gate::Evaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+impl arc_cli::policy_gate::Evaluator for arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::TreeSitterEvaluator::evaluate_delta_impact(&self, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::PolicyError>
+pub fn arc_cli::policy_gate::ast_context(alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>) -> arc_cli::policy_gate::Ast
+pub fn arc_cli::policy_gate::default_evaluator() -> arc_cli::policy_gate::TreeSitterEvaluator
+pub fn arc_cli::policy_gate::verify_lens(&arc_cli::policy_gate::TreeSitterEvaluator, &arc_cli::policy_gate::Ast, &[arc_algebra_types::Atom], &[arc_algebra_types::Atom]) -> core::result::Result<(), arc_cli::policy_gate::ResolverError>
+pub type arc_cli::policy_gate::DefaultEvaluator = arc_cli::policy_gate::TreeSitterEvaluator
+pub mod arc_cli::progress
+pub enum arc_cli::progress::PipelineStage
+pub arc_cli::progress::PipelineStage::Discover
+pub arc_cli::progress::PipelineStage::Finalize
+pub arc_cli::progress::PipelineStage::Materialize
+pub arc_cli::progress::PipelineStage::Negotiate
+pub arc_cli::progress::PipelineStage::Transfer
+impl core::clone::Clone for arc_cli::progress::PipelineStage
+pub fn arc_cli::progress::PipelineStage::clone(&self) -> arc_cli::progress::PipelineStage
+impl core::cmp::Eq for arc_cli::progress::PipelineStage
+impl core::cmp::PartialEq for arc_cli::progress::PipelineStage
+pub fn arc_cli::progress::PipelineStage::eq(&self, &arc_cli::progress::PipelineStage) -> bool
+impl core::fmt::Debug for arc_cli::progress::PipelineStage
+pub fn arc_cli::progress::PipelineStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_cli::progress::PipelineStage
+impl core::marker::StructuralPartialEq for arc_cli::progress::PipelineStage
+pub struct arc_cli::progress::Progress
+impl arc_cli::progress::Progress
+pub fn arc_cli::progress::Progress::spinner(impl core::convert::Into<alloc::string::String>) -> arc_cli::progress::Spinner
+pub fn arc_cli::progress::Progress::sync_pipeline() -> arc_cli::progress::SyncPipeline
+pub struct arc_cli::progress::Spinner
+impl arc_cli::progress::Spinner
+pub fn arc_cli::progress::Spinner::finish_with_message(&self, impl core::convert::Into<alloc::string::String>)
+pub fn arc_cli::progress::Spinner::set_message(&self, impl core::convert::Into<alloc::string::String>)
+pub struct arc_cli::progress::SyncPipeline
+impl arc_cli::progress::SyncPipeline
+pub fn arc_cli::progress::SyncPipeline::fail_stage(&self, arc_cli::progress::PipelineStage, &str)
+pub fn arc_cli::progress::SyncPipeline::finish_stage(&self, arc_cli::progress::PipelineStage)
+pub fn arc_cli::progress::SyncPipeline::start_stage(&self, arc_cli::progress::PipelineStage)
 pub mod arc_cli::repo
 pub struct arc_cli::repo::AiConfig
 pub arc_cli::repo::AiConfig::endpoint: core::option::Option<alloc::string::String>
@@ -136,11 +356,11 @@ pub fn arc_cli::repo::AiConfig::clone(&self) -> arc_cli::repo::AiConfig
 impl core::default::Default for arc_cli::repo::AiConfig
 pub fn arc_cli::repo::AiConfig::default() -> arc_cli::repo::AiConfig
 impl core::fmt::Debug for arc_cli::repo::AiConfig
-pub fn arc_cli::repo::AiConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::AiConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::AiConfig
-pub fn arc_cli::repo::AiConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::AiConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::AiConfig
-pub fn arc_cli::repo::AiConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::AiConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::ArcConfig
 pub arc_cli::repo::ArcConfig::ai: arc_cli::repo::AiConfig
 pub arc_cli::repo::ArcConfig::aliases: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
@@ -161,18 +381,18 @@ pub fn arc_cli::repo::ArcConfig::clone(&self) -> arc_cli::repo::ArcConfig
 impl core::default::Default for arc_cli::repo::ArcConfig
 pub fn arc_cli::repo::ArcConfig::default() -> arc_cli::repo::ArcConfig
 impl core::fmt::Debug for arc_cli::repo::ArcConfig
-pub fn arc_cli::repo::ArcConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::ArcConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::ArcConfig
-pub fn arc_cli::repo::ArcConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::ArcConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::ArcConfig
-pub fn arc_cli::repo::ArcConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::ArcConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::GcResult
 pub arc_cli::repo::GcResult::blobs_deleted: usize
 pub arc_cli::repo::GcResult::changes_deleted: usize
 impl core::default::Default for arc_cli::repo::GcResult
 pub fn arc_cli::repo::GcResult::default() -> arc_cli::repo::GcResult
 impl core::fmt::Debug for arc_cli::repo::GcResult
-pub fn arc_cli::repo::GcResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::GcResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct arc_cli::repo::HintsConfig
 pub arc_cli::repo::HintsConfig::resolving_conflicts: core::option::Option<bool>
 impl core::clone::Clone for arc_cli::repo::HintsConfig
@@ -180,11 +400,11 @@ pub fn arc_cli::repo::HintsConfig::clone(&self) -> arc_cli::repo::HintsConfig
 impl core::default::Default for arc_cli::repo::HintsConfig
 pub fn arc_cli::repo::HintsConfig::default() -> arc_cli::repo::HintsConfig
 impl core::fmt::Debug for arc_cli::repo::HintsConfig
-pub fn arc_cli::repo::HintsConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::HintsConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::HintsConfig
-pub fn arc_cli::repo::HintsConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::HintsConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::HintsConfig
-pub fn arc_cli::repo::HintsConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::HintsConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::MergeConfig
 pub arc_cli::repo::MergeConfig::tool: core::option::Option<alloc::string::String>
 impl core::clone::Clone for arc_cli::repo::MergeConfig
@@ -192,11 +412,11 @@ pub fn arc_cli::repo::MergeConfig::clone(&self) -> arc_cli::repo::MergeConfig
 impl core::default::Default for arc_cli::repo::MergeConfig
 pub fn arc_cli::repo::MergeConfig::default() -> arc_cli::repo::MergeConfig
 impl core::fmt::Debug for arc_cli::repo::MergeConfig
-pub fn arc_cli::repo::MergeConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::MergeConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::MergeConfig
-pub fn arc_cli::repo::MergeConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::MergeConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::MergeConfig
-pub fn arc_cli::repo::MergeConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::MergeConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::MergeToolConfig
 pub arc_cli::repo::MergeToolConfig::diff_args: alloc::vec::Vec<alloc::string::String>
 pub arc_cli::repo::MergeToolConfig::edit_args: alloc::vec::Vec<alloc::string::String>
@@ -207,11 +427,11 @@ pub fn arc_cli::repo::MergeToolConfig::clone(&self) -> arc_cli::repo::MergeToolC
 impl core::default::Default for arc_cli::repo::MergeToolConfig
 pub fn arc_cli::repo::MergeToolConfig::default() -> arc_cli::repo::MergeToolConfig
 impl core::fmt::Debug for arc_cli::repo::MergeToolConfig
-pub fn arc_cli::repo::MergeToolConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::MergeToolConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::MergeToolConfig
-pub fn arc_cli::repo::MergeToolConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::MergeToolConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::MergeToolConfig
-pub fn arc_cli::repo::MergeToolConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::MergeToolConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::PendingConflict
 pub arc_cli::repo::PendingConflict::conflicting_pairs: alloc::vec::Vec<(arc_algebra_types::Blake3Hash, arc_algebra_types::Blake3Hash)>
 pub arc_cli::repo::PendingConflict::current_view: alloc::string::String
@@ -219,131 +439,136 @@ pub arc_cli::repo::PendingConflict::target_heads: std::collections::hash::set::H
 impl core::clone::Clone for arc_cli::repo::PendingConflict
 pub fn arc_cli::repo::PendingConflict::clone(&self) -> arc_cli::repo::PendingConflict
 impl core::fmt::Debug for arc_cli::repo::PendingConflict
-pub fn arc_cli::repo::PendingConflict::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::PendingConflict::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::PendingConflict
-pub fn arc_cli::repo::PendingConflict::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::PendingConflict::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::PendingConflict
-pub fn arc_cli::repo::PendingConflict::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::PendingConflict::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::Repository
 pub arc_cli::repo::Repository::graph: arc_swap::ArcSwap<arc_store_graph::graph::ChangeGraph>
 pub arc_cli::repo::Repository::shared_root: std::path::PathBuf
 pub arc_cli::repo::Repository::store: arc_store_cas::cas::ObjectStore
 pub arc_cli::repo::Repository::work_root: std::path::PathBuf
 impl arc_cli::repo::Repository
-pub fn arc_cli::repo::Repository::abandon_heads(&mut self, revisions: &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<arc_algebra_types::Blake3Hash>>
-pub fn arc_cli::repo::Repository::amend(&mut self, message: core::option::Option<&str>) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::apply_sparse(&mut self, patterns: &[alloc::string::String]) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::approve_pending_ai(&mut self, human_author: &arc_store_types::author::Author, signing_key: &ed25519_dalek::signing::SigningKey) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::bench_common_ancestors(&mut self, left: &str, right: &str, iterations: u32) -> anyhow::Result<(u128, usize)>
-pub fn arc_cli::repo::Repository::bench_is_ancestor(&mut self, ancestor: &str, descendant: &str, iterations: u32) -> anyhow::Result<(u128, bool)>
-pub fn arc_cli::repo::Repository::bench_resolve_prefix(&mut self, prefix: &str, iterations: u32) -> anyhow::Result<(u128, usize)>
+pub fn arc_cli::repo::Repository::abandon_heads(&mut self, &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<arc_algebra_types::Blake3Hash>>
+pub fn arc_cli::repo::Repository::amend(&mut self, core::option::Option<&str>) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::apply_sparse(&mut self, &[alloc::string::String]) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::approve_pending_ai(&mut self, &arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::approve_pending_ai_with_hash(&mut self, &arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey, core::option::Option<&str>) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::bench_common_ancestors(&mut self, &str, &str, u32) -> anyhow::Result<(u128, usize)>
+pub fn arc_cli::repo::Repository::bench_is_ancestor(&mut self, &str, &str, u32) -> anyhow::Result<(u128, bool)>
+pub fn arc_cli::repo::Repository::bench_resolve_prefix(&mut self, &str, u32) -> anyhow::Result<(u128, usize)>
 pub fn arc_cli::repo::Repository::bisect_mark_bad(&mut self) -> anyhow::Result<arc_store_graph::bisect::BisectState>
 pub fn arc_cli::repo::Repository::bisect_mark_good(&mut self) -> anyhow::Result<arc_store_graph::bisect::BisectState>
 pub fn arc_cli::repo::Repository::bisect_next(&mut self) -> anyhow::Result<arc_store_graph::bisect::BisectState>
 pub fn arc_cli::repo::Repository::bisect_reset(&mut self) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::bisect_start(&mut self, range_revset: &str, find_good: bool) -> anyhow::Result<arc_store_graph::bisect::BisectState>
+pub fn arc_cli::repo::Repository::bisect_start(&mut self, &str, bool) -> anyhow::Result<arc_store_graph::bisect::BisectState>
 pub fn arc_cli::repo::Repository::bisect_status(&self) -> anyhow::Result<core::option::Option<arc_store_graph::bisect::BisectState>>
-pub fn arc_cli::repo::Repository::blame(&mut self, filepath: &str) -> anyhow::Result<alloc::vec::Vec<(arc_algebra_types::NodePath, arc_change::change::Change)>>
+pub fn arc_cli::repo::Repository::blame(&mut self, &str) -> anyhow::Result<alloc::vec::Vec<(arc_algebra_types::NodePath, arc_change::change::Change)>>
 pub fn arc_cli::repo::Repository::bookmark_decorations(&self) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
-pub fn arc_cli::repo::Repository::cherry_pick(&mut self, hash: &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::cherry_pick(&mut self, &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::compact(&mut self) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::create_bookmark(&mut self, name: &str, target: &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::create_tag(&self, name: &str, target: &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::create_view(&self, name: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::create_bookmark(&mut self, &str, &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::create_tag(&self, &str, &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::create_view(&self, &str) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::current_view_name(&self) -> anyhow::Result<alloc::string::String>
-pub fn arc_cli::repo::Repository::delete_bookmark(&self, name: &str) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::delete_tags_matching(&self, patterns: &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<alloc::string::String>>
+pub fn arc_cli::repo::Repository::delete_bookmark(&self, &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::delete_tags_matching(&self, &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<alloc::string::String>>
 pub fn arc_cli::repo::Repository::diff_info(&mut self) -> anyhow::Result<(alloc::vec::Vec<arc_algebra_types::Atom>, std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>)>
-pub fn arc_cli::repo::Repository::diffedit_apply(&mut self, message: core::option::Option<&str>) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::diffedit_prepare(&mut self, target_rev: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::diffedit_apply(&mut self, core::option::Option<&str>) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::diffedit_prepare(&mut self, &str) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::gc(&mut self) -> anyhow::Result<arc_cli::repo::GcResult>
-pub fn arc_cli::repo::Repository::graph_add_change(&mut self, change: arc_change::change::Change)
+pub fn arc_cli::repo::Repository::graph_add_change(&mut self, arc_change::change::Change)
 pub fn arc_cli::repo::Repository::graph_snapshot(&self) -> alloc::sync::Arc<arc_store_graph::graph::ChangeGraph>
-pub fn arc_cli::repo::Repository::hydrate(&mut self, view_name: &str) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::hydrate_heads(&mut self, heads: &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::hydrate(&mut self, &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::hydrate_heads(&mut self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::info(&self) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::init(path: impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, anyhow::Error>
+pub fn arc_cli::repo::Repository::init(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, anyhow::Error>
 pub fn arc_cli::repo::Repository::list_tags(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_types::tag::Tag>>
-pub fn arc_cli::repo::Repository::list_tags_matching(&self, patterns: &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<arc_store_types::tag::Tag>>
+pub fn arc_cli::repo::Repository::list_tags_matching(&self, &[alloc::string::String]) -> anyhow::Result<alloc::vec::Vec<arc_store_types::tag::Tag>>
 pub fn arc_cli::repo::Repository::list_views(&self) -> anyhow::Result<alloc::vec::Vec<alloc::string::String>>
 pub fn arc_cli::repo::Repository::log(&mut self) -> anyhow::Result<alloc::vec::Vec<arc_change::change::Change>>
-pub fn arc_cli::repo::Repository::log_semantic(&mut self, query: &str, k: usize) -> anyhow::Result<alloc::vec::Vec<(arc_change::change::Change, f32)>>
-pub fn arc_cli::repo::Repository::materialize(&self, view_name: &str) -> anyhow::Result<arc_algebra::apply::MaterializedState>
-pub fn arc_cli::repo::Repository::materialize_heads(&self, heads: &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<arc_algebra::apply::MaterializedState>
-pub fn arc_cli::repo::Repository::mount_add(&mut self, path: &str, url: &str, target: &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::move_bookmark(&mut self, name: &str, target: &arc_algebra_types::Blake3Hash, allow_backwards: bool) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::log_semantic(&mut self, &str, usize) -> anyhow::Result<alloc::vec::Vec<(arc_change::change::Change, f32)>>
+pub fn arc_cli::repo::Repository::materialize(&self, &str) -> anyhow::Result<arc_algebra::apply::MaterializedState>
+pub fn arc_cli::repo::Repository::materialize_heads(&self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<arc_algebra::apply::MaterializedState>
+pub fn arc_cli::repo::Repository::mount_add(&mut self, &str, arc_algebra_types::SpacetimeCoordinate) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::move_bookmark(&mut self, &str, &arc_algebra_types::Blake3Hash, bool) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::op_log(&self) -> anyhow::Result<alloc::vec::Vec<arc_store_view::oplog::Operation>>
-pub fn arc_cli::repo::Repository::op_restore(&mut self, op_id: &str) -> anyhow::Result<arc_store_view::oplog::Operation>
-pub fn arc_cli::repo::Repository::op_revert(&mut self, op_id: &str) -> anyhow::Result<arc_store_view::oplog::Operation>
-pub fn arc_cli::repo::Repository::open(path: impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, anyhow::Error>
-pub fn arc_cli::repo::Repository::prepare_revset(&mut self, expr: &arc_revset::parser::RevsetExpression) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::read_change(&self, id: &arc_algebra_types::Blake3Hash) -> anyhow::Result<arc_change::change::Change>
+pub fn arc_cli::repo::Repository::op_restore(&mut self, &str) -> anyhow::Result<arc_store_view::oplog::Operation>
+pub fn arc_cli::repo::Repository::op_revert(&mut self, &str) -> anyhow::Result<arc_store_view::oplog::Operation>
+pub fn arc_cli::repo::Repository::open(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, anyhow::Error>
+pub fn arc_cli::repo::Repository::prepare_revset(&mut self, &arc_revset::parser::RevsetExpression) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::read_change(&self, &arc_algebra_types::Blake3Hash) -> anyhow::Result<arc_change::change::Change>
 pub fn arc_cli::repo::Repository::read_sparse_patterns(&self) -> alloc::vec::Vec<alloc::string::String>
 pub fn arc_cli::repo::Repository::redo(&mut self) -> anyhow::Result<core::option::Option<arc_store_view::oplog::Operation>>
+pub fn arc_cli::repo::Repository::refresh_projection(&mut self) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::remote_branch_decorations(&self) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
-pub fn arc_cli::repo::Repository::reorder(&mut self, ordered_revs: &[alloc::string::String]) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::resolve_conflict(&mut self, resolver: &dyn arc_ai::AiResolver) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::resolve_conflict_with_merge_tool(&mut self, tool_name: core::option::Option<&str>) -> anyhow::Result<()>
-pub async fn arc_cli::repo::Repository::resolve_conflict_with_provider(&mut self, provider: &dyn arc_net::ai::AiProvider, model: &str) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::resolve_rev(&self, query: &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::resolve_revset_reference_heads(&self, function_name: &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
-pub fn arc_cli::repo::Repository::resolve_revset_symbol(&self, symbol: &str) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
-pub fn arc_cli::repo::Repository::resolve_revset_symbol_typed(&self, symbol: &str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>
-pub fn arc_cli::repo::Repository::restack(&mut self, ordered_revs: &[alloc::string::String]) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::reorder(&mut self, &[alloc::string::String]) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::resolve_conflict(&mut self, &dyn arc_ai::AiResolver) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::resolve_conflict_with_merge_tool(&mut self, core::option::Option<&str>) -> anyhow::Result<()>
+pub async fn arc_cli::repo::Repository::resolve_conflict_with_provider(&mut self, &dyn arc_net::ai::AiProvider, &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::resolve_last_policy_error_with_ai(&mut self) -> anyhow::Result<bool>
+pub fn arc_cli::repo::Repository::resolve_rev(&self, &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::resolve_revset_reference_heads(&self, &str) -> anyhow::Result<alloc::collections::btree::set::BTreeSet<arc_store_types::newtypes::ChangeId>>
+pub fn arc_cli::repo::Repository::resolve_revset_symbol(&self, &str) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
+pub fn arc_cli::repo::Repository::resolve_revset_symbol_typed(&self, &str) -> anyhow::Result<core::option::Option<arc_store_types::newtypes::ChangeId>>
+pub fn arc_cli::repo::Repository::restack(&mut self, &[alloc::string::String]) -> anyhow::Result<arc_algebra_types::Blake3Hash>
 pub fn arc_cli::repo::Repository::restack_abort(&mut self) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::restack_continue(&mut self) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::restore(&mut self, filepath: &str) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::revert(&mut self, hash: &arc_algebra_types::Blake3Hash) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::set_bookmark(&mut self, name: &str, target: &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::set_identity(&mut self, author: arc_store_types::author::Author, signing_key: ed25519_dalek::signing::SigningKey)
-pub fn arc_cli::repo::Repository::set_tag(&self, name: &str, target: &arc_algebra_types::Blake3Hash, allow_move: bool) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::squash_into(&mut self, target_rev: &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::restore(&mut self, &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::revert(&mut self, &arc_algebra_types::Blake3Hash) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::set_bookmark(&mut self, &str, &arc_algebra_types::Blake3Hash) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::set_identity(&mut self, arc_store_types::author::Author, ed25519_dalek::signing::SigningKey)
+pub fn arc_cli::repo::Repository::set_tag(&self, &str, &arc_algebra_types::Blake3Hash, bool) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::squash_into(&mut self, &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
 pub fn arc_cli::repo::Repository::stash(&mut self) -> anyhow::Result<alloc::string::String>
 pub fn arc_cli::repo::Repository::stash_list(&self) -> anyhow::Result<alloc::vec::Vec<alloc::string::String>>
 pub fn arc_cli::repo::Repository::stash_pop(&mut self) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::status(&mut self) -> anyhow::Result<alloc::vec::Vec<arc_algebra_types::Atom>>
-pub fn arc_cli::repo::Repository::switch_view(&mut self, target: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::switch_view(&mut self, &str) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::tag_decorations(&self) -> anyhow::Result<alloc::collections::btree::map::BTreeMap<arc_store_types::newtypes::ChangeId, alloc::vec::Vec<alloc::string::String>>>
 pub fn arc_cli::repo::Repository::undo(&mut self) -> anyhow::Result<core::option::Option<arc_store_view::oplog::Operation>>
 pub fn arc_cli::repo::Repository::verify_graph(&self) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::workspace_add(&mut self, work_root: &std::path::Path, view: core::option::Option<&str>) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::workspace_forget(&self, path: &std::path::Path) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::workspace_add(&mut self, &std::path::Path, core::option::Option<&str>) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::workspace_forget(&self, &std::path::Path) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::workspace_list(&self) -> anyhow::Result<alloc::vec::Vec<std::path::PathBuf>>
-pub fn arc_cli::repo::Repository::workspace_rename(&self, old_path: &std::path::Path, new_path: &std::path::Path) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::workspace_root(&self, path: core::option::Option<&std::path::Path>) -> anyhow::Result<std::path::PathBuf>
+pub fn arc_cli::repo::Repository::workspace_rename(&self, &std::path::Path, &std::path::Path) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::workspace_root(&self, core::option::Option<&std::path::Path>) -> anyhow::Result<std::path::PathBuf>
 impl arc_cli::repo::Repository
 pub fn arc_cli::repo::Repository::absorb_ast(&mut self) -> anyhow::Result<arc_cli::repo::absorb::AbsorbAstResult>
 impl arc_cli::repo::Repository
-pub fn arc_cli::repo::Repository::add_remote(&self, name: &str, url: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::add_remote(&self, &str, &str) -> anyhow::Result<()>
 pub fn arc_cli::repo::Repository::list_remotes(&self) -> anyhow::Result<std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>>
 pub fn arc_cli::repo::Repository::mount_sync(&mut self) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::remove_remote(&self, name: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::remove_remote(&self, &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::sync_native_with_semantic_gate(&mut self, &str, core::option::Option<alloc::string::String>) -> anyhow::Result<usize>
 impl arc_cli::repo::Repository
-pub fn arc_cli::repo::Repository::bench_revset(&mut self, revset: &str, iterations: u32) -> anyhow::Result<(u128, usize)>
-pub fn arc_cli::repo::Repository::log_revset(&mut self, revset: &str) -> anyhow::Result<alloc::vec::Vec<arc_change::change::Change>>
+pub fn arc_cli::repo::Repository::bench_revset(&mut self, &str, u32) -> anyhow::Result<(u128, usize)>
+pub fn arc_cli::repo::Repository::log_revset(&mut self, &str) -> anyhow::Result<alloc::vec::Vec<arc_change::change::Change>>
 pub fn arc_cli::repo::Repository::log_smartlog(&mut self) -> anyhow::Result<alloc::vec::Vec<arc_change::change::Change>>
 impl arc_cli::repo::Repository
-pub fn arc_cli::repo::Repository::finalize_snapshot(&mut self, message: &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
+pub fn arc_cli::repo::Repository::finalize_snapshot(&mut self, &str) -> anyhow::Result<arc_algebra_types::Blake3Hash>
 pub fn arc_cli::repo::Repository::fork_empty_snapshot(&mut self) -> anyhow::Result<arc_algebra_types::Blake3Hash>
-pub fn arc_cli::repo::Repository::snap(&mut self, message: &str, interactive: bool) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
+pub fn arc_cli::repo::Repository::snap(&mut self, &str, bool) -> anyhow::Result<core::option::Option<arc_algebra_types::Blake3Hash>>
 pub fn arc_cli::repo::Repository::snapshot(&mut self) -> anyhow::Result<bool>
 impl arc_cli::repo::Repository
-pub fn arc_cli::repo::Repository::merge_heads(&mut self, target_heads: &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<()>
-pub fn arc_cli::repo::Repository::merge_view(&mut self, target_name: &str) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::merge_heads(&mut self, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>) -> anyhow::Result<()>
+pub fn arc_cli::repo::Repository::merge_view(&mut self, &str) -> anyhow::Result<()>
 pub struct arc_cli::repo::SnapshotConfig
 pub arc_cli::repo::SnapshotConfig::auto_track: core::option::Option<alloc::string::String>
 pub arc_cli::repo::SnapshotConfig::auto_update_stale: core::option::Option<bool>
+pub arc_cli::repo::SnapshotConfig::blob_extensions: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub arc_cli::repo::SnapshotConfig::max_new_file_size: core::option::Option<alloc::string::String>
 impl core::clone::Clone for arc_cli::repo::SnapshotConfig
 pub fn arc_cli::repo::SnapshotConfig::clone(&self) -> arc_cli::repo::SnapshotConfig
 impl core::default::Default for arc_cli::repo::SnapshotConfig
 pub fn arc_cli::repo::SnapshotConfig::default() -> arc_cli::repo::SnapshotConfig
 impl core::fmt::Debug for arc_cli::repo::SnapshotConfig
-pub fn arc_cli::repo::SnapshotConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::SnapshotConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::SnapshotConfig
-pub fn arc_cli::repo::SnapshotConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::SnapshotConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::SnapshotConfig
-pub fn arc_cli::repo::SnapshotConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::SnapshotConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::UiConfig
 pub arc_cli::repo::UiConfig::color: alloc::string::String
 pub arc_cli::repo::UiConfig::conflict_marker_style: core::option::Option<alloc::string::String>
@@ -359,11 +584,11 @@ pub fn arc_cli::repo::UiConfig::clone(&self) -> arc_cli::repo::UiConfig
 impl core::default::Default for arc_cli::repo::UiConfig
 pub fn arc_cli::repo::UiConfig::default() -> Self
 impl core::fmt::Debug for arc_cli::repo::UiConfig
-pub fn arc_cli::repo::UiConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::UiConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::UiConfig
-pub fn arc_cli::repo::UiConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::UiConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::UiConfig
-pub fn arc_cli::repo::UiConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::UiConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::UiMovementConfig
 pub arc_cli::repo::UiMovementConfig::edit: core::option::Option<bool>
 impl core::clone::Clone for arc_cli::repo::UiMovementConfig
@@ -371,11 +596,11 @@ pub fn arc_cli::repo::UiMovementConfig::clone(&self) -> arc_cli::repo::UiMovemen
 impl core::default::Default for arc_cli::repo::UiMovementConfig
 pub fn arc_cli::repo::UiMovementConfig::default() -> arc_cli::repo::UiMovementConfig
 impl core::fmt::Debug for arc_cli::repo::UiMovementConfig
-pub fn arc_cli::repo::UiMovementConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::UiMovementConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::UiMovementConfig
-pub fn arc_cli::repo::UiMovementConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::UiMovementConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::UiMovementConfig
-pub fn arc_cli::repo::UiMovementConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::UiMovementConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::UserConfig
 pub arc_cli::repo::UserConfig::email: core::option::Option<alloc::string::String>
 pub arc_cli::repo::UserConfig::name: core::option::Option<alloc::string::String>
@@ -384,11 +609,11 @@ pub fn arc_cli::repo::UserConfig::clone(&self) -> arc_cli::repo::UserConfig
 impl core::default::Default for arc_cli::repo::UserConfig
 pub fn arc_cli::repo::UserConfig::default() -> arc_cli::repo::UserConfig
 impl core::fmt::Debug for arc_cli::repo::UserConfig
-pub fn arc_cli::repo::UserConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::UserConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::UserConfig
-pub fn arc_cli::repo::UserConfig::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::UserConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::UserConfig
-pub fn arc_cli::repo::UserConfig::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::UserConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct arc_cli::repo::WorkspaceManifest
 pub arc_cli::repo::WorkspaceManifest::shared_root: std::path::PathBuf
 pub arc_cli::repo::WorkspaceManifest::sparse_patterns: alloc::vec::Vec<alloc::string::String>
@@ -396,28 +621,28 @@ pub arc_cli::repo::WorkspaceManifest::view: alloc::string::String
 impl core::clone::Clone for arc_cli::repo::WorkspaceManifest
 pub fn arc_cli::repo::WorkspaceManifest::clone(&self) -> arc_cli::repo::WorkspaceManifest
 impl core::fmt::Debug for arc_cli::repo::WorkspaceManifest
-pub fn arc_cli::repo::WorkspaceManifest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::repo::WorkspaceManifest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl serde_core::ser::Serialize for arc_cli::repo::WorkspaceManifest
-pub fn arc_cli::repo::WorkspaceManifest::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn arc_cli::repo::WorkspaceManifest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for arc_cli::repo::WorkspaceManifest
-pub fn arc_cli::repo::WorkspaceManifest::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_cli::repo::WorkspaceManifest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn arc_cli::repo::global_config_file_path() -> anyhow::Result<std::path::PathBuf>
 pub fn arc_cli::repo::load_global_config_layer() -> anyhow::Result<arc_cli::repo::ArcConfig>
-pub fn arc_cli::repo::load_merged_config(shared_root: &std::path::Path) -> anyhow::Result<arc_cli::repo::ArcConfig>
-pub fn arc_cli::repo::local_config_file_path(shared_root: &std::path::Path) -> std::path::PathBuf
-pub fn arc_cli::repo::prefix_atom_path(atom: arc_algebra_types::Atom, filepath: &str) -> arc_algebra_types::Atom
-pub fn arc_cli::repo::save_global_config(config: &arc_cli::repo::ArcConfig) -> anyhow::Result<()>
-pub fn arc_cli::repo::save_local_config(config: &arc_cli::repo::ArcConfig, shared_root: &std::path::Path) -> anyhow::Result<()>
+pub fn arc_cli::repo::load_merged_config(&std::path::Path) -> anyhow::Result<arc_cli::repo::ArcConfig>
+pub fn arc_cli::repo::local_config_file_path(&std::path::Path) -> std::path::PathBuf
+pub fn arc_cli::repo::prefix_atom_path(arc_algebra_types::Atom, &str) -> arc_algebra_types::Atom
+pub fn arc_cli::repo::save_global_config(&arc_cli::repo::ArcConfig) -> anyhow::Result<()>
+pub fn arc_cli::repo::save_local_config(&arc_cli::repo::ArcConfig, &std::path::Path) -> anyhow::Result<()>
 pub fn arc_cli::repo::synthesized_defaults_config() -> arc_cli::repo::ArcConfig
 pub type arc_cli::repo::RepoConfig = arc_cli::repo::ArcConfig
 pub mod arc_cli::semantic_diff
-pub fn arc_cli::semantic_diff::group_and_render(atoms: &[arc_algebra_types::Atom], old_texts: &std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>, work_root: &std::path::Path) -> anyhow::Result<()>
-pub fn arc_cli::semantic_diff::group_and_render_semantic(atoms: &[arc_algebra_types::Atom]) -> anyhow::Result<()>
-pub fn arc_cli::semantic_diff::render_diff(atoms: &[&arc_algebra_types::Atom], old_text: &str, new_text: &str, file_path: &str) -> anyhow::Result<()>
+pub fn arc_cli::semantic_diff::group_and_render(&[arc_algebra_types::Atom], &std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>, &std::path::Path) -> anyhow::Result<()>
+pub fn arc_cli::semantic_diff::group_and_render_semantic(&[arc_algebra_types::Atom]) -> anyhow::Result<()>
+pub fn arc_cli::semantic_diff::render_diff(&[&arc_algebra_types::Atom], &str, &str, &str) -> anyhow::Result<()>
 pub mod arc_cli::sync
-pub fn arc_cli::sync::fetch(local: &mut arc_cli::repo::Repository, remote_path: &str, view_name: &str) -> anyhow::Result<std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>>
-pub fn arc_cli::sync::pull(local: &mut arc_cli::repo::Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()>
-pub fn arc_cli::sync::push(local: &mut arc_cli::repo::Repository, remote_path: &str, view_name: &str) -> anyhow::Result<()>
+pub fn arc_cli::sync::fetch(&mut arc_cli::repo::Repository, &str, &str) -> anyhow::Result<std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>>
+pub fn arc_cli::sync::pull(&mut arc_cli::repo::Repository, &str, &str) -> anyhow::Result<()>
+pub fn arc_cli::sync::push(&mut arc_cli::repo::Repository, &str, &str) -> anyhow::Result<()>
 pub mod arc_cli::tooling
 pub struct arc_cli::tooling::ToolingAuditReport
 pub arc_cli::tooling::ToolingAuditReport::ci_terminate_after: core::option::Option<u32>
@@ -429,8 +654,8 @@ pub arc_cli::tooling::ToolingAuditReport::synthesis_snapshots: alloc::vec::Vec<a
 impl core::clone::Clone for arc_cli::tooling::ToolingAuditReport
 pub fn arc_cli::tooling::ToolingAuditReport::clone(&self) -> arc_cli::tooling::ToolingAuditReport
 impl core::fmt::Debug for arc_cli::tooling::ToolingAuditReport
-pub fn arc_cli::tooling::ToolingAuditReport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn arc_cli::tooling::audit_workspace_tooling(repo_root: &std::path::Path, frontier: alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, synthesis_snapshots: alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::tooling::ToolingAuditReport>
+pub fn arc_cli::tooling::ToolingAuditReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::tooling::audit_workspace_tooling(&std::path::Path, alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::tooling::ToolingAuditReport>
 pub mod arc_cli::workspace_policy
 pub struct arc_cli::workspace_policy::WorkspacePolicyReport
 pub arc_cli::workspace_policy::WorkspacePolicyReport::frontier: alloc::vec::Vec<arc_store_types::newtypes::ChangeId>
@@ -440,5 +665,5 @@ pub arc_cli::workspace_policy::WorkspacePolicyReport::validated_gitignore_patter
 impl core::clone::Clone for arc_cli::workspace_policy::WorkspacePolicyReport
 pub fn arc_cli::workspace_policy::WorkspacePolicyReport::clone(&self) -> arc_cli::workspace_policy::WorkspacePolicyReport
 impl core::fmt::Debug for arc_cli::workspace_policy::WorkspacePolicyReport
-pub fn arc_cli::workspace_policy::WorkspacePolicyReport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn arc_cli::workspace_policy::audit_workspace_policy(repo_root: &std::path::Path, frontier: alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, synthesis_snapshots: alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::workspace_policy::WorkspacePolicyReport>
+pub fn arc_cli::workspace_policy::WorkspacePolicyReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn arc_cli::workspace_policy::audit_workspace_policy(&std::path::Path, alloc::vec::Vec<arc_store_types::newtypes::ChangeId>, alloc::vec::Vec<arc_store_types::newtypes::SnapshotId>) -> anyhow::Result<arc_cli::workspace_policy::WorkspacePolicyReport>

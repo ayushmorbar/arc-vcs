@@ -1,0 +1,130 @@
+pub mod arc_lang
+pub mod arc_lang::ast
+pub mod arc_lang::ast::rust_plugin
+pub struct arc_lang::ast::rust_plugin::RustPlugin
+impl arc_lang::ast::rust_plugin::RustPlugin
+pub fn arc_lang::ast::rust_plugin::RustPlugin::new() -> Self
+impl arc_lang::ast::LanguagePlugin for arc_lang::ast::rust_plugin::RustPlugin
+pub fn arc_lang::ast::rust_plugin::RustPlugin::diff(&self, &str, &str, &arc_store_cas::cas::ObjectStore) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, alloc::string::String>
+pub fn arc_lang::ast::rust_plugin::RustPlugin::name(&self) -> &str
+pub fn arc_lang::ast::rust_plugin::RustPlugin::parse(&self, &str) -> core::result::Result<tree_sitter::Tree, alloc::string::String>
+pub fn arc_lang::ast::rust_plugin::RustPlugin::unparse(&self, &std::collections::hash::map::HashMap<arc_algebra_types::NodePath, alloc::vec::Vec<u8>>, &str) -> core::result::Result<alloc::string::String, alloc::string::String>
+impl core::default::Default for arc_lang::ast::rust_plugin::RustPlugin
+pub fn arc_lang::ast::rust_plugin::RustPlugin::default() -> Self
+pub fn arc_lang::ast::rust_plugin::generate_path(tree_sitter::Node<'_>, &[u8]) -> arc_algebra_types::NodePath
+pub trait arc_lang::ast::LanguagePlugin
+pub fn arc_lang::ast::LanguagePlugin::diff(&self, &str, &str, &arc_store_cas::cas::ObjectStore) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, alloc::string::String>
+pub fn arc_lang::ast::LanguagePlugin::name(&self) -> &str
+pub fn arc_lang::ast::LanguagePlugin::parse(&self, &str) -> core::result::Result<tree_sitter::Tree, alloc::string::String>
+pub fn arc_lang::ast::LanguagePlugin::unparse(&self, &std::collections::hash::map::HashMap<arc_algebra_types::NodePath, alloc::vec::Vec<u8>>, &str) -> core::result::Result<alloc::string::String, alloc::string::String>
+impl arc_lang::ast::LanguagePlugin for arc_lang::ast::rust_plugin::RustPlugin
+pub fn arc_lang::ast::rust_plugin::RustPlugin::diff(&self, &str, &str, &arc_store_cas::cas::ObjectStore) -> core::result::Result<alloc::vec::Vec<arc_algebra_types::Atom>, alloc::string::String>
+pub fn arc_lang::ast::rust_plugin::RustPlugin::name(&self) -> &str
+pub fn arc_lang::ast::rust_plugin::RustPlugin::parse(&self, &str) -> core::result::Result<tree_sitter::Tree, alloc::string::String>
+pub fn arc_lang::ast::rust_plugin::RustPlugin::unparse(&self, &std::collections::hash::map::HashMap<arc_algebra_types::NodePath, alloc::vec::Vec<u8>>, &str) -> core::result::Result<alloc::string::String, alloc::string::String>
+pub mod arc_lang::event_stream
+pub enum arc_lang::event_stream::Event
+pub arc_lang::event_stream::Event::Comment(arc_lang::value::ByteValue)
+pub arc_lang::event_stream::Event::Newline(arc_lang::value::ByteValue)
+pub arc_lang::event_stream::Event::Symbol(u8)
+pub arc_lang::event_stream::Event::Whitespace(arc_lang::value::ByteValue)
+pub arc_lang::event_stream::Event::Word(arc_lang::value::ByteValue)
+impl core::clone::Clone for arc_lang::event_stream::Event
+pub fn arc_lang::event_stream::Event::clone(&self) -> arc_lang::event_stream::Event
+impl core::cmp::Eq for arc_lang::event_stream::Event
+impl core::cmp::PartialEq for arc_lang::event_stream::Event
+pub fn arc_lang::event_stream::Event::eq(&self, &arc_lang::event_stream::Event) -> bool
+impl core::fmt::Debug for arc_lang::event_stream::Event
+pub fn arc_lang::event_stream::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_lang::event_stream::Event
+impl<'a> core::convert::From<arc_lang::event_stream::EventRef<'a>> for arc_lang::event_stream::Event
+pub fn arc_lang::event_stream::Event::from(arc_lang::event_stream::EventRef<'a>) -> Self
+pub enum arc_lang::event_stream::EventRef<'a>
+pub arc_lang::event_stream::EventRef::Comment(arc_lang::value::ByteValueRef<'a>)
+pub arc_lang::event_stream::EventRef::Newline(arc_lang::value::ByteValueRef<'a>)
+pub arc_lang::event_stream::EventRef::Symbol(u8)
+pub arc_lang::event_stream::EventRef::Whitespace(arc_lang::value::ByteValueRef<'a>)
+pub arc_lang::event_stream::EventRef::Word(arc_lang::value::ByteValueRef<'a>)
+impl<'a> core::clone::Clone for arc_lang::event_stream::EventRef<'a>
+pub fn arc_lang::event_stream::EventRef<'a>::clone(&self) -> arc_lang::event_stream::EventRef<'a>
+impl<'a> core::cmp::Eq for arc_lang::event_stream::EventRef<'a>
+impl<'a> core::cmp::PartialEq for arc_lang::event_stream::EventRef<'a>
+pub fn arc_lang::event_stream::EventRef<'a>::eq(&self, &arc_lang::event_stream::EventRef<'a>) -> bool
+impl<'a> core::convert::From<arc_lang::event_stream::EventRef<'a>> for arc_lang::event_stream::Event
+pub fn arc_lang::event_stream::Event::from(arc_lang::event_stream::EventRef<'a>) -> Self
+impl<'a> core::fmt::Debug for arc_lang::event_stream::EventRef<'a>
+pub fn arc_lang::event_stream::EventRef<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for arc_lang::event_stream::EventRef<'a>
+impl<'a> core::marker::StructuralPartialEq for arc_lang::event_stream::EventRef<'a>
+pub fn arc_lang::event_stream::parse_event_stream<'a>(&'a [u8], impl core::ops::function::FnMut(arc_lang::event_stream::EventRef<'a>))
+pub mod arc_lang::value
+pub enum arc_lang::value::UnescapeError
+pub arc_lang::value::UnescapeError::TrailingEscape
+impl core::clone::Clone for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::clone(&self) -> arc_lang::value::UnescapeError
+impl core::cmp::Eq for arc_lang::value::UnescapeError
+impl core::cmp::PartialEq for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::eq(&self, &arc_lang::value::UnescapeError) -> bool
+impl core::fmt::Debug for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_lang::value::UnescapeError
+impl core::marker::StructuralPartialEq for arc_lang::value::UnescapeError
+pub struct arc_lang::value::ByteValue(_)
+impl arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::as_bytes(&self) -> &[u8]
+pub fn arc_lang::value::ByteValue::as_ref(&self) -> arc_lang::value::ByteValueRef<'_>
+impl core::clone::Clone for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::clone(&self) -> arc_lang::value::ByteValue
+impl core::cmp::Eq for arc_lang::value::ByteValue
+impl core::cmp::Ord for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::cmp(&self, &arc_lang::value::ByteValue) -> core::cmp::Ordering
+impl core::cmp::PartialEq for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::eq(&self, &arc_lang::value::ByteValue) -> bool
+impl core::cmp::PartialOrd for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::partial_cmp(&self, &arc_lang::value::ByteValue) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<&str> for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::from(&str) -> Self
+impl core::default::Default for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::default() -> arc_lang::value::ByteValue
+impl core::fmt::Debug for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for arc_lang::value::ByteValue
+impl<'a> core::convert::From<arc_lang::value::ByteValueRef<'a>> for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::from(arc_lang::value::ByteValueRef<'a>) -> Self
+pub struct arc_lang::value::ByteValueRef<'a>(_)
+impl<'a> arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::as_bytes(self) -> &'a [u8]
+pub fn arc_lang::value::ByteValueRef<'a>::from_bytes(&'a [u8]) -> Self
+pub fn arc_lang::value::ByteValueRef<'a>::to_owned(self) -> arc_lang::value::ByteValue
+impl<'a> core::clone::Clone for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::clone(&self) -> arc_lang::value::ByteValueRef<'a>
+impl<'a> core::cmp::Eq for arc_lang::value::ByteValueRef<'a>
+impl<'a> core::cmp::Ord for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::cmp(&self, &arc_lang::value::ByteValueRef<'a>) -> core::cmp::Ordering
+impl<'a> core::cmp::PartialEq for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::eq(&self, &arc_lang::value::ByteValueRef<'a>) -> bool
+impl<'a> core::cmp::PartialOrd for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::partial_cmp(&self, &arc_lang::value::ByteValueRef<'a>) -> core::option::Option<core::cmp::Ordering>
+impl<'a> core::convert::From<arc_lang::value::ByteValueRef<'a>> for arc_lang::value::ByteValue
+pub fn arc_lang::value::ByteValue::from(arc_lang::value::ByteValueRef<'a>) -> Self
+impl<'a> core::fmt::Debug for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::hash::Hash for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::ByteValueRef<'a>::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl<'a> core::marker::Copy for arc_lang::value::ByteValueRef<'a>
+impl<'a> core::marker::StructuralPartialEq for arc_lang::value::ByteValueRef<'a>
+pub fn arc_lang::value::unescape_lazy(&[u8], u8) -> core::result::Result<alloc::borrow::Cow<'_, [u8]>, arc_lang::value::UnescapeError>
+pub enum arc_lang::UnescapeError
+pub arc_lang::UnescapeError::TrailingEscape
+impl core::clone::Clone for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::clone(&self) -> arc_lang::value::UnescapeError
+impl core::cmp::Eq for arc_lang::value::UnescapeError
+impl core::cmp::PartialEq for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::eq(&self, &arc_lang::value::UnescapeError) -> bool
+impl core::fmt::Debug for arc_lang::value::UnescapeError
+pub fn arc_lang::value::UnescapeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_lang::value::UnescapeError
+impl core::marker::StructuralPartialEq for arc_lang::value::UnescapeError
+pub fn arc_lang::unescape_lazy(&[u8], u8) -> core::result::Result<alloc::borrow::Cow<'_, [u8]>, arc_lang::value::UnescapeError>

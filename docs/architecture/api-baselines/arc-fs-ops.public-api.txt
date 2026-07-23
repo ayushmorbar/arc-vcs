@@ -1,0 +1,69 @@
+pub mod arc_fs_ops
+pub mod arc_fs_ops::lock
+pub enum arc_fs_ops::lock::LockFailMode
+pub arc_fs_ops::lock::LockFailMode::AfterDurationWithBackoff(core::time::Duration)
+pub arc_fs_ops::lock::LockFailMode::Immediately
+impl core::clone::Clone for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::clone(&self) -> arc_fs_ops::LockFailMode
+impl core::cmp::Eq for arc_fs_ops::LockFailMode
+impl core::cmp::PartialEq for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::eq(&self, &arc_fs_ops::LockFailMode) -> bool
+impl core::default::Default for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::default() -> Self
+impl core::fmt::Debug for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_fs_ops::LockFailMode
+impl core::marker::StructuralPartialEq for arc_fs_ops::LockFailMode
+pub struct arc_fs_ops::lock::LockFile
+impl arc_fs_ops::LockFile
+pub fn arc_fs_ops::LockFile::acquire_for_update(&std::path::Path) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockFile::acquire_for_update_with(&std::path::Path, arc_fs_ops::LockFailMode) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockFile::commit(self) -> core::io::error::Result<()>
+pub fn arc_fs_ops::LockFile::write_all(&mut self, &[u8]) -> core::io::error::Result<()>
+impl core::ops::drop::Drop for arc_fs_ops::LockFile
+pub fn arc_fs_ops::LockFile::drop(&mut self)
+pub struct arc_fs_ops::lock::LockMarker
+impl arc_fs_ops::LockMarker
+pub fn arc_fs_ops::LockMarker::acquire(&std::path::Path) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockMarker::acquire_with(&std::path::Path, arc_fs_ops::LockFailMode) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockMarker::release(self) -> core::io::error::Result<()>
+impl core::ops::drop::Drop for arc_fs_ops::LockMarker
+pub fn arc_fs_ops::LockMarker::drop(&mut self)
+pub mod arc_fs_ops::tempfile
+pub fn arc_fs_ops::tempfile::cleanup_signal_safe()
+pub fn arc_fs_ops::tempfile::deregister(usize)
+pub fn arc_fs_ops::tempfile::init()
+pub fn arc_fs_ops::tempfile::register(std::path::PathBuf) -> usize
+pub enum arc_fs_ops::LockFailMode
+pub arc_fs_ops::LockFailMode::AfterDurationWithBackoff(core::time::Duration)
+pub arc_fs_ops::LockFailMode::Immediately
+impl core::clone::Clone for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::clone(&self) -> arc_fs_ops::LockFailMode
+impl core::cmp::Eq for arc_fs_ops::LockFailMode
+impl core::cmp::PartialEq for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::eq(&self, &arc_fs_ops::LockFailMode) -> bool
+impl core::default::Default for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::default() -> Self
+impl core::fmt::Debug for arc_fs_ops::LockFailMode
+pub fn arc_fs_ops::LockFailMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_fs_ops::LockFailMode
+impl core::marker::StructuralPartialEq for arc_fs_ops::LockFailMode
+pub struct arc_fs_ops::LockFile
+impl arc_fs_ops::LockFile
+pub fn arc_fs_ops::LockFile::acquire_for_update(&std::path::Path) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockFile::acquire_for_update_with(&std::path::Path, arc_fs_ops::LockFailMode) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockFile::commit(self) -> core::io::error::Result<()>
+pub fn arc_fs_ops::LockFile::write_all(&mut self, &[u8]) -> core::io::error::Result<()>
+impl core::ops::drop::Drop for arc_fs_ops::LockFile
+pub fn arc_fs_ops::LockFile::drop(&mut self)
+pub struct arc_fs_ops::LockMarker
+impl arc_fs_ops::LockMarker
+pub fn arc_fs_ops::LockMarker::acquire(&std::path::Path) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockMarker::acquire_with(&std::path::Path, arc_fs_ops::LockFailMode) -> core::io::error::Result<Self>
+pub fn arc_fs_ops::LockMarker::release(self) -> core::io::error::Result<()>
+impl core::ops::drop::Drop for arc_fs_ops::LockMarker
+pub fn arc_fs_ops::LockMarker::drop(&mut self)
+pub fn arc_fs_ops::cleanup_signal_safe()
+pub fn arc_fs_ops::deregister(usize)
+pub fn arc_fs_ops::init()
+pub fn arc_fs_ops::register(std::path::PathBuf) -> usize

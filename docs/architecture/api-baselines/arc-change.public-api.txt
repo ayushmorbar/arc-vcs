@@ -1,0 +1,276 @@
+pub mod arc_change
+pub use arc_change::ContentHash
+pub mod arc_change::change
+pub enum arc_change::change::AuthorType
+pub arc_change::change::AuthorType::AI
+pub arc_change::change::AuthorType::AI::confidence: f32
+pub arc_change::change::AuthorType::AI::human_sponsor: core::option::Option<arc_store_types::author::PublicKeyBytes>
+pub arc_change::change::AuthorType::Human
+impl core::clone::Clone for arc_change::AuthorType
+pub fn arc_change::AuthorType::clone(&self) -> arc_change::AuthorType
+impl core::cmp::Eq for arc_change::AuthorType
+impl core::cmp::PartialEq for arc_change::AuthorType
+pub fn arc_change::AuthorType::eq(&self, &Self) -> bool
+impl core::fmt::Debug for arc_change::AuthorType
+pub fn arc_change::AuthorType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_change::AuthorType
+pub fn arc_change::AuthorType::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_change::AuthorType
+pub fn arc_change::AuthorType::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_change::change::Change
+pub arc_change::change::Change::atoms: alloc::vec::Vec<arc_algebra_types::Atom>
+pub arc_change::change::Change::author: arc_store_types::author::Author
+pub arc_change::change::Change::author_type: arc_change::AuthorType
+pub arc_change::change::Change::collapsed_from: core::option::Option<arc_algebra_types::Blake3Hash>
+pub arc_change::change::Change::deps: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub arc_change::change::Change::id: arc_algebra_types::Blake3Hash
+pub arc_change::change::Change::intent: alloc::string::String
+pub arc_change::change::Change::is_ghost: bool
+pub arc_change::change::Change::signature: arc_store_types::author::Signature
+impl arc_change::Change
+pub fn arc_change::Change::compute_id(&std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &[arc_algebra_types::Atom], &str, &arc_store_types::author::Author) -> arc_algebra_types::Blake3Hash
+pub fn arc_change::Change::erased(&self) -> Self
+pub fn arc_change::Change::new(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::new_canonical(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey, arc_algebra_types::Blake3Hash) -> Self
+pub fn arc_change::Change::new_canonical_from_seed(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &[u8; 32], arc_algebra_types::Blake3Hash) -> Self
+pub fn arc_change::Change::new_with_metadata(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, arc_change::AuthorType, bool, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::rewritten_or_resigned(&Self, std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::verify_signature(&self) -> bool
+impl core::clone::Clone for arc_change::Change
+pub fn arc_change::Change::clone(&self) -> arc_change::Change
+impl core::cmp::Eq for arc_change::Change
+impl core::cmp::PartialEq for arc_change::Change
+pub fn arc_change::Change::eq(&self, &arc_change::Change) -> bool
+impl core::fmt::Debug for arc_change::Change
+pub fn arc_change::Change::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_change::Change
+impl serde_core::ser::Serialize for arc_change::Change
+pub fn arc_change::Change::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_change::Change
+pub fn arc_change::Change::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub mod arc_change::content_hash
+pub use arc_change::content_hash::ContentHash
+pub trait arc_change::content_hash::ContentHash
+pub fn arc_change::content_hash::ContentHash::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_change::content_hash::ContentHash::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for alloc::string::String
+pub fn alloc::string::String::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::string::String::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_algebra_types::Atom::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_store_types::author::Author::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for bool
+pub fn bool::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn bool::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i32
+pub fn i32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i64
+pub fn i64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for str
+pub fn str::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn str::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u16
+pub fn u16::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u16::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u32
+pub fn u32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u64
+pub fn u64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u8
+pub fn u8::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u8::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for usize
+pub fn usize::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn usize::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + ?core::marker::Sized> arc_change::ContentHash for &T
+pub fn &T::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn &T::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + core::cmp::Eq + core::hash::Hash> arc_change::ContentHash for std::collections::hash::set::HashSet<T>
+pub fn std::collections::hash::set::HashSet<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn std::collections::hash::set::HashSet<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for [T]
+pub fn [T]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [T]::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for alloc::vec::Vec<T>
+pub fn alloc::vec::Vec<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::vec::Vec<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for core::option::Option<T>
+pub fn core::option::Option<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn core::option::Option<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<const N: usize> arc_change::ContentHash for [u8; N]
+pub fn [u8; N]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [u8; N]::hash_update(&self, &mut arc_change::Hasher)
+pub type arc_change::content_hash::Hasher = blake3::Hasher
+pub mod arc_change::store
+pub mod arc_change::store::content_hash
+pub use arc_change::store::content_hash::ContentHash
+pub trait arc_change::store::content_hash::ContentHash
+pub fn arc_change::store::content_hash::ContentHash::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_change::store::content_hash::ContentHash::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for alloc::string::String
+pub fn alloc::string::String::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::string::String::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_algebra_types::Atom::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_store_types::author::Author::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for bool
+pub fn bool::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn bool::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i32
+pub fn i32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i64
+pub fn i64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for str
+pub fn str::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn str::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u16
+pub fn u16::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u16::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u32
+pub fn u32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u64
+pub fn u64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u8
+pub fn u8::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u8::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for usize
+pub fn usize::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn usize::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + ?core::marker::Sized> arc_change::ContentHash for &T
+pub fn &T::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn &T::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + core::cmp::Eq + core::hash::Hash> arc_change::ContentHash for std::collections::hash::set::HashSet<T>
+pub fn std::collections::hash::set::HashSet<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn std::collections::hash::set::HashSet<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for [T]
+pub fn [T]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [T]::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for alloc::vec::Vec<T>
+pub fn alloc::vec::Vec<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::vec::Vec<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for core::option::Option<T>
+pub fn core::option::Option<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn core::option::Option<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<const N: usize> arc_change::ContentHash for [u8; N]
+pub fn [u8; N]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [u8; N]::hash_update(&self, &mut arc_change::Hasher)
+pub type arc_change::store::content_hash::Hasher = blake3::Hasher
+pub enum arc_change::AuthorType
+pub arc_change::AuthorType::AI
+pub arc_change::AuthorType::AI::confidence: f32
+pub arc_change::AuthorType::AI::human_sponsor: core::option::Option<arc_store_types::author::PublicKeyBytes>
+pub arc_change::AuthorType::Human
+impl core::clone::Clone for arc_change::AuthorType
+pub fn arc_change::AuthorType::clone(&self) -> arc_change::AuthorType
+impl core::cmp::Eq for arc_change::AuthorType
+impl core::cmp::PartialEq for arc_change::AuthorType
+pub fn arc_change::AuthorType::eq(&self, &Self) -> bool
+impl core::fmt::Debug for arc_change::AuthorType
+pub fn arc_change::AuthorType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_change::AuthorType
+pub fn arc_change::AuthorType::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_change::AuthorType
+pub fn arc_change::AuthorType::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_change::Change
+pub arc_change::Change::atoms: alloc::vec::Vec<arc_algebra_types::Atom>
+pub arc_change::Change::author: arc_store_types::author::Author
+pub arc_change::Change::author_type: arc_change::AuthorType
+pub arc_change::Change::collapsed_from: core::option::Option<arc_algebra_types::Blake3Hash>
+pub arc_change::Change::deps: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+pub arc_change::Change::id: arc_algebra_types::Blake3Hash
+pub arc_change::Change::intent: alloc::string::String
+pub arc_change::Change::is_ghost: bool
+pub arc_change::Change::signature: arc_store_types::author::Signature
+impl arc_change::Change
+pub fn arc_change::Change::compute_id(&std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &[arc_algebra_types::Atom], &str, &arc_store_types::author::Author) -> arc_algebra_types::Blake3Hash
+pub fn arc_change::Change::erased(&self) -> Self
+pub fn arc_change::Change::new(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::new_canonical(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey, arc_algebra_types::Blake3Hash) -> Self
+pub fn arc_change::Change::new_canonical_from_seed(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &[u8; 32], arc_algebra_types::Blake3Hash) -> Self
+pub fn arc_change::Change::new_with_metadata(std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, arc_change::AuthorType, bool, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::rewritten_or_resigned(&Self, std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, alloc::vec::Vec<arc_algebra_types::Atom>, impl core::convert::Into<alloc::string::String>, arc_store_types::author::Author, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_change::Change::verify_signature(&self) -> bool
+impl core::clone::Clone for arc_change::Change
+pub fn arc_change::Change::clone(&self) -> arc_change::Change
+impl core::cmp::Eq for arc_change::Change
+impl core::cmp::PartialEq for arc_change::Change
+pub fn arc_change::Change::eq(&self, &arc_change::Change) -> bool
+impl core::fmt::Debug for arc_change::Change
+pub fn arc_change::Change::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for arc_change::Change
+impl serde_core::ser::Serialize for arc_change::Change
+pub fn arc_change::Change::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_change::Change
+pub fn arc_change::Change::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub trait arc_change::ContentHash
+pub fn arc_change::ContentHash::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_change::ContentHash::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for alloc::string::String
+pub fn alloc::string::String::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::string::String::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_algebra_types::Atom
+pub fn arc_algebra_types::Atom::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_algebra_types::Atom::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for arc_store_types::author::Author
+pub fn arc_store_types::author::Author::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn arc_store_types::author::Author::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for bool
+pub fn bool::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn bool::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i32
+pub fn i32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for i64
+pub fn i64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn i64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for str
+pub fn str::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn str::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u16
+pub fn u16::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u16::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u32
+pub fn u32::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u32::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u64
+pub fn u64::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u64::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for u8
+pub fn u8::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn u8::hash_update(&self, &mut arc_change::Hasher)
+impl arc_change::ContentHash for usize
+pub fn usize::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn usize::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + ?core::marker::Sized> arc_change::ContentHash for &T
+pub fn &T::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn &T::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash + core::cmp::Eq + core::hash::Hash> arc_change::ContentHash for std::collections::hash::set::HashSet<T>
+pub fn std::collections::hash::set::HashSet<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn std::collections::hash::set::HashSet<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for [T]
+pub fn [T]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [T]::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for alloc::vec::Vec<T>
+pub fn alloc::vec::Vec<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn alloc::vec::Vec<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<T: arc_change::ContentHash> arc_change::ContentHash for core::option::Option<T>
+pub fn core::option::Option<T>::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn core::option::Option<T>::hash_update(&self, &mut arc_change::Hasher)
+impl<const N: usize> arc_change::ContentHash for [u8; N]
+pub fn [u8; N]::content_hash(&self) -> arc_algebra_types::Blake3Hash
+pub fn [u8; N]::hash_update(&self, &mut arc_change::Hasher)
+pub type arc_change::Hasher = blake3::Hasher

@@ -64,13 +64,42 @@ arc sync 127.0.0.1:8080
 arc push https://github.com/<org>/<repo>.git
 ```
 
-## Install
+## Installation
+
+### Prebuilt binaries (recommended)
+
+Download the latest release for your platform from the
+[Releases](https://github.com/ayushmorbar/arc-vcs/releases) page. Archives
+are provided for:
+
+| Platform | Target | Archive |
+|---|---|---|
+| macOS Apple Silicon | `aarch64-apple-darwin` | `arc-*.tar.gz` |
+| macOS Intel | `x86_64-apple-darwin` | `arc-*.tar.gz` |
+| Linux glibc (x86_64) | `x86_64-unknown-linux-gnu` | `arc-*.tar.gz` |
+| Linux glibc (aarch64) | `aarch64-unknown-linux-gnu` | `arc-*.tar.gz` |
+| Linux musl (x86_64) | `x86_64-unknown-linux-musl` | `arc-*.tar.gz` |
+| Windows | `x86_64-pc-windows-msvc` | `arc-*.zip` |
+
+#### macOS / Linux
+
+```sh
+curl -sSfL https://github.com/ayushmorbar/arc-vcs/releases/latest/download/installer.sh | sh
+```
+
+#### Windows (PowerShell)
+
+```powershell
+irm https://github.com/ayushmorbar/arc-vcs/releases/latest/download/installer.ps1 | iex
+```
+
+### From source
 
 ```sh
 cargo install --path crates/arc-cli
 ```
 
-Requires Rust 1.85+ (edition 2024, `style_edition = "2024"`).
+Requires Rust 1.85+ (edition 2024).
 
 ## Crate Architecture
 

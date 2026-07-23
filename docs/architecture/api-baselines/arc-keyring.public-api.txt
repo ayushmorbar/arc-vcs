@@ -1,0 +1,58 @@
+pub mod arc_keyring
+pub enum arc_keyring::KeyringError
+pub arc_keyring::KeyringError::AliasExists(alloc::string::String)
+pub arc_keyring::KeyringError::CorruptedCiphertext
+pub arc_keyring::KeyringError::Crypto(alloc::string::String)
+pub arc_keyring::KeyringError::InvalidAiSponsorship
+pub arc_keyring::KeyringError::InvalidAlias(alloc::string::String)
+pub arc_keyring::KeyringError::InvalidPassphrase
+pub arc_keyring::KeyringError::Io(core::io::error::Error)
+pub arc_keyring::KeyringError::NoActiveIdentity
+pub arc_keyring::KeyringError::NotFound(alloc::string::String)
+pub arc_keyring::KeyringError::Serde(serde_json::error::Error)
+impl core::convert::From<core::io::error::Error> for arc_keyring::KeyringError
+pub fn arc_keyring::KeyringError::from(core::io::error::Error) -> Self
+impl core::convert::From<serde_json::error::Error> for arc_keyring::KeyringError
+pub fn arc_keyring::KeyringError::from(serde_json::error::Error) -> Self
+impl core::error::Error for arc_keyring::KeyringError
+pub fn arc_keyring::KeyringError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_keyring::KeyringError
+pub fn arc_keyring::KeyringError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_keyring::KeyringError
+pub fn arc_keyring::KeyringError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_keyring::AiSponsorship
+pub arc_keyring::AiSponsorship::model_name: alloc::string::String
+pub arc_keyring::AiSponsorship::sponsor_key: ed25519_dalek::verifying::VerifyingKey
+pub arc_keyring::AiSponsorship::sponsor_signature: ed25519::Signature
+impl core::clone::Clone for arc_keyring::AiSponsorship
+pub fn arc_keyring::AiSponsorship::clone(&self) -> arc_keyring::AiSponsorship
+impl core::fmt::Debug for arc_keyring::AiSponsorship
+pub fn arc_keyring::AiSponsorship::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_keyring::ArcIdentity
+pub arc_keyring::ArcIdentity::ai_provenance: core::option::Option<arc_keyring::AiSponsorship>
+pub arc_keyring::ArcIdentity::alias: alloc::string::String
+pub arc_keyring::ArcIdentity::signing_key: zeroize::Zeroizing<[u8; 32]>
+pub arc_keyring::ArcIdentity::verifying_key: ed25519_dalek::verifying::VerifyingKey
+impl core::clone::Clone for arc_keyring::ArcIdentity
+pub fn arc_keyring::ArcIdentity::clone(&self) -> Self
+impl core::fmt::Debug for arc_keyring::ArcIdentity
+pub fn arc_keyring::ArcIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_keyring::IdentityManager
+impl arc_keyring::IdentityManager
+pub fn arc_keyring::IdentityManager::create_ai_sponsorship(&self, &str, &str, &str, &ed25519_dalek::verifying::VerifyingKey) -> core::result::Result<arc_keyring::AiSponsorship, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::generate(&self, &str, &str) -> core::result::Result<ed25519_dalek::verifying::VerifyingKey, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::identity_dir(&self) -> &std::path::Path
+pub fn arc_keyring::IdentityManager::init() -> core::result::Result<Self, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::init_at(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::list_aliases(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::load(&self, &str, &str) -> core::result::Result<arc_keyring::ArcIdentity, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::sign(&self, &[u8]) -> core::result::Result<ed25519::Signature, arc_keyring::KeyringError>
+pub fn arc_keyring::IdentityManager::verify_ai_sponsorship(&self, &ed25519_dalek::verifying::VerifyingKey, &arc_keyring::AiSponsorship) -> core::result::Result<(), arc_keyring::KeyringError>
+pub struct arc_keyring::KeyringSessionFacade
+impl arc_keyring::KeyringSessionFacade
+pub fn arc_keyring::KeyringSessionFacade::active_alias(&self) -> core::result::Result<core::option::Option<alloc::string::String>, arc_keyring::KeyringError>
+pub fn arc_keyring::KeyringSessionFacade::as_author_hint(&self, &str) -> core::result::Result<arc_store_types::author::Author, arc_keyring::KeyringError>
+pub fn arc_keyring::KeyringSessionFacade::list_aliases(&self) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, arc_keyring::KeyringError>
+pub fn arc_keyring::KeyringSessionFacade::manager(&self) -> &arc_keyring::IdentityManager
+pub fn arc_keyring::KeyringSessionFacade::new(arc_keyring::IdentityManager) -> Self
+pub fn arc_keyring::KeyringSessionFacade::select_active_identity(&self, &str, &str) -> core::result::Result<ed25519_dalek::verifying::VerifyingKey, arc_keyring::KeyringError>

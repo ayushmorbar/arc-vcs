@@ -1,0 +1,265 @@
+pub mod arc_store_cas
+pub mod arc_store_cas::blake3_hasher
+pub struct arc_store_cas::blake3_hasher::Blake3Hasher(_)
+impl core::default::Default for arc_store_cas::Blake3Hasher
+pub fn arc_store_cas::Blake3Hasher::default() -> arc_store_cas::Blake3Hasher
+impl core::hash::Hasher for arc_store_cas::Blake3Hasher
+pub fn arc_store_cas::Blake3Hasher::finish(&self) -> u64
+pub fn arc_store_cas::Blake3Hasher::write(&mut self, &[u8])
+pub type arc_store_cas::blake3_hasher::Blake3HashMap<V> = std::collections::hash::map::HashMap<arc_algebra_types::Blake3Hash, V, core::hash::BuildHasherDefault<arc_store_cas::Blake3Hasher>>
+pub mod arc_store_cas::cas
+pub enum arc_store_cas::cas::CasBytes
+pub arc_store_cas::cas::CasBytes::Mapped(memmap2::Mmap)
+pub arc_store_cas::cas::CasBytes::Owned(bytes::bytes::Bytes)
+impl core::convert::AsRef<[u8]> for arc_store_cas::CasBytes
+pub fn arc_store_cas::CasBytes::as_ref(&self) -> &[u8]
+impl core::default::Default for arc_store_cas::CasBytes
+pub fn arc_store_cas::CasBytes::default() -> Self
+impl core::ops::deref::Deref for arc_store_cas::CasBytes
+pub type arc_store_cas::CasBytes::Target = [u8]
+pub fn arc_store_cas::CasBytes::deref(&self) -> &[u8]
+pub enum arc_store_cas::cas::CasError
+pub arc_store_cas::cas::CasError::ChecksumMismatch
+pub arc_store_cas::cas::CasError::HashMismatch
+pub arc_store_cas::cas::CasError::Io(core::io::error::Error)
+impl core::convert::From<core::io::error::Error> for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::from(core::io::error::Error) -> Self
+impl core::error::Error for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_cas::cas::CasReadPolicy
+pub arc_store_cas::cas::CasReadPolicy::mmap_threshold_bytes: u64
+impl core::clone::Clone for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::clone(&self) -> arc_store_cas::CasReadPolicy
+impl core::default::Default for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::default() -> Self
+impl core::fmt::Debug for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::CasReadPolicy
+pub struct arc_store_cas::cas::NeverCache
+impl arc_store_cas::CachePolicy for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::should_cache(&self, usize) -> bool
+impl core::clone::Clone for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::clone(&self) -> arc_store_cas::NeverCache
+impl core::default::Default for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::default() -> arc_store_cas::NeverCache
+impl core::fmt::Debug for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::NeverCache
+pub struct arc_store_cas::cas::NoCache
+impl arc_store_cas::CasCache for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::NoCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl core::default::Default for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::default() -> arc_store_cas::NoCache
+impl core::fmt::Debug for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_cas::cas::ObjectStore
+impl arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::blob_file_path(&self, &arc_algebra_types::Blake3Hash) -> std::path::PathBuf
+pub fn arc_store_cas::ObjectStore::contains_blob(&self, &arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_store_cas::ObjectStore::new(impl core::convert::AsRef<std::path::Path>) -> Self
+pub fn arc_store_cas::ObjectStore::read_blob(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_blob_cached<C, P>(&self, &arc_algebra_types::Blake3Hash, &mut C, &P) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError> where C: arc_store_cas::CasCache, P: arc_store_cas::CachePolicy
+pub fn arc_store_cas::ObjectStore::read_blob_typed(&self, arc_store_types::newtypes::BlobId) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_change_bytes(&self, arc_store_types::newtypes::ChangeId) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::with_read_policy(impl core::convert::AsRef<std::path::Path>, arc_store_cas::CasReadPolicy) -> Self
+pub fn arc_store_cas::ObjectStore::write_blob(&self, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream<R: alloc::io::read::Read + ?core::marker::Sized>(&self, &mut R) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_typed(&self, &[u8]) -> core::result::Result<arc_store_types::newtypes::BlobId, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_change_bytes(&self, arc_store_types::newtypes::ChangeId, &[u8]) -> core::result::Result<arc_store_types::newtypes::ChangeId, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+impl arc_store_cas::CasStorage for arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub struct arc_store_cas::cas::SizeWindowCachePolicy
+pub arc_store_cas::cas::SizeWindowCachePolicy::max_bytes: usize
+pub arc_store_cas::cas::SizeWindowCachePolicy::min_bytes: usize
+impl arc_store_cas::CachePolicy for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::should_cache(&self, usize) -> bool
+impl core::clone::Clone for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::clone(&self) -> arc_store_cas::SizeWindowCachePolicy
+impl core::default::Default for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::default() -> Self
+impl core::fmt::Debug for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::SizeWindowCachePolicy
+pub struct arc_store_cas::cas::TinyLinkedLruCache<const N: usize>
+impl<const N: usize> arc_store_cas::CasCache for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl<const N: usize> core::default::Default for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::default() -> Self
+pub struct arc_store_cas::cas::WeightedLruCache
+impl arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::free_buffer_count(&self) -> usize
+pub fn arc_store_cas::WeightedLruCache::new(usize) -> Self
+pub fn arc_store_cas::WeightedLruCache::used_bytes(&self) -> usize
+impl arc_store_cas::CasCache for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::WeightedLruCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl core::fmt::Debug for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_store_cas::cas::CachePolicy
+pub fn arc_store_cas::cas::CachePolicy::should_cache(&self, usize) -> bool
+impl arc_store_cas::CachePolicy for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::should_cache(&self, usize) -> bool
+impl arc_store_cas::CachePolicy for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::should_cache(&self, usize) -> bool
+pub trait arc_store_cas::cas::CasCache
+pub fn arc_store_cas::cas::CasCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::cas::CasCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl arc_store_cas::CasCache for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::NoCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl arc_store_cas::CasCache for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::WeightedLruCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl<const N: usize> arc_store_cas::CasCache for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+pub trait arc_store_cas::cas::CasStorage
+pub fn arc_store_cas::cas::CasStorage::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::cas::CasStorage::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::cas::CasStorage::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+impl arc_store_cas::CasStorage for arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub type arc_store_cas::cas::LocalCas = arc_store_cas::ObjectStore
+pub enum arc_store_cas::CasBytes
+pub arc_store_cas::CasBytes::Mapped(memmap2::Mmap)
+pub arc_store_cas::CasBytes::Owned(bytes::bytes::Bytes)
+impl core::convert::AsRef<[u8]> for arc_store_cas::CasBytes
+pub fn arc_store_cas::CasBytes::as_ref(&self) -> &[u8]
+impl core::default::Default for arc_store_cas::CasBytes
+pub fn arc_store_cas::CasBytes::default() -> Self
+impl core::ops::deref::Deref for arc_store_cas::CasBytes
+pub type arc_store_cas::CasBytes::Target = [u8]
+pub fn arc_store_cas::CasBytes::deref(&self) -> &[u8]
+pub enum arc_store_cas::CasError
+pub arc_store_cas::CasError::ChecksumMismatch
+pub arc_store_cas::CasError::HashMismatch
+pub arc_store_cas::CasError::Io(core::io::error::Error)
+impl core::convert::From<core::io::error::Error> for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::from(core::io::error::Error) -> Self
+impl core::error::Error for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_cas::CasError
+pub fn arc_store_cas::CasError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_cas::Blake3Hasher(_)
+impl core::default::Default for arc_store_cas::Blake3Hasher
+pub fn arc_store_cas::Blake3Hasher::default() -> arc_store_cas::Blake3Hasher
+impl core::hash::Hasher for arc_store_cas::Blake3Hasher
+pub fn arc_store_cas::Blake3Hasher::finish(&self) -> u64
+pub fn arc_store_cas::Blake3Hasher::write(&mut self, &[u8])
+pub struct arc_store_cas::CasReadPolicy
+pub arc_store_cas::CasReadPolicy::mmap_threshold_bytes: u64
+impl core::clone::Clone for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::clone(&self) -> arc_store_cas::CasReadPolicy
+impl core::default::Default for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::default() -> Self
+impl core::fmt::Debug for arc_store_cas::CasReadPolicy
+pub fn arc_store_cas::CasReadPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::CasReadPolicy
+pub struct arc_store_cas::NeverCache
+impl arc_store_cas::CachePolicy for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::should_cache(&self, usize) -> bool
+impl core::clone::Clone for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::clone(&self) -> arc_store_cas::NeverCache
+impl core::default::Default for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::default() -> arc_store_cas::NeverCache
+impl core::fmt::Debug for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::NeverCache
+pub struct arc_store_cas::NoCache
+impl arc_store_cas::CasCache for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::NoCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl core::default::Default for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::default() -> arc_store_cas::NoCache
+impl core::fmt::Debug for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_cas::ObjectStore
+impl arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::blob_file_path(&self, &arc_algebra_types::Blake3Hash) -> std::path::PathBuf
+pub fn arc_store_cas::ObjectStore::contains_blob(&self, &arc_algebra_types::Blake3Hash) -> bool
+pub fn arc_store_cas::ObjectStore::new(impl core::convert::AsRef<std::path::Path>) -> Self
+pub fn arc_store_cas::ObjectStore::read_blob(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_blob_cached<C, P>(&self, &arc_algebra_types::Blake3Hash, &mut C, &P) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError> where C: arc_store_cas::CasCache, P: arc_store_cas::CachePolicy
+pub fn arc_store_cas::ObjectStore::read_blob_typed(&self, arc_store_types::newtypes::BlobId) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_change_bytes(&self, arc_store_types::newtypes::ChangeId) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::with_read_policy(impl core::convert::AsRef<std::path::Path>, arc_store_cas::CasReadPolicy) -> Self
+pub fn arc_store_cas::ObjectStore::write_blob(&self, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream<R: alloc::io::read::Read + ?core::marker::Sized>(&self, &mut R) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_typed(&self, &[u8]) -> core::result::Result<arc_store_types::newtypes::BlobId, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_change_bytes(&self, arc_store_types::newtypes::ChangeId, &[u8]) -> core::result::Result<arc_store_types::newtypes::ChangeId, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+impl arc_store_cas::CasStorage for arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub struct arc_store_cas::SizeWindowCachePolicy
+pub arc_store_cas::SizeWindowCachePolicy::max_bytes: usize
+pub arc_store_cas::SizeWindowCachePolicy::min_bytes: usize
+impl arc_store_cas::CachePolicy for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::should_cache(&self, usize) -> bool
+impl core::clone::Clone for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::clone(&self) -> arc_store_cas::SizeWindowCachePolicy
+impl core::default::Default for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::default() -> Self
+impl core::fmt::Debug for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_cas::SizeWindowCachePolicy
+pub struct arc_store_cas::TinyLinkedLruCache<const N: usize>
+impl<const N: usize> arc_store_cas::CasCache for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl<const N: usize> core::default::Default for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::default() -> Self
+pub struct arc_store_cas::WeightedLruCache
+impl arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::free_buffer_count(&self) -> usize
+pub fn arc_store_cas::WeightedLruCache::new(usize) -> Self
+pub fn arc_store_cas::WeightedLruCache::used_bytes(&self) -> usize
+impl arc_store_cas::CasCache for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::WeightedLruCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl core::fmt::Debug for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait arc_store_cas::CachePolicy
+pub fn arc_store_cas::CachePolicy::should_cache(&self, usize) -> bool
+impl arc_store_cas::CachePolicy for arc_store_cas::NeverCache
+pub fn arc_store_cas::NeverCache::should_cache(&self, usize) -> bool
+impl arc_store_cas::CachePolicy for arc_store_cas::SizeWindowCachePolicy
+pub fn arc_store_cas::SizeWindowCachePolicy::should_cache(&self, usize) -> bool
+pub trait arc_store_cas::CasCache
+pub fn arc_store_cas::CasCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::CasCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl arc_store_cas::CasCache for arc_store_cas::NoCache
+pub fn arc_store_cas::NoCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::NoCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl arc_store_cas::CasCache for arc_store_cas::WeightedLruCache
+pub fn arc_store_cas::WeightedLruCache::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::WeightedLruCache::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+impl<const N: usize> arc_store_cas::CasCache for arc_store_cas::TinyLinkedLruCache<N>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::get(&mut self, &arc_algebra_types::Blake3Hash) -> core::option::Option<bytes::bytes::Bytes>
+pub fn arc_store_cas::TinyLinkedLruCache<N>::put(&mut self, arc_algebra_types::Blake3Hash, &[u8])
+pub trait arc_store_cas::CasStorage
+pub fn arc_store_cas::CasStorage::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::CasStorage::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::CasStorage::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+impl arc_store_cas::CasStorage for arc_store_cas::ObjectStore
+pub fn arc_store_cas::ObjectStore::read_object(&self, &arc_algebra_types::Blake3Hash) -> core::result::Result<arc_store_cas::CasBytes, arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_blob_stream(&self, &mut dyn alloc::io::read::Read) -> core::result::Result<(arc_algebra_types::Blake3Hash, u64), arc_store_cas::CasError>
+pub fn arc_store_cas::ObjectStore::write_object(&self, &arc_algebra_types::Blake3Hash, &[u8]) -> core::result::Result<arc_algebra_types::Blake3Hash, arc_store_cas::CasError>
+pub type arc_store_cas::Blake3HashMap<V> = std::collections::hash::map::HashMap<arc_algebra_types::Blake3Hash, V, core::hash::BuildHasherDefault<arc_store_cas::Blake3Hasher>>
+pub type arc_store_cas::LocalCas = arc_store_cas::ObjectStore

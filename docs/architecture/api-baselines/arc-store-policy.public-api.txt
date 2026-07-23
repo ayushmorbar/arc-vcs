@@ -1,0 +1,95 @@
+pub mod arc_store_policy
+pub enum arc_store_policy::PathPolicyDecision
+pub arc_store_policy::PathPolicyDecision::Ignored
+pub arc_store_policy::PathPolicyDecision::Included
+pub arc_store_policy::PathPolicyDecision::Unset
+impl core::clone::Clone for arc_store_policy::PathPolicyDecision
+pub fn arc_store_policy::PathPolicyDecision::clone(&self) -> arc_store_policy::PathPolicyDecision
+impl core::cmp::Eq for arc_store_policy::PathPolicyDecision
+impl core::cmp::PartialEq for arc_store_policy::PathPolicyDecision
+pub fn arc_store_policy::PathPolicyDecision::eq(&self, &arc_store_policy::PathPolicyDecision) -> bool
+impl core::fmt::Debug for arc_store_policy::PathPolicyDecision
+pub fn arc_store_policy::PathPolicyDecision::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_policy::PathPolicyDecision
+impl core::marker::StructuralPartialEq for arc_store_policy::PathPolicyDecision
+pub enum arc_store_policy::PolicyStoreError
+pub arc_store_policy::PolicyStoreError::IncludeCycle
+pub arc_store_policy::PolicyStoreError::IncludeCycle::cycle: alloc::string::String
+pub arc_store_policy::PolicyStoreError::InvalidGlob
+pub arc_store_policy::PolicyStoreError::InvalidGlob::details: alloc::string::String
+pub arc_store_policy::PolicyStoreError::InvalidGlob::path: std::path::PathBuf
+pub arc_store_policy::PolicyStoreError::InvalidGlob::pattern: alloc::string::String
+pub arc_store_policy::PolicyStoreError::MaxDepth
+pub arc_store_policy::PolicyStoreError::MaxDepth::path: std::path::PathBuf
+pub arc_store_policy::PolicyStoreError::OutsideWorkspace
+pub arc_store_policy::PolicyStoreError::OutsideWorkspace::path: std::path::PathBuf
+pub arc_store_policy::PolicyStoreError::Read
+pub arc_store_policy::PolicyStoreError::Read::path: std::path::PathBuf
+pub arc_store_policy::PolicyStoreError::Read::source: core::io::error::Error
+impl core::error::Error for arc_store_policy::PolicyStoreError
+pub fn arc_store_policy::PolicyStoreError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for arc_store_policy::PolicyStoreError
+pub fn arc_store_policy::PolicyStoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_store_policy::PolicyStoreError
+pub fn arc_store_policy::PolicyStoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::ArcIgnoreMatcher
+impl arc_store_policy::ArcIgnoreMatcher
+pub fn arc_store_policy::ArcIgnoreMatcher::empty() -> Self
+pub fn arc_store_policy::ArcIgnoreMatcher::explain_path(&self, &str) -> arc_store_policy::IgnorePolicyTrace
+pub fn arc_store_policy::ArcIgnoreMatcher::load(&std::path::Path) -> core::result::Result<Self, arc_store_policy::PolicyStoreError>
+pub fn arc_store_policy::ArcIgnoreMatcher::matched_path_or_any_parents(&self, &str, bool) -> arc_store_policy::MatchResult
+impl core::clone::Clone for arc_store_policy::ArcIgnoreMatcher
+pub fn arc_store_policy::ArcIgnoreMatcher::clone(&self) -> arc_store_policy::ArcIgnoreMatcher
+impl core::default::Default for arc_store_policy::ArcIgnoreMatcher
+pub fn arc_store_policy::ArcIgnoreMatcher::default() -> arc_store_policy::ArcIgnoreMatcher
+impl core::fmt::Debug for arc_store_policy::ArcIgnoreMatcher
+pub fn arc_store_policy::ArcIgnoreMatcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::ConfigPolicyTrace
+pub arc_store_policy::ConfigPolicyTrace::entries: alloc::vec::Vec<arc_store_policy::ConfigTraceEntry>
+pub arc_store_policy::ConfigPolicyTrace::key: alloc::string::String
+pub arc_store_policy::ConfigPolicyTrace::winner: core::option::Option<arc_policy::PolicyValue<alloc::string::String>>
+impl core::clone::Clone for arc_store_policy::ConfigPolicyTrace
+pub fn arc_store_policy::ConfigPolicyTrace::clone(&self) -> arc_store_policy::ConfigPolicyTrace
+impl core::fmt::Debug for arc_store_policy::ConfigPolicyTrace
+pub fn arc_store_policy::ConfigPolicyTrace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::ConfigTraceEntry
+pub arc_store_policy::ConfigTraceEntry::key: alloc::string::String
+pub arc_store_policy::ConfigTraceEntry::outcome: arc_policy::TraceOutcome
+pub arc_store_policy::ConfigTraceEntry::source: arc_policy::SourceTrace<'static>
+pub arc_store_policy::ConfigTraceEntry::value: arc_policy::PolicyValue<alloc::string::String>
+impl core::clone::Clone for arc_store_policy::ConfigTraceEntry
+pub fn arc_store_policy::ConfigTraceEntry::clone(&self) -> arc_store_policy::ConfigTraceEntry
+impl core::fmt::Debug for arc_store_policy::ConfigTraceEntry
+pub fn arc_store_policy::ConfigTraceEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::IgnorePolicyTrace
+pub arc_store_policy::IgnorePolicyTrace::decision: arc_store_policy::PathPolicyDecision
+pub arc_store_policy::IgnorePolicyTrace::entries: alloc::vec::Vec<arc_store_policy::IgnoreTraceEntry>
+pub arc_store_policy::IgnorePolicyTrace::query_path: alloc::string::String
+impl core::clone::Clone for arc_store_policy::IgnorePolicyTrace
+pub fn arc_store_policy::IgnorePolicyTrace::clone(&self) -> arc_store_policy::IgnorePolicyTrace
+impl core::fmt::Debug for arc_store_policy::IgnorePolicyTrace
+pub fn arc_store_policy::IgnorePolicyTrace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::IgnoreTraceEntry
+pub arc_store_policy::IgnoreTraceEntry::line: usize
+pub arc_store_policy::IgnoreTraceEntry::outcome: arc_policy::TraceOutcome
+pub arc_store_policy::IgnoreTraceEntry::pattern: alloc::string::String
+pub arc_store_policy::IgnoreTraceEntry::source: arc_policy::SourceTrace<'static>
+pub arc_store_policy::IgnoreTraceEntry::value: arc_policy::PolicyValue<bool>
+impl core::clone::Clone for arc_store_policy::IgnoreTraceEntry
+pub fn arc_store_policy::IgnoreTraceEntry::clone(&self) -> arc_store_policy::IgnoreTraceEntry
+impl core::fmt::Debug for arc_store_policy::IgnoreTraceEntry
+pub fn arc_store_policy::IgnoreTraceEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_store_policy::MatchResult
+impl arc_store_policy::MatchResult
+pub fn arc_store_policy::MatchResult::is_ignore(&self) -> bool
+impl core::clone::Clone for arc_store_policy::MatchResult
+pub fn arc_store_policy::MatchResult::clone(&self) -> arc_store_policy::MatchResult
+impl core::default::Default for arc_store_policy::MatchResult
+pub fn arc_store_policy::MatchResult::default() -> arc_store_policy::MatchResult
+impl core::fmt::Debug for arc_store_policy::MatchResult
+pub fn arc_store_policy::MatchResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for arc_store_policy::MatchResult
+pub fn arc_store_policy::explain_config_key(&std::path::Path, &str) -> core::result::Result<arc_store_policy::ConfigPolicyTrace, arc_store_policy::PolicyStoreError>
+pub fn arc_store_policy::is_workspace_owned_by_current_user(&std::path::Path) -> core::io::error::Result<bool>
+pub fn arc_store_policy::repo_trust_level(&std::path::Path) -> arc_policy::TrustLevel
+pub fn arc_store_policy::rewrite_policy_text_lossless(&[u8], impl core::ops::function::FnMut(&str) -> core::option::Option<alloc::string::String>) -> alloc::vec::Vec<u8>

@@ -1,0 +1,146 @@
+pub mod arc_network
+pub mod arc_network::network
+pub enum arc_network::network::NetworkError
+pub arc_network::network::NetworkError::InvalidPayload(alloc::string::String)
+pub arc_network::network::NetworkError::Serialization(alloc::string::String)
+pub arc_network::network::NetworkError::Storage(alloc::string::String)
+pub arc_network::network::NetworkError::Transport(alloc::string::String)
+pub arc_network::network::NetworkError::Unauthorized
+impl core::error::Error for arc_network::NetworkError
+impl core::fmt::Debug for arc_network::NetworkError
+pub fn arc_network::NetworkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_network::NetworkError
+pub fn arc_network::NetworkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_network::network::DeltaPayload
+pub arc_network::network::DeltaPayload::changes: alloc::vec::Vec<arc_change::change::Change>
+pub arc_network::network::DeltaPayload::view_heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::clone(&self) -> arc_network::DeltaPayload
+impl core::fmt::Debug for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::network::FrontierSummary
+pub arc_network::network::FrontierSummary::frontier: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::clone(&self) -> arc_network::FrontierSummary
+impl core::fmt::Debug for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::network::NetworkClient
+impl arc_network::NetworkClient
+pub async fn arc_network::NetworkClient::fetch_blob(&self, &str, &arc_algebra_types::Blake3Hash) -> anyhow::Result<alloc::vec::Vec<u8>>
+pub fn arc_network::NetworkClient::new() -> anyhow::Result<Self>
+pub async fn arc_network::NetworkClient::pull_changes<S: arc_store_cas::cas::CasStorage>(&self, &str, &str, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &arc_keyring::ArcIdentity, [u8; 32], &S) -> core::result::Result<arc_network::DeltaPayload, arc_network::NetworkError>
+pub async fn arc_network::NetworkClient::push_changes(&self, &str, &str, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::map::HashMap<arc_algebra_types::Blake3Hash, arc_change::change::Change>, &arc_keyring::ArcIdentity) -> core::result::Result<arc_network::SyncResponse, arc_network::NetworkError>
+pub async fn arc_network::NetworkClient::push_payload(&self, &str, &str, &arc_network::DeltaPayload) -> anyhow::Result<arc_network::SyncResponse>
+impl core::default::Default for arc_network::NetworkClient
+pub fn arc_network::NetworkClient::default() -> Self
+pub struct arc_network::network::SignedRequest
+pub arc_network::network::SignedRequest::author_public_key: [u8; 32]
+pub arc_network::network::SignedRequest::payload: alloc::vec::Vec<u8>
+pub arc_network::network::SignedRequest::signature: arc_store_types::author::Signature
+pub arc_network::network::SignedRequest::timestamp: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+impl arc_network::SignedRequest
+pub fn arc_network::SignedRequest::sign(alloc::vec::Vec<u8>, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_network::SignedRequest::sign_with_identity(alloc::vec::Vec<u8>, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &arc_keyring::ArcIdentity) -> Self
+pub fn arc_network::SignedRequest::verify_incoming(&self, chrono::datetime::DateTime<chrono::offset::utc::Utc>) -> core::result::Result<(), arc_network::NetworkError>
+pub fn arc_network::SignedRequest::verify_incoming_for_author(&self, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &[u8; 32]) -> core::result::Result<(), arc_network::NetworkError>
+impl core::clone::Clone for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::clone(&self) -> arc_network::SignedRequest
+impl core::fmt::Debug for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::network::SyncResponse
+pub arc_network::network::SyncResponse::rewritten_map: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+pub arc_network::network::SyncResponse::view_heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::clone(&self) -> arc_network::SyncResponse
+impl core::fmt::Debug for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_network::network::process_incoming_signed_delta<S: arc_store_cas::cas::CasStorage>(&arc_network::SignedRequest, &S, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &[u8; 32]) -> core::result::Result<arc_network::DeltaPayload, arc_network::NetworkError>
+pub fn arc_network::network::verify_payload(&arc_network::DeltaPayload) -> anyhow::Result<()>
+pub enum arc_network::NetworkError
+pub arc_network::NetworkError::InvalidPayload(alloc::string::String)
+pub arc_network::NetworkError::Serialization(alloc::string::String)
+pub arc_network::NetworkError::Storage(alloc::string::String)
+pub arc_network::NetworkError::Transport(alloc::string::String)
+pub arc_network::NetworkError::Unauthorized
+impl core::error::Error for arc_network::NetworkError
+impl core::fmt::Debug for arc_network::NetworkError
+pub fn arc_network::NetworkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for arc_network::NetworkError
+pub fn arc_network::NetworkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct arc_network::DeltaPayload
+pub arc_network::DeltaPayload::changes: alloc::vec::Vec<arc_change::change::Change>
+pub arc_network::DeltaPayload::view_heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::clone(&self) -> arc_network::DeltaPayload
+impl core::fmt::Debug for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::DeltaPayload
+pub fn arc_network::DeltaPayload::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::FrontierSummary
+pub arc_network::FrontierSummary::frontier: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::clone(&self) -> arc_network::FrontierSummary
+impl core::fmt::Debug for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::FrontierSummary
+pub fn arc_network::FrontierSummary::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::NetworkClient
+impl arc_network::NetworkClient
+pub async fn arc_network::NetworkClient::fetch_blob(&self, &str, &arc_algebra_types::Blake3Hash) -> anyhow::Result<alloc::vec::Vec<u8>>
+pub fn arc_network::NetworkClient::new() -> anyhow::Result<Self>
+pub async fn arc_network::NetworkClient::pull_changes<S: arc_store_cas::cas::CasStorage>(&self, &str, &str, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &arc_keyring::ArcIdentity, [u8; 32], &S) -> core::result::Result<arc_network::DeltaPayload, arc_network::NetworkError>
+pub async fn arc_network::NetworkClient::push_changes(&self, &str, &str, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>, &std::collections::hash::map::HashMap<arc_algebra_types::Blake3Hash, arc_change::change::Change>, &arc_keyring::ArcIdentity) -> core::result::Result<arc_network::SyncResponse, arc_network::NetworkError>
+pub async fn arc_network::NetworkClient::push_payload(&self, &str, &str, &arc_network::DeltaPayload) -> anyhow::Result<arc_network::SyncResponse>
+impl core::default::Default for arc_network::NetworkClient
+pub fn arc_network::NetworkClient::default() -> Self
+pub struct arc_network::SignedRequest
+pub arc_network::SignedRequest::author_public_key: [u8; 32]
+pub arc_network::SignedRequest::payload: alloc::vec::Vec<u8>
+pub arc_network::SignedRequest::signature: arc_store_types::author::Signature
+pub arc_network::SignedRequest::timestamp: chrono::datetime::DateTime<chrono::offset::utc::Utc>
+impl arc_network::SignedRequest
+pub fn arc_network::SignedRequest::sign(alloc::vec::Vec<u8>, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &ed25519_dalek::signing::SigningKey) -> Self
+pub fn arc_network::SignedRequest::sign_with_identity(alloc::vec::Vec<u8>, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &arc_keyring::ArcIdentity) -> Self
+pub fn arc_network::SignedRequest::verify_incoming(&self, chrono::datetime::DateTime<chrono::offset::utc::Utc>) -> core::result::Result<(), arc_network::NetworkError>
+pub fn arc_network::SignedRequest::verify_incoming_for_author(&self, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &[u8; 32]) -> core::result::Result<(), arc_network::NetworkError>
+impl core::clone::Clone for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::clone(&self) -> arc_network::SignedRequest
+impl core::fmt::Debug for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::SignedRequest
+pub fn arc_network::SignedRequest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct arc_network::SyncResponse
+pub arc_network::SyncResponse::rewritten_map: std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>
+pub arc_network::SyncResponse::view_heads: std::collections::hash::set::HashSet<arc_algebra_types::Blake3Hash>
+impl core::clone::Clone for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::clone(&self) -> arc_network::SyncResponse
+impl core::fmt::Debug for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for arc_network::SyncResponse
+pub fn arc_network::SyncResponse::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn arc_network::process_incoming_signed_delta<S: arc_store_cas::cas::CasStorage>(&arc_network::SignedRequest, &S, chrono::datetime::DateTime<chrono::offset::utc::Utc>, &[u8; 32]) -> core::result::Result<arc_network::DeltaPayload, arc_network::NetworkError>
+pub fn arc_network::verify_payload(&arc_network::DeltaPayload) -> anyhow::Result<()>
