@@ -8,3 +8,6 @@ justfile text eol=lf
 *.toml text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# API baselines must stay UTF-8 LF for cross-platform diff.
+docs/architecture/api-baselines/*.txt text eol=lf
