@@ -3,7 +3,7 @@ use std::{collections::HashSet, fs, path::Path};
 use arc_algebra::apply::MaterializedState;
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
-use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_lang::ast::{LanguagePlugin, RustPlugin};
 use arc_store_view::View;
 use gix_features::parallel;
 
@@ -205,19 +205,6 @@ impl Repository {
         } else {
             raw_atoms
         };
-
-        // Strip the interactive-filtered result: if nothing left after filtering
-        // file-AST atoms, and the only remaining atoms are non-AST (dirs etc.),
-        // check whether there are any real changes.
-        let has_file_change = all_atoms.iter().any(|a| {
-            a.paths().first().and_then(|p| p.first()).map(|s| s == "file").unwrap_or(false)
-                || matches!(a, Atom::Directory { .. })
-                || matches!(a, Atom::Delete { at, .. } if at.first().map(|s| s == "dir").unwrap_or(false))
-        });
-
-        if !has_file_change && all_atoms.is_empty() {
-            return Ok(None);
-        }
 
         if all_atoms.is_empty() {
             return Ok(None);

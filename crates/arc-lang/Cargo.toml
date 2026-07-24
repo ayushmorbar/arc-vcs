@@ -2,15 +2,21 @@
 name = "arc-lang"
 version = "2026.7.19"
 edition = "2024"
-license = "MIT OR Apache-2.0"
-description = "arc language plugins: tree-sitter AST diffing and source reconstruction"
+license = "Apache-2.0"
+description = "arc language plugins: tree-sitter based syntax support with polyglot plugin architecture"
 
 [dependencies]
 arc-algebra-types = { path = "../arc-algebra-types" }
 arc-store-cas = { path = "../arc-store-cas" }
-tree-sitter = "0.26.10"
-tree-sitter-rust = "0.24.2"
+
+tree-sitter = "0.26.11"
+tree-sitter-language-pack = "1.13.3"
+
 anyhow = "1.0.103"
 
+[build-dependencies]
+cc = "1.3.0"
+
 [dev-dependencies]
+pretty_assertions = "1.4.1"
 tempfile = "3.27.0"

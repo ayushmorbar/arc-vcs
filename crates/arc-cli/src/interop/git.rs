@@ -6,7 +6,7 @@ use std::{
 
 use arc_change::Change;
 use arc_git as git_bridge;
-use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_lang::ast::{LanguagePlugin, RustPlugin};
 use arc_store_types::author::Author;
 use arc_store_view::View;
 use indicatif::ProgressBar;
@@ -83,9 +83,14 @@ pub fn import_repo(
             if old_src == new_src {
                 continue;
             }
-            if let Ok(atoms) = plugin.diff(&old_src, &new_src, &arc_repo.store) {
-                for atom in atoms {
-                    all_atoms.push(prefix_atom_path(atom, path));
+            match plugin.diff(&old_src, &new_src, &arc_repo.store) {
+                Ok(atoms) => {
+                    for atom in atoms {
+                        all_atoms.push(prefix_atom_path(atom, path));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: parse failed for {path}: {e}");
                 }
             }
         }
@@ -96,9 +101,14 @@ pub fn import_repo(
                 continue;
             }
             let old_src = String::from_utf8_lossy(old_bytes).into_owned();
-            if let Ok(atoms) = plugin.diff(&old_src, "", &arc_repo.store) {
-                for atom in atoms {
-                    all_atoms.push(prefix_atom_path(atom, path));
+            match plugin.diff(&old_src, "", &arc_repo.store) {
+                Ok(atoms) => {
+                    for atom in atoms {
+                        all_atoms.push(prefix_atom_path(atom, path));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: parse failed for deleted {path}: {e}");
                 }
             }
         }
@@ -135,8 +145,6 @@ pub fn import_repo(
 #[cfg(test)]
 mod tests {
     use std::process::Command;
-
-    use arc_lang::ast::LanguagePlugin;
 
     use super::*;
 

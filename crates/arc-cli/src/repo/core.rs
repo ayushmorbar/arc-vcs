@@ -22,14 +22,18 @@ use arc_algebra_types::{Atom, Blake3Hash, NodePath, SpacetimeCoordinate};
 use arc_change::Change;
 use arc_diagnostics::ResultExt;
 use arc_engine::mutator;
-use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
+use arc_lang::ast::{LanguagePlugin, RustPlugin};
 use arc_net::ai::AiProvider;
 use arc_store_cas::ObjectStore;
 use arc_store_graph::{
     ChangeGraph,
     bisect::{
-        BisectEngine, BisectMark, BisectState, clear_state as clear_bisect_state,
-        load_state as load_bisect_state, save_state as save_bisect_state,
+        BisectEngine,
+        BisectMark,
+        BisectState,
+        clear_state as clear_bisect_state,
+        load_state as load_bisect_state,
+        save_state as save_bisect_state,
     },
 };
 use arc_store_policy::ArcIgnoreMatcher;
@@ -37,13 +41,18 @@ use arc_store_types::{
     author::{Author, PublicKeyBytes, load_identity},
     newtypes::{ChangeId, MutationId},
     refs::{
-        read_bookmark_heads, read_bookmark_map, read_remote_branch_heads, read_remote_branch_map,
-        read_tag_heads, read_tag_map,
+        read_bookmark_heads,
+        read_bookmark_map,
+        read_remote_branch_heads,
+        read_remote_branch_map,
+        read_tag_heads,
+        read_tag_map,
     },
     tag::Tag,
 };
 use arc_store_view::{
-    View, checkpoint,
+    View,
+    checkpoint,
     oplog::{OpLog, Operation, OperationAgent, RewriteTransaction},
 };
 use arc_swap::ArcSwap;
@@ -54,11 +63,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ai_pending::{
-        PendingAiChange, PendingKind, clear_pending_ai, has_pending_ai, load_pending_ai,
+        PendingAiChange,
+        PendingKind,
+        clear_pending_ai,
+        has_pending_ai,
+        load_pending_ai,
         save_pending_ai,
     },
     policy_gate::{
-        AiResolver as PolicyAiResolver, MockAiResolver, PolicyError, default_evaluator, verify_lens,
+        AiResolver as PolicyAiResolver,
+        MockAiResolver,
+        PolicyError,
+        default_evaluator,
+        verify_lens,
     },
     store_compat::{ObjectStoreChangeExt, apply_change},
 };
@@ -5985,7 +6002,7 @@ mod tests {
 
         // Materialize and verify the file content via unparse.
         let state = repo.materialize("main").unwrap();
-        let plugin = arc_lang::ast::rust_plugin::RustPlugin::new();
+        let plugin = arc_lang::ast::RustPlugin::new();
         let reconstructed = plugin.unparse(&state, "test.rs").unwrap();
         assert_eq!(reconstructed, "fn main() { let x = 1; }");
 
@@ -6620,7 +6637,11 @@ mod tests {
     #[test]
     fn test_pending_ai_roundtrip() {
         use crate::ai_pending::{
-            PendingAiChange, clear_pending_ai, has_pending_ai, load_pending_ai, save_pending_ai,
+            PendingAiChange,
+            clear_pending_ai,
+            has_pending_ai,
+            load_pending_ai,
+            save_pending_ai,
         };
         let dir = tempfile::tempdir().unwrap();
         let repo_root = dir.path();
@@ -6724,8 +6745,6 @@ mod tests {
     /// Cherry-pick must reuse the exact same [`Blake3Hash`] — no new CAS objects.
     #[test]
     fn test_cherry_pick() {
-        use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
-
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path().join("cp_project");
 
@@ -6779,8 +6798,6 @@ mod tests {
     /// must gain exactly one new change.
     #[test]
     fn test_semantic_revert() {
-        use arc_lang::ast::{LanguagePlugin, rust_plugin::RustPlugin};
-
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path().join("revert_project");
 
