@@ -1,6 +1,6 @@
 #![no_main]
 
-use arc_lang::ast::RustPlugin;
+use arc_lang::ast::{LanguagePlugin, RustPlugin};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
