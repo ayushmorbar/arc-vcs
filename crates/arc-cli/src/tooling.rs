@@ -236,8 +236,8 @@ mod tests {
         fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
-            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
-             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \
+             \"echo clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
         )
         .expect("write mise");
 
@@ -254,15 +254,14 @@ mod tests {
 
         fs::write(
             config_dir.join("nextest.toml"),
-            "[profile.ci]\nslow-timeout = { period = \"10s\" \
-             }\n",
+            "[profile.ci]\nslow-timeout = { period = \"10s\" }\n",
         )
         .expect("write nextest");
         fs::write(config_dir.join("codespell-additional-dict"), "ok->okay\n").expect("write dict");
         fs::write(
             config_dir.join("mise.toml"),
-            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
-             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \
+             \"echo clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
         )
         .expect("write mise");
 
@@ -326,8 +325,8 @@ mod tests {
         fs::write(config_dir.join("codespell-additional-dict"), "").expect("write empty dict");
         fs::write(
             config_dir.join("mise.toml"),
-            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \"echo \
-             clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
+            "[tasks.\"check:test\"]\nrun = \"echo test\"\n\n[tasks.\"check:clippy\"]\nrun = \
+             \"echo clippy\"\n\n[tasks.\"check:format\"]\nrun = \"echo fmt\"\n",
         )
         .expect("write mise");
 

@@ -1,10 +1,13 @@
 use std::sync::{
-    Arc, Mutex, OnceLock,
+    Arc,
+    Mutex,
+    OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
 use arc_cli::devtools::{
-    interrupt::InterruptState, multicall::normalize_invocation_args,
+    interrupt::InterruptState,
+    multicall::normalize_invocation_args,
     run_wrapper::run_with_telemetry,
 };
 use arc_testtools::{EnvGuard, FixtureMode, FixtureOptions, FixtureOrchestrator};

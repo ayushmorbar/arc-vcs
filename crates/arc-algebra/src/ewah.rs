@@ -296,8 +296,8 @@ mod tests {
             0, 0, 0, 64, // num_bits
             0, 0, 0, 1, // word_len = 1
             0, 0, 0, 0, 0, 0, 0,
-            0, // 1 word (rlw)
-               // missing rlw pointer bytes
+            0, /* 1 word (rlw)
+                * missing rlw pointer bytes */
         ];
         let err = EwahBitmap::decode(&encoded).expect_err("must fail");
         assert!(matches!(err, EwahDecodeError::UnexpectedEof("rlw")));

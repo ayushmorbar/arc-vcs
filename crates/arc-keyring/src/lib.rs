@@ -8,7 +8,8 @@ use std::{
 
 use argon2::Argon2;
 use chacha20poly1305::{
-    ChaCha20Poly1305, KeyInit,
+    ChaCha20Poly1305,
+    KeyInit,
     aead::{Aead, Payload, generic_array::GenericArray},
 };
 use directories::BaseDirs;

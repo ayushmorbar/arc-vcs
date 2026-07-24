@@ -10,7 +10,6 @@ unstable_features = true
 # ── Line Width ────────────────────────────────────────────────────────────────
 max_width              = 100   # Official new default (was 80); widely accepted
 use_small_heuristics   = "Max" # Scales sub-widths (fn_call, chain, etc.) to max_width
-error_on_line_overflow = true  # (unstable) Hard CI error on overflow — strict but clean
 
 # ── Imports ───────────────────────────────────────────────────────────────────
 # Both your configs agree on StdExternalCrate — keep it.

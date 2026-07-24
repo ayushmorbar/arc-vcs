@@ -1,6 +1,6 @@
+use std::{error::Error as StdError, fmt};
+
 use arc_error::*;
-use std::error::Error as StdError;
-use std::fmt;
 
 // -- helper error types --------------------------------------------------
 

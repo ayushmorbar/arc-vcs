@@ -13,7 +13,12 @@ use tokio::{
 };
 
 use crate::protocol::{
-    FileState, GetFileStatesParams, RpcRequest, RpcResponse, send_notification, send_response,
+    FileState,
+    GetFileStatesParams,
+    RpcRequest,
+    RpcResponse,
+    send_notification,
+    send_response,
 };
 
 #[derive(Serialize)]

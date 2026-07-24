@@ -96,16 +96,15 @@ check:
 lint *clippy-args:
     cargo clippy --workspace --all-targets --all-features -- -D warnings -A unknown-lints -W clippy::undocumented_unsafe_blocks --no-deps {{ clippy-args }}
 
-# Apply nightly rustfmt, then verify it doesn't break stable rustfmt
+# Apply nightly rustfmt (rustfmt.toml uses unstable features)
 # Also lints the justfile itself via --fmt --unstable
 fmt:
     cargo +nightly fmt --all
-    cargo +stable fmt --all -- --check
     {{ j }} --fmt --unstable
 
 # Check formatting only (used in CI)
 fmt-check:
-    cargo +stable fmt --all -- --check
+    cargo +nightly fmt --all -- --check
 
 # ── Documentation ─────────────────────────────────────────────────────────────
 

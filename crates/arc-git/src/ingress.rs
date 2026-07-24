@@ -9,10 +9,23 @@ use bytes::Bytes;
 use memmap2::{Mmap, MmapOptions};
 
 use crate::{
-    GitAnalysis, GitCommit, GitOid, ObjKind, RawObject,
+    GitAnalysis,
+    GitCommit,
+    GitOid,
+    ObjKind,
+    RawObject,
     domain::{
-        apply_delta, oid_hex, parse_commit, parse_git_user_config, parse_hex_oid, parse_obj_kind,
-        parse_ofs_delta_header, parse_pack_header, parse_tree, type_to_kind, zlib_decompress,
+        apply_delta,
+        oid_hex,
+        parse_commit,
+        parse_git_user_config,
+        parse_hex_oid,
+        parse_obj_kind,
+        parse_ofs_delta_header,
+        parse_pack_header,
+        parse_tree,
+        type_to_kind,
+        zlib_decompress,
     },
 };
 

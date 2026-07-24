@@ -1,7 +1,15 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
-    Data, Field, Fields, GenericParam, Generics, Index, Type, parse_quote, spanned::Spanned as _,
+    Data,
+    Field,
+    Fields,
+    GenericParam,
+    Generics,
+    Index,
+    Type,
+    parse_quote,
+    spanned::Spanned as _,
 };
 
 pub fn add_trait_bounds(mut generics: Generics, core_path: &TokenStream) -> Generics {
@@ -127,9 +135,10 @@ fn hash_statements_for_enum_fields<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use quote::ToTokens;
     use syn::parse_quote;
+
+    use super::*;
 
     fn core() -> TokenStream {
         quote!(::arc_core)

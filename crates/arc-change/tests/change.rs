@@ -2,8 +2,7 @@ use std::collections::HashSet;
 
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::{Change, ContentHash, change::AuthorType};
-use arc_store_types::Author;
-use arc_store_types::author::test_keypair;
+use arc_store_types::{Author, author::test_keypair};
 
 // ---------------------------------------------------------------------------
 // Helper: deterministic keypair for tests

@@ -1,7 +1,5 @@
 use arc_algebra_types::Atom;
-use arc_lang::ast::LanguagePlugin;
-use arc_lang::ast::dispatch_plugin;
-use arc_lang::ast::fallback::TextFallbackPlugin;
+use arc_lang::ast::{LanguagePlugin, dispatch_plugin, fallback::TextFallbackPlugin};
 use arc_store_cas::ObjectStore;
 
 fn make_store() -> (tempfile::TempDir, ObjectStore) {

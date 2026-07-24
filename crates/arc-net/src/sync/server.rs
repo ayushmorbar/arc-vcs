@@ -18,7 +18,11 @@ use tracing::instrument;
 use super::{
     codec::{ArcSyncCodec, MessageType, SyncFrame},
     protocol::{
-        CasWireBlock, HandshakeRequest, HandshakeResponse, SERVER_CAPABILITIES, SyncCapability,
+        CasWireBlock,
+        HandshakeRequest,
+        HandshakeResponse,
+        SERVER_CAPABILITIES,
+        SyncCapability,
         negotiate_capabilities,
     },
 };

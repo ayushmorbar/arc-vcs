@@ -1,6 +1,7 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use arc_store_types::newtypes::ChangeId;
 use arc_transaction::*;
-use std::collections::{BTreeMap, BTreeSet};
 
 fn cid(byte: u8) -> ChangeId {
     ChangeId::from([byte; 32])

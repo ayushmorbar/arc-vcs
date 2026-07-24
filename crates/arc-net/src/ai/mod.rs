@@ -4,7 +4,8 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::json;
 
-const RESOLUTION_SYSTEM_PROMPT: &str = "You are an expert compiler and conflict resolver. You will be given the BASE, SIDE A, and \
+const RESOLUTION_SYSTEM_PROMPT: &str =
+    "You are an expert compiler and conflict resolver. You will be given the BASE, SIDE A, and \
      SIDE B of a source code file. You must output the fully resolved, syntactically correct \
      file. Do not include markdown blocks (like ```rust). Do not explain your changes. Output \
      ONLY the raw, compilable code.";

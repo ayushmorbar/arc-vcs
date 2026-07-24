@@ -253,8 +253,17 @@ pub enum Message {
 impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
         use Message::{
-            Backend, IntentEvent, MoveDown, MoveUp, OpenDiff, Quit, SnapNow, SponsorshipNext, Tick,
-            ToggleAtom, ToggleSelectionMode,
+            Backend,
+            IntentEvent,
+            MoveDown,
+            MoveUp,
+            OpenDiff,
+            Quit,
+            SnapNow,
+            SponsorshipNext,
+            Tick,
+            ToggleAtom,
+            ToggleSelectionMode,
         };
         match (self, other) {
             (Tick, Tick)

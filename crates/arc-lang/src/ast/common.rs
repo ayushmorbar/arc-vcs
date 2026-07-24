@@ -154,10 +154,7 @@ pub fn sort_atoms(atoms: &mut [Atom]) {
 /// Sort unparse items by priority. Each entry in `priorities` is a `(prefix,
 /// rank)` tuple — items whose path segment at index 2 starts with `prefix` get
 /// `rank`; items not matching any prefix get rank `u8::MAX`.
-pub fn sort_unparse_items(
-    items: &mut Vec<(&NodePath, &Vec<u8>)>,
-    priorities: &[(&str, u8)],
-) {
+pub fn sort_unparse_items(items: &mut Vec<(&NodePath, &Vec<u8>)>, priorities: &[(&str, u8)]) {
     items.sort_by(|(a, _), (b, _)| {
         fn sort_key<'a>(path: &'a NodePath, priorities: &[(&str, u8)]) -> (u8, &'a NodePath) {
             let kind = path.get(2).map(|s| s.as_str()).unwrap_or("");

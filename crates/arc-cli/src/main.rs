@@ -14,8 +14,14 @@ use arc_cli::{
     ops::{OperationStage, SloTimer},
     progress::{PipelineStage, Progress},
     repo::{
-        ArcConfig, Repository, global_config_file_path, load_global_config_layer,
-        load_merged_config, local_config_file_path, save_global_config, save_local_config,
+        ArcConfig,
+        Repository,
+        global_config_file_path,
+        load_global_config_layer,
+        load_merged_config,
+        local_config_file_path,
+        save_global_config,
+        save_local_config,
     },
     sync::{fetch, pull},
     tooling::audit_workspace_tooling,
@@ -34,12 +40,22 @@ use arc_store_view::{
     synthesis::{SynthesisSnapshot, list_snapshot_ids},
 };
 use arc_ux::{
-    HumanPlainRenderer, HumanRichRenderer, JsonRenderer, OutputEvent, RenderMode, Renderer,
-    TerminalCapabilities, arc_error_to_report, detect_capabilities, hyperlink_for_hash,
+    HumanPlainRenderer,
+    HumanRichRenderer,
+    JsonRenderer,
+    OutputEvent,
+    RenderMode,
+    Renderer,
+    TerminalCapabilities,
+    arc_error_to_report,
+    detect_capabilities,
+    hyperlink_for_hash,
     hyperlink_for_path,
 };
 use clap::{
-    CommandFactory, Parser, Subcommand,
+    CommandFactory,
+    Parser,
+    Subcommand,
     builder::styling::{AnsiColor, Effects, Styles},
 };
 use comfy_table::{Cell, Color, Table, presets};
@@ -3682,12 +3698,25 @@ fn atom_display_label(atom: &Atom) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use arc_cli::ops::DEFAULT_SYNC_SLO_MS;
-    use arc_cli::policy_gate::{
-        AiResolver, ArcPolicy, Ast, Evaluator, MockAiResolver, PolicyError, RUST_BOUNDARY_QUERY,
-        RUST_INVOCATION_QUERY, TreeSitterEvaluator, ast_context, default_evaluator, verify_lens,
+    use arc_cli::{
+        ops::DEFAULT_SYNC_SLO_MS,
+        policy_gate::{
+            AiResolver,
+            ArcPolicy,
+            Ast,
+            Evaluator,
+            MockAiResolver,
+            PolicyError,
+            RUST_BOUNDARY_QUERY,
+            RUST_INVOCATION_QUERY,
+            TreeSitterEvaluator,
+            ast_context,
+            default_evaluator,
+            verify_lens,
+        },
     };
+
+    use super::*;
 
     fn test_raw_args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_string()).collect()
@@ -3978,7 +4007,7 @@ mod tests {
     fn hex_to_hash_all_ff_bytes() {
         let hex = "ff".repeat(32);
         let hash = hex_to_hash(&hex).expect("valid hex should succeed");
-        assert_eq!(hash, [0xff; 32]);
+        assert_eq!(hash, [0xFF; 32]);
     }
 
     #[test]
@@ -4017,7 +4046,7 @@ mod tests {
     #[test]
     fn short_change_id_returns_first_8_hex_chars() {
         let hash = [
-            0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f, 0x6a, 0x7b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x0A, 0x1B, 0x2C, 0x3D, 0x4E, 0x5F, 0x6A, 0x7B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ];

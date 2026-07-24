@@ -1,5 +1,6 @@
-use arc_store_types::newtypes::*;
 use std::collections::HashMap;
+
+use arc_store_types::newtypes::*;
 
 #[test]
 fn change_id_hashmap_key() {

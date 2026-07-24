@@ -1,5 +1,4 @@
-use arc_store_types::Blake3Hash;
-use arc_store_types::newtypes::*;
+use arc_store_types::{Blake3Hash, newtypes::*};
 
 // ---------------------------------------------------------------------------
 // ChangeId

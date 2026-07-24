@@ -454,7 +454,7 @@ mod tests {
         let dir = tempdir().expect("tempdir must be created");
         let shared = SharedRepository::open(dir.path()).expect("shared open must succeed");
 
-        let hashes: Vec<Blake3Hash> = vec![[1u8; 32], [2u8; 32], [0xff; 32]];
+        let hashes: Vec<Blake3Hash> = vec![[1u8; 32], [2u8; 32], [0xFF; 32]];
         shared.set_frontier(hashes.clone());
 
         let got = shared.frontier();

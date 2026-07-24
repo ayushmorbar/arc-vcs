@@ -18,7 +18,12 @@ use super::{
     codec::{ArcSyncCodec, MessageType, SyncFrame},
     endpoint::SyncEndpoint,
     protocol::{
-        CasWireBlock, HandshakeRequest, HandshakeResponse, NetError, SyncCapability, SyncProtocol,
+        CasWireBlock,
+        HandshakeRequest,
+        HandshakeResponse,
+        NetError,
+        SyncCapability,
+        SyncProtocol,
         negotiate_capabilities,
     },
 };

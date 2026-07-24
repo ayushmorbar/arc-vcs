@@ -1,5 +1,6 @@
-use arc_store_view::view::*;
 use std::collections::HashSet;
+
+use arc_store_view::view::*;
 
 fn h(byte: u8) -> [u8; 32] {
     [byte; 32]

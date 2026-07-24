@@ -7,8 +7,14 @@ use arc_core::{
 };
 
 use crate::object::{
-    GIT_OBJECT_BLOB, GIT_OBJECT_COMMIT, GIT_OBJECT_TREE, GitIdentity, GitSha1, hash_blob,
-    hash_commit, hash_tree,
+    GIT_OBJECT_BLOB,
+    GIT_OBJECT_COMMIT,
+    GIT_OBJECT_TREE,
+    GitIdentity,
+    GitSha1,
+    hash_blob,
+    hash_commit,
+    hash_tree,
 };
 
 const CONFLICT_EXPORT_ERROR: &str = "Cannot translate unresolved mathematical conflicts to legacy \

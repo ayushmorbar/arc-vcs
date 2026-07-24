@@ -549,7 +549,10 @@ mod tests {
     use arc_store_types::author;
 
     use super::{
-        AiResolver, ContextSynthesizer, MockResolver, extract_code_fence,
+        AiResolver,
+        ContextSynthesizer,
+        MockResolver,
+        extract_code_fence,
         generate_ghost_intent_with_config,
     };
 
@@ -665,7 +668,7 @@ mod tests {
     #[test]
     fn short_hash_returns_first_six_bytes_hex() {
         let hash = [
-            0u8, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0u8, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         let short = super::short_hash(&hash);

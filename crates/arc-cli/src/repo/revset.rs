@@ -5,7 +5,8 @@ use arc_store_types::newtypes::ChangeId;
 
 use super::core::*;
 
-const SMARTLOG_NEIGHBORHOOD_REVSET: &str = "@ | range(remote_branches(), @) | range(bookmarks(), @) | range(tags(), @) | \
+const SMARTLOG_NEIGHBORHOOD_REVSET: &str =
+    "@ | range(remote_branches(), @) | range(bookmarks(), @) | range(tags(), @) | \
      merge_base(remote_branches(), @) | merge_base(bookmarks(), @) | merge_base(tags(), @)";
 
 impl Repository {

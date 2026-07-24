@@ -23,8 +23,12 @@ use tuirealm::{
 
 use crate::{
     components::{
-        commit_input::CommitInput, dag_explorer::DagExplorer, detail_panel::DetailPanel,
-        diff_view::DiffView, side_by_side_diff::SideBySideDiff, status_bar::StatusBar,
+        commit_input::CommitInput,
+        dag_explorer::DagExplorer,
+        detail_panel::DetailPanel,
+        diff_view::DiffView,
+        side_by_side_diff::SideBySideDiff,
+        status_bar::StatusBar,
     },
     layout::split_bento,
     model::{AppState, Message},

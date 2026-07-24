@@ -1007,7 +1007,7 @@ mod tests {
     fn hex_to_blake3_valid() {
         let hex = "a".repeat(64);
         let hash = hex_to_blake3(&hex).unwrap();
-        assert_eq!(hash, [0xaa; 32]);
+        assert_eq!(hash, [0xAA; 32]);
     }
 
     #[test]
@@ -1029,7 +1029,8 @@ mod tests {
     fn hex_to_blake3_invalid_chars() {
         // Build a 64-char hex string with an invalid char at position 0
         let mut hex = "0".repeat(64);
-        // SAFETY: hex is a valid UTF-8 string; we're only mutating bytes to invalid chars for testing
+        // SAFETY: hex is a valid UTF-8 string; we're only mutating bytes to invalid chars for
+        // testing
         let bytes = unsafe { hex.as_bytes_mut() };
         bytes[0] = b'g';
         assert!(hex_to_blake3(&hex).is_err());

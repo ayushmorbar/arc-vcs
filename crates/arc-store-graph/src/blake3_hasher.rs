@@ -26,8 +26,9 @@ pub type Blake3HashMap<V> =
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::hash::Hasher;
+
+    use super::*;
 
     #[test]
     fn blake3_hasher_default_zeroes() {

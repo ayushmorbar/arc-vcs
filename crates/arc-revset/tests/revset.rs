@@ -1,13 +1,21 @@
-use std::collections::{BTreeSet, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc,
+};
 
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
-use arc_revset::{ReferenceResolver, RevsetEvaluator, RevsetExpression};
-use arc_revset::{compile, compile_change_ids, compile_change_ids_with_refs, parse};
+use arc_revset::{
+    ReferenceResolver,
+    RevsetEvaluator,
+    RevsetExpression,
+    compile,
+    compile_change_ids,
+    compile_change_ids_with_refs,
+    parse,
+};
 use arc_store_graph::ChangeGraph;
-use arc_store_types::author::test_keypair;
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::{author::test_keypair, newtypes::ChangeId};
 
 // ---------------------------------------------------------------------------
 // Test helpers

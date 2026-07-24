@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use arc_algebra_types::{Atom, NodePath};
 use arc_store_cas::ObjectStore;
 
-use crate::ast::LanguagePlugin;
-use crate::ast::common::sort_atoms;
+use crate::ast::{LanguagePlugin, common::sort_atoms};
 
 /// Universal text fallback plugin for unrecognized file extensions.
 ///
@@ -131,7 +130,7 @@ impl LanguagePlugin for TextFallbackPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::ast::LanguagePlugin;
+    use crate::ast::LanguagePlugin;
 
     fn make_store() -> (tempfile::TempDir, arc_store_cas::ObjectStore) {
         let dir = tempfile::tempdir().unwrap();

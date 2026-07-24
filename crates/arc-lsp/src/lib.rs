@@ -3,10 +3,18 @@ use std::{marker::PhantomData, sync::Arc};
 use anyhow::Result as AnyResult;
 use serde::{Deserialize, Serialize};
 use tower_lsp::{
-    Client, LanguageServer, async_trait, jsonrpc,
+    Client,
+    LanguageServer,
+    async_trait,
+    jsonrpc,
     lsp_types::{
-        ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, InitializeResult,
-        ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+        ExecuteCommandOptions,
+        ExecuteCommandParams,
+        InitializeParams,
+        InitializeResult,
+        ServerCapabilities,
+        TextDocumentSyncCapability,
+        TextDocumentSyncKind,
     },
 };
 

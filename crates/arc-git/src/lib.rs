@@ -119,12 +119,22 @@ pub struct GitTree {
 pub use domain::{oid_hex, parse_tree};
 #[cfg(test)]
 pub(crate) use ingress::{
-    TEST_BACKEND_AUTO, TEST_BACKEND_FORCE_MMAP_FAIL, TEST_BACKEND_LEGACY_ONLY,
-    TEST_BACKEND_MMAP_ONLY, TEST_TRAVERSAL_AUTO, TEST_TRAVERSAL_COMMIT_GRAPH_ONLY,
-    TEST_TRAVERSAL_LEGACY_ONLY, set_test_backend_override, set_test_traversal_override,
+    TEST_BACKEND_AUTO,
+    TEST_BACKEND_FORCE_MMAP_FAIL,
+    TEST_BACKEND_LEGACY_ONLY,
+    TEST_BACKEND_MMAP_ONLY,
+    TEST_TRAVERSAL_AUTO,
+    TEST_TRAVERSAL_COMMIT_GRAPH_ONLY,
+    TEST_TRAVERSAL_LEGACY_ONLY,
+    set_test_backend_override,
+    set_test_traversal_override,
 };
 pub use ingress::{
-    analyze_git_repo, extract_tree_to_memory, list_branch_heads, read_blob, read_git_user_config,
+    analyze_git_repo,
+    extract_tree_to_memory,
+    list_branch_heads,
+    read_blob,
+    read_git_user_config,
     resolve_git_dir,
 };
 

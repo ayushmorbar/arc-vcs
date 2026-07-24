@@ -1,9 +1,9 @@
 // TODO(v0.2): Purity Fix — `std::fs` and `std::io` are heavy filesystem I/O in a
 // "graph" crate.  Extract bisect state persistence into a dedicated `arc-bisect-persist`
 // boundary crate and keep this crate's graph algorithms pure.
-use std::fs::{self, File};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+    fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},

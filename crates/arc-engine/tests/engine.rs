@@ -1,15 +1,21 @@
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::{
+    collections::HashSet,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use arc_algebra_types::{Atom, Blake3Hash};
 use arc_change::Change;
-use arc_engine::mutator::{self, MutatorError, ReorderOutcome, SquashOutcome};
-use arc_engine::spacetime::{self, SpacetimeError};
-use arc_engine::task_harness::{EngineTask, TaskRegistry};
+use arc_engine::{
+    mutator::{self, MutatorError, ReorderOutcome, SquashOutcome},
+    spacetime::{self, SpacetimeError},
+    task_harness::{EngineTask, TaskRegistry},
+};
 use arc_store_cas::ObjectStore;
 use arc_store_graph::ChangeGraph;
-use arc_store_types::author::{Author, test_keypair};
-use arc_store_types::newtypes::ChangeId;
+use arc_store_types::{
+    author::{Author, test_keypair},
+    newtypes::ChangeId,
+};
 use ed25519_dalek::SigningKey;
 
 // ---------------------------------------------------------------------------

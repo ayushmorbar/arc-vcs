@@ -1,8 +1,6 @@
-use arc_store_types::author::test_keypair;
-use arc_store_types::newtypes::ChangeId;
-use arc_store_types::refs::*;
-use arc_store_types::tag::Tag;
 use std::fs;
+
+use arc_store_types::{author::test_keypair, newtypes::ChangeId, refs::*, tag::Tag};
 
 #[test]
 fn read_tag_heads_empty_dir() {

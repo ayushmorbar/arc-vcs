@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod policy_tests {
-    use crate::policy_gate::*;
-    use arc_algebra_types::{Atom as SemanticAtom, SpacetimeCoordinate};
     use std::path::Path;
+
+    use arc_algebra_types::{Atom as SemanticAtom, SpacetimeCoordinate};
+
+    use crate::policy_gate::*;
 
     #[test]
     fn default_policy_is_safe_by_default() {
@@ -119,9 +121,11 @@ mod policy_tests {
 
 #[cfg(test)]
 mod evaluator_tests {
-    use crate::policy_gate::*;
-    use arc_algebra_types::{Atom as SemanticAtom, SpacetimeCoordinate};
     use std::collections::HashMap;
+
+    use arc_algebra_types::{Atom as SemanticAtom, SpacetimeCoordinate};
+
+    use crate::policy_gate::*;
 
     fn policy_blocking() -> ArcPolicy {
         ArcPolicy { require_ghost_node_sponsor: false, block_unresolved_sem_breaks: true }
@@ -291,9 +295,11 @@ mod evaluator_tests {
 
 #[cfg(test)]
 mod resolver_tests {
-    use crate::policy_gate::*;
-    use arc_algebra_types::Atom as SemanticAtom;
     use std::collections::HashMap;
+
+    use arc_algebra_types::Atom as SemanticAtom;
+
+    use crate::policy_gate::*;
 
     #[test]
     fn resolver_error_display_variants() {

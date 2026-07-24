@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn snapshot_path_structure() {
-        let id = SnapshotId([0xab; 32]);
+        let id = SnapshotId([0xAB; 32]);
         let path = snapshot_path(Path::new("/repo"), id);
         assert!(path.starts_with("/repo/.arc/synthesis/ab"));
         assert!(path.to_string_lossy().ends_with(".bin"));

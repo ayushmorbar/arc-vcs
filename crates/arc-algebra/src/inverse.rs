@@ -293,7 +293,8 @@ mod tests {
 
         let inverted = invert_change(&original, &store, &(author, signing_key)).unwrap();
         assert_eq!(inverted.atoms.len(), 2);
-        // Atoms are reversed: original [Insert(first), Insert(second)] → inverted [Delete(second), Delete(first)]
+        // Atoms are reversed: original [Insert(first), Insert(second)] → inverted [Delete(second),
+        // Delete(first)]
         match &inverted.atoms[0] {
             Atom::Delete { at, .. } => assert_eq!(at, &vec!["second".to_string()]),
             other => panic!("expected Delete for second, got {other:?}"),

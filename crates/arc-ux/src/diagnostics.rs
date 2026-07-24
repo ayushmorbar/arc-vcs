@@ -71,8 +71,9 @@ impl Diagnostic for ArcMietteDiagnostic {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::error::Error as StdError;
+
+    use super::*;
 
     #[test]
     fn format_error_code_clamps_to_valid_range() {

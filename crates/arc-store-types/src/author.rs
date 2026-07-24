@@ -240,8 +240,9 @@ pub fn load_identity() -> anyhow::Result<(Author, ed25519_dalek::SigningKey)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloc::format;
+
+    use super::*;
 
     #[test]
     fn test_keypair_deterministic() {

@@ -4,13 +4,12 @@ pub mod common;
 /// Text fallback plugin for files without a tree-sitter grammar.
 pub mod fallback;
 
-/// Re-export shared path generation for backward compatibility.
-pub use common::generate_path;
-
 use std::collections::HashMap;
 
 use arc_algebra_types::{Atom, NodePath};
 use arc_store_cas::ObjectStore;
+/// Re-export shared path generation for backward compatibility.
+pub use common::generate_path;
 
 /// Trait for language-specific AST parsing and diffing.
 ///

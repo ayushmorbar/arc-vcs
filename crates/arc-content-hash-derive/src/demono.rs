@@ -2,8 +2,20 @@ use std::collections::{HashMap, HashSet};
 
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, GenericParam, Ident, Item, ItemFn, Pat, Signature, Type, TypePath, TypeReference,
-    TypeTraitObject, WherePredicate, parse2, spanned::Spanned,
+    FnArg,
+    GenericParam,
+    Ident,
+    Item,
+    ItemFn,
+    Pat,
+    Signature,
+    Type,
+    TypePath,
+    TypeReference,
+    TypeTraitObject,
+    WherePredicate,
+    parse2,
+    spanned::Spanned,
 };
 
 pub(crate) fn inner(code: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
@@ -180,8 +192,9 @@ fn referenced_generic_ident_with_mut(ty: &Type) -> Option<(Ident, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use syn::parse_quote;
+
+    use super::*;
 
     #[test]
     fn referenced_generic_ident_with_mut_immutable_ref() {

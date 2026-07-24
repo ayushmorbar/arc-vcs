@@ -1,4 +1,5 @@
 use std::process::Command;
+
 use tempfile::TempDir;
 
 fn arc_binary() -> Command {

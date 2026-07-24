@@ -10,7 +10,8 @@ use arc_store_cas::ObjectStore;
 use arc_store_types::author::Author;
 use arc_store_view::View;
 use axum::{
-    Json, Router,
+    Json,
+    Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,

@@ -1,7 +1,4 @@
-use arc_store_types::Blake3Hash;
-use arc_store_types::author::test_keypair;
-use arc_store_types::newtypes::ChangeId;
-use arc_store_types::tag::Tag;
+use arc_store_types::{Blake3Hash, author::test_keypair, newtypes::ChangeId, tag::Tag};
 
 #[test]
 fn tag_new_and_verify() {
