@@ -4,6 +4,7 @@
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Crates.io](https://img.shields.io/crates/v/arc-cli.svg)](https://crates.io/crates/arc-cli)
 [![Docs](https://img.shields.io/badge/docs-arc--book-orange)](https://ayushmorbar.github.io/arc-vcs/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ayushmorbar/arc-vcs)
 
 arc is a semantic, replayable VCS designed for AI-assisted development and
 high-integrity change history. Instead of line-based patch heuristics, arc
