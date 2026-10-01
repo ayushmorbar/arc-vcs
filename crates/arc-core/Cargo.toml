@@ -34,10 +34,10 @@ blake3 = "1.8.5"
 arc-swap = "1.9.0"
 dashmap = "6.2.1"
 serde = { version = "1.0.228", features = ["derive"] }
-bincode = "1.3.3"
+bincode = "3.0.0"
 thiserror = "2.0.18"
 anyhow = "1.0.103"
-ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 ignore = "0.4.25"
 tracing = { version = "0.1.44", default-features = false, features = ["attributes"] }
